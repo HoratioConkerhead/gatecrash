@@ -195,6 +195,32 @@ def api_autostart():
     return jsonify({"ok": True, "results": results})
 
 
+@app.route("/api/devices")
+def api_devices():
+    import socket
+    devices = []
+    try:
+        with open("/proc/net/arp") as f:
+            next(f)  # skip header
+            for line in f:
+                parts = line.split()
+                if len(parts) < 6:
+                    continue
+                ip  = parts[0]
+                mac = parts[3]
+                if mac == "00:00:00:00:00:00":
+                    continue  # incomplete entry
+                try:
+                    hostname = socket.gethostbyaddr(ip)[0]
+                except Exception:
+                    hostname = ""
+                devices.append({"ip": ip, "mac": mac, "hostname": hostname})
+    except Exception as e:
+        return jsonify({"ok": False, "devices": [], "error": str(e)})
+    devices.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
+    return jsonify({"ok": True, "devices": devices})
+
+
 @app.route("/api/gateway")
 def api_gateway():
     gw, rc = run("ip route show default | awk '/default/ {print $3}' | head -1")

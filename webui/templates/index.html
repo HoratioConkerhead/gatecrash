@@ -189,6 +189,33 @@
 
   .scroll-box { max-height: 260px; overflow-y: auto; }
 
+  /* Device browser */
+  .device-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .device-row:last-child { border-bottom: none; }
+  .device-row:hover { background: #f7f8fa; }
+  .device-name { flex: 1; font-weight: 600; }
+  .device-ip { font-family: monospace; color: #555; min-width: 110px; }
+  .device-mac { font-family: monospace; color: #aaa; font-size: 11px; min-width: 130px; }
+  .device-add {
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: #e3f2fd;
+    color: #1565c0;
+  }
+  .device-add.added { background: #e8f5e9; color: #2e7d32; }
+  .device-add:hover { opacity: 0.8; }
+
   /* VPN test result */
   #vpn-result {
     margin-top: 12px;
@@ -259,6 +286,19 @@
       <label>Target IPs</label>
       <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
       <div class="hint">Space-separated IPs of devices to route through VPN</div>
+      <button type="button" class="btn-grey" onclick="toggleDeviceBrowser()"
+              style="margin-top:8px;font-size:13px;padding:6px 12px;">
+        &#128269; Browse network devices
+      </button>
+      <div id="device-browser" style="display:none;margin-top:10px;border:1px solid #eee;border-radius:8px;overflow:hidden;">
+        <div style="padding:8px 12px;background:#f7f8fa;font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:center;">
+          <span>Devices seen on the network (ARP cache)</span>
+          <button type="button" onclick="loadDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#2196f3;padding:0;">&#8635; Refresh</button>
+        </div>
+        <div id="device-list" style="max-height:220px;overflow-y:auto;">
+          <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading...</div>
+        </div>
+      </div>
     </div>
     <div class="field">
       <label>VPN Interface</label>
@@ -511,6 +551,73 @@ async function saveConfig() {
   loadConfig(); // refresh gateway reference
 }
 
+// ---------------------------------------------------------------------------
+// Device browser
+// ---------------------------------------------------------------------------
+
+async function toggleDeviceBrowser() {
+  const el = document.getElementById('device-browser');
+  if (el.style.display === 'none') {
+    el.style.display = '';
+    await loadDevices();
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function loadDevices() {
+  const list = document.getElementById('device-list');
+  list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Scanning...</div>';
+  const r = await fetch('/api/devices');
+  const d = await r.json();
+
+  if (!d.ok || !d.devices.length) {
+    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No devices found in ARP cache</div>';
+    return;
+  }
+
+  const currentTargets = () => document.getElementById('cfg-targets').value
+    .split(/\s+/).map(s => s.trim()).filter(Boolean);
+
+  list.innerHTML = d.devices.map(dev => {
+    const label = dev.hostname || dev.ip;
+    const sublabel = dev.hostname ? dev.ip : '';
+    return `
+      <div class="device-row" id="drow-${dev.ip.replace(/\./g,'-')}">
+        <div class="device-name">
+          ${label}
+          ${sublabel ? `<div style="font-weight:400;color:#999;font-size:11px;">${sublabel}</div>` : ''}
+        </div>
+        <div class="device-mac">${dev.mac}</div>
+        <button class="device-add" onclick="addDevice('${dev.ip}', this)">+ Add</button>
+      </div>`;
+  }).join('');
+
+  // Mark already-added devices
+  currentTargets().forEach(ip => markAdded(ip));
+}
+
+function addDevice(ip, btn) {
+  const input = document.getElementById('cfg-targets');
+  const targets = input.value.split(/\s+/).map(s => s.trim()).filter(Boolean);
+  if (!targets.includes(ip)) {
+    targets.push(ip);
+    input.value = targets.join(' ');
+  }
+  markAdded(ip);
+}
+
+function markAdded(ip) {
+  const id = 'drow-' + ip.replace(/\./g, '-');
+  const row = document.getElementById(id);
+  if (row) {
+    const btn = row.querySelector('.device-add');
+    btn.textContent = '✓ Added';
+    btn.classList.add('added');
+    btn.disabled = true;
+  }
+}
+
 async function loadAutostart() {
   const r = await fetch('/api/autostart');
   const d = await r.json();
@@ -604,15 +711,19 @@ async function applyUpdate() {
 
   await fetch('/api/update/apply', {method: 'POST'});
 
-  // Poll until the service comes back up
+  // Poll until the service goes down, then comes back up, then give
+  // setup.sh a few extra seconds to finish before reloading.
+  let wentDown = false;
   const poll = setInterval(async () => {
     try {
       const r = await fetch('/api/status', {signal: AbortSignal.timeout(2000)});
-      if (r.ok) {
+      if (r.ok && wentDown) {
         clearInterval(poll);
-        window.location.reload();
+        setTimeout(() => window.location.reload(), 5000);
       }
-    } catch(e) { /* still restarting */ }
+    } catch(e) {
+      wentDown = true; // service is down — setup is running
+    }
   }, 2000);
 }
 
