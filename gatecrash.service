@@ -1,0 +1,18 @@
+[Unit]
+Description=Gatecrash — selective VPN routing via ARP spoof
+Documentation=https://github.com/YOUR_USERNAME/gatecrash
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/gatecrash/start.sh
+ExecStop=/opt/gatecrash/stop.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+# Kill the start.sh shell AND all child arpspoof processes
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

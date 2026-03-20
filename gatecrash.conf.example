@@ -1,0 +1,20 @@
+# Gatecrash configuration
+# Copy this file to gatecrash.conf and fill in your values.
+# Do not commit gatecrash.conf — it contains your private network details.
+
+# LAN interface (the bridged adapter on your LAN)
+LAN_IF="eth0"
+
+# WireGuard interface name (must match the .conf filename in /etc/wireguard/)
+VPN_IF="wg0"
+
+# Your LAN gateway IP (your router)
+GATEWAY_IP="192.168.1.1"
+
+# Space-separated list of target device IPs to route through VPN
+# Example: TARGET_IPS="192.168.1.90 192.168.1.183"
+TARGET_IPS="192.168.1.90"
+
+# Policy routing table name and fwmark (no need to change these)
+ROUTE_TABLE="vpntarget"
+FWMARK="0x1"

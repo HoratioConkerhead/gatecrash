@@ -1,0 +1,15 @@
+# Live config with real IPs — never commit
+gatecrash.conf
+
+# WireGuard configs contain private keys
+*.conf
+!gatecrash.conf.example
+
+# Runtime artifacts
+*.pid
+*.log
+
+# Editor and OS noise
+.DS_Store
+*.swp
+*~
