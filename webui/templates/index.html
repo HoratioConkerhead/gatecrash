@@ -207,6 +207,11 @@
   <div class="badge"><div class="dot grey" id="dot-gc"></div><span id="lbl-gc">Gatecrash</span></div>
   <div class="badge"><div class="dot grey" id="dot-wg"></div><span id="lbl-wg">WireGuard</span></div>
   <div class="badge" style="font-size:12px;color:#aaa;" id="lbl-arps"></div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+    <span id="update-status" style="font-size:13px;color:#aaa;"></span>
+    <button class="btn-grey" id="btn-check-update" onclick="checkUpdate()" style="padding:6px 14px;font-size:13px;">Check for updates</button>
+    <button class="btn-blue" id="btn-apply-update" onclick="applyUpdate()" style="padding:6px 14px;font-size:13px;display:none;">&#8593; Apply Update</button>
+  </div>
 </header>
 
 <main>
@@ -471,6 +476,53 @@ async function saveWGConfig() {
   el.className = 'save-status ' + (d.ok ? '' : 'error');
   el.textContent = d.ok ? '✓ Saved' : '✗ ' + d.error;
   setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+// ---------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------
+
+async function checkUpdate() {
+  const status = document.getElementById('update-status');
+  const applyBtn = document.getElementById('btn-apply-update');
+  status.textContent = 'Checking...';
+  applyBtn.style.display = 'none';
+  try {
+    const r = await fetch('/api/update/check');
+    const d = await r.json();
+    if (!d.ok) {
+      status.textContent = '✗ ' + d.error;
+    } else if (d.behind === 0) {
+      status.textContent = '✓ Up to date';
+    } else {
+      status.textContent = `${d.behind} update${d.behind > 1 ? 's' : ''} available`;
+      applyBtn.style.display = '';
+    }
+  } catch(e) {
+    status.textContent = '✗ Check failed';
+  }
+}
+
+async function applyUpdate() {
+  const status = document.getElementById('update-status');
+  const applyBtn = document.getElementById('btn-apply-update');
+  const checkBtn = document.getElementById('btn-check-update');
+  applyBtn.disabled = true;
+  checkBtn.disabled = true;
+  status.textContent = 'Upgrading — page will reload when ready...';
+
+  await fetch('/api/update/apply', {method: 'POST'});
+
+  // Poll until the service comes back up
+  const poll = setInterval(async () => {
+    try {
+      const r = await fetch('/api/status', {signal: AbortSignal.timeout(2000)});
+      if (r.ok) {
+        clearInterval(poll);
+        window.location.reload();
+      }
+    } catch(e) { /* still restarting */ }
+  }, 2000);
 }
 
 // Load config on page open

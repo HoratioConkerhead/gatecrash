@@ -136,6 +136,10 @@ systemctl enable gatecrash-webui
 systemctl restart gatecrash-webui
 echo "  [OK] Web UI installed and restarted."
 
+# Save repo path so the web UI can run upgrades
+echo "$SCRIPT_DIR" > "$INSTALL_DIR/repo_path"
+echo "  [OK] Repo path saved."
+
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------

@@ -10,8 +10,17 @@ from flask import Flask, render_template, jsonify, request
 
 app = Flask(__name__)
 
-CONF_PATH    = "/opt/gatecrash/gatecrash.conf"
-WG_CONF_PATH = "/etc/wireguard/wg0.conf"
+CONF_PATH      = "/opt/gatecrash/gatecrash.conf"
+WG_CONF_PATH   = "/etc/wireguard/wg0.conf"
+REPO_PATH_FILE = "/opt/gatecrash/repo_path"
+
+
+def get_repo_path():
+    try:
+        with open(REPO_PATH_FILE) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
 
 # Rolling DNS log — last 100 queries
 dns_log = deque(maxlen=100)
@@ -191,6 +200,46 @@ def api_wg_config():
 @app.route("/api/dns-log")
 def api_dns_log():
     return jsonify({"entries": list(dns_log)})
+
+
+@app.route("/api/update/check")
+def api_update_check():
+    repo = get_repo_path()
+    if not repo:
+        return jsonify({"ok": False, "error": "Repo path not set — re-run setup.sh"})
+    fetch_out, rc = run(f"git -C {repo} fetch origin 2>&1")
+    if rc != 0:
+        return jsonify({"ok": False, "error": fetch_out})
+    behind_out, _ = run(f"git -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
+    try:
+        behind = int(behind_out.strip())
+    except ValueError:
+        behind = 0
+    return jsonify({"ok": True, "behind": behind})
+
+
+@app.route("/api/update/apply", methods=["POST"])
+def api_update_apply():
+    repo = get_repo_path()
+    if not repo:
+        return jsonify({"ok": False, "error": "Repo path not set — re-run setup.sh"})
+    # Write a small upgrade script and run it detached.
+    # setup.sh restarts this service, so we must not wait for it.
+    upgrade_script = f"""#!/bin/bash
+sleep 1
+cd {repo}
+git pull
+bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
+"""
+    script_path = "/tmp/gatecrash-upgrade.sh"
+    with open(script_path, "w") as f:
+        f.write(upgrade_script)
+    os.chmod(script_path, 0o700)
+    subprocess.Popen(["bash", script_path],
+                     stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
