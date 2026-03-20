@@ -7,7 +7,7 @@ traffic from target devices through a WireGuard VPN.
 ## Quickstart
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/gatecrash
+git clone https://github.com/HoratioConkerhead/gatecrash
 cd gatecrash
 sudo bash setup.sh
 ```
@@ -16,14 +16,12 @@ sudo bash setup.sh
 configuration, and sets up a systemd service that starts on boot.
 
 **Requirements:**
-- Linux VM (Ubuntu Server 24.04 LTS recommended) with a **bridged** network
-  adapter on your LAN
+- Linux VM (Debian 12 recommended) with a **bridged** network adapter on your LAN
 - WireGuard config from your VPN provider
 - Target device IP address(es)
 
-See [Hyper-V Specific](#hyper-v-specific) if running on Hyper-V — MAC
-address spoofing must be enabled on the VM's network adapter or ARP spoof
-packets will be silently dropped.
+See [Preparing the VM](#preparing-the-vm) for step-by-step instructions on
+creating and configuring the VM before running `setup.sh`.
 
 **After setup:**
 
@@ -35,6 +33,108 @@ sudo /opt/gatecrash/stop.sh          # stop and restore normal routing
 
 On the target device, visit https://whatismyip.com — it should show the VPN
 exit IP, not your ISP's IP.
+
+---
+
+## Preparing the VM
+
+These steps get the VM ready before you run `setup.sh`. The instructions
+cover Hyper-V specifically but the concepts apply to any hypervisor.
+
+### 1. Reserve a static IP for the VM on your router
+
+Gatecrash needs a stable IP on your LAN. The cleanest way is a DHCP
+reservation on your router — the VM keeps DHCP (simpler to manage) but
+always gets the same IP.
+
+Find the VM's MAC address first. In Hyper-V Manager, before the VM is
+created or after creation:
+
+- **Settings → Network Adapter → Advanced Features**
+- The MAC address is listed here (you can also let Hyper-V assign one
+  dynamically — just start the VM once and read it with `ip link show`)
+
+Then on your router, add a DHCP reservation:
+- Most routers: **DHCP → Address Reservation** or **Static Leases**
+- Bind the VM's MAC address to a chosen IP (e.g. `192.168.1.100`)
+- The exact steps vary by router — consult your router's manual
+
+### 2. Create an External Virtual Switch (Hyper-V)
+
+The VM needs to appear directly on your physical LAN, not on an isolated
+virtual network.
+
+1. Open **Hyper-V Manager**
+2. **Action → Virtual Switch Manager**
+3. Select **External** → **Create Virtual Switch**
+4. Name it (e.g. `LAN Bridge`)
+5. Under **Connection type**, select **External network** and choose your
+   physical NIC from the dropdown
+6. Leave **Allow management OS to share this network adapter** checked
+   (this keeps your Windows host connected to the LAN through the same NIC)
+7. Click **OK**
+
+### 3. Create the VM
+
+- **New → Virtual Machine**
+- Generation 2 (UEFI), 1–2 vCPUs, 512 MB RAM (1 GB to be comfortable)
+- Attach the **External Virtual Switch** you created above as the network adapter
+- Install **Debian 12 (Bookworm)** — use the netinstall ISO for a minimal install
+
+During Debian installation, when you reach **Software selection**, uncheck
+everything except:
+- **SSH server**
+- **Standard system utilities**
+
+No desktop, no print server. This keeps the VM footprint small.
+
+### 4. Enable MAC Address Spoofing (Hyper-V)
+
+This is required. Without it, ARP spoof packets are silently dropped by
+the Hyper-V virtual switch and nothing will work.
+
+**Shut the VM down first**, then:
+
+1. **Hyper-V Manager → VM Settings → Network Adapter → Advanced Features**
+2. Check **Enable MAC address spoofing**
+3. Click **OK**
+
+If you want a fixed MAC address (useful for the DHCP reservation above):
+
+1. In the same **Advanced Features** panel, switch MAC address from
+   **Dynamic** to **Static**
+2. Enter a MAC address in the format `xx-xx-xx-xx-xx-xx`
+   (e.g. `52-54-00-AB-CD-EF` — the `52-54-00` prefix is conventionally
+   used for virtual machines)
+3. Use this MAC address for your DHCP reservation on the router
+
+### 5. First boot — confirm networking
+
+Start the VM and log in. Verify it got the expected IP:
+
+```bash
+ip addr show
+```
+
+Confirm internet access works:
+
+```bash
+curl -s http://ifconfig.me
+```
+
+This should return your ISP's IP. If networking isn't working, check the
+virtual switch assignment and that the DHCP reservation is active on your
+router.
+
+### 6. Install git and clone the repo
+
+```bash
+sudo apt update
+sudo apt install -y git
+git clone https://github.com/HoratioConkerhead/gatecrash
+cd gatecrash
+sudo bash setup.sh
+```
 
 ---
 
@@ -58,15 +158,6 @@ Gatecrash VM (e.g. 192.168.1.100)
 The target device needs zero configuration changes. It doesn't know anything
 has changed. If Gatecrash stops, the device's ARP cache self-corrects within
 a couple of minutes and traffic flows normally again.
-
-## Hyper-V Specific
-
-If running on Hyper-V:
-
-- Create an **External Virtual Switch** bound to your physical NIC
-- **Enable MAC Address Spoofing** on the VM's network adapter
-  (Settings → Network Adapter → Advanced Features → Enable MAC Address Spoofing)
-- Without MAC spoofing enabled, ARP spoof packets are silently dropped
 
 ## Manual Setup
 
@@ -192,8 +283,8 @@ sudo iptables -t nat -A PREROUTING -s $TARGET_IP -p tcp --dport 53 -j REDIRECT -
 ### 7. DNS
 
 DNS queries from the target device are redirected to the VM's local resolver
-using REDIRECT rules (see above). Ubuntu Server runs `systemd-resolved` by
-default, which handles this automatically.
+using REDIRECT rules (see above). Debian runs `systemd-resolved` by default,
+which handles this automatically.
 
 **Why not route DNS through the tunnel?**
 
@@ -310,7 +401,7 @@ sudo systemctl start gatecrash
 | ARP spoof silently fails (Hyper-V) | MAC spoofing disabled | VM Settings → Network → Advanced → Enable MAC Address Spoofing |
 | TCP connections hang | MTU too high | Set `MTU = 1280` in wg0.conf, add MSS clamp iptables rule |
 | DNS not resolving | DNS routed through tunnel (UDP unreliable) | Use REDIRECT to local systemd-resolved instead of DNAT to remote DNS |
-| dnsmasq won't start | Port 53 conflict with systemd-resolved | Don't install dnsmasq — use systemd-resolved |
+| dnsmasq won't start | Port 53 conflict with systemd-resolved | Don't install dnsmasq — systemd-resolved handles port 53 |
 | `tcpdump -i wg0` says "No such device" | WireGuard tunnel is down | `sudo wg-quick up wg0` then re-add vpntarget route |
 | VM's own internet breaks | `Table = off` missing in wg0.conf | WireGuard is hijacking the default route |
 | Works initially then stops | arpspoof process died | `pgrep arpspoof` — restart if missing |
@@ -327,7 +418,7 @@ sudo systemctl start gatecrash
 
 ## Tested With
 
-- Ubuntu Server 24.04 LTS on Hyper-V (Dell Precision 7920)
+- Debian 12 (Bookworm) on Hyper-V (Dell Precision 7920)
 - Surfshark WireGuard (Albania endpoint)
 - LG smart TV and Windows laptop as target devices
 
