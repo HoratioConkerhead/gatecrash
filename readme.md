@@ -6,33 +6,60 @@ traffic from target devices through a WireGuard VPN.
 
 ## Quickstart
 
+See [Preparing the VM](#preparing-the-vm) first if you haven't set up your
+Linux VM yet.
+
+**1. Clone and run setup** (installs dependencies and scripts, starts nothing):
+
 ```bash
 git clone https://github.com/HoratioConkerhead/gatecrash
 cd gatecrash
 sudo bash setup.sh
 ```
 
-`setup.sh` installs dependencies, walks you through WireGuard and network
-configuration, and sets up a systemd service that starts on boot.
-
-**Requirements:**
-- Linux VM (Debian 12 recommended) with a **bridged** network adapter on your LAN
-- WireGuard config from your VPN provider
-- Target device IP address(es)
-
-See [Preparing the VM](#preparing-the-vm) for step-by-step instructions on
-creating and configuring the VM before running `setup.sh`.
-
-**After setup:**
+**2. Create your WireGuard config** (see [Configure WireGuard](#2-configure-wireguard) for the required format):
 
 ```bash
-sudo systemctl status gatecrash      # check it's running
-sudo /opt/gatecrash/start.sh         # start manually
-sudo /opt/gatecrash/stop.sh          # stop and restore normal routing
+sudo nano /etc/wireguard/wg0.conf
+```
+
+**3. Edit the Gatecrash config:**
+
+```bash
+sudo nano /opt/gatecrash/gatecrash.conf
+```
+
+Set `LAN_IF` (your bridged network interface), `GATEWAY_IP` (your router),
+and `TARGET_IPS` (the device(s) to route through VPN).
+
+**4. Test WireGuard before starting:**
+
+```bash
+sudo wg-quick up wg0
+curl --interface wg0 -m 10 http://ifconfig.me   # should return VPN IP, not your ISP's
+```
+
+**5. Start Gatecrash:**
+
+```bash
+sudo /opt/gatecrash/start.sh
 ```
 
 On the target device, visit https://whatismyip.com — it should show the VPN
 exit IP, not your ISP's IP.
+
+**6. Enable on boot once you're happy it works:**
+
+```bash
+sudo systemctl enable gatecrash
+```
+
+**Other commands:**
+
+```bash
+sudo /opt/gatecrash/stop.sh          # stop and restore normal routing
+sudo systemctl status gatecrash      # check service status
+```
 
 ---
 
