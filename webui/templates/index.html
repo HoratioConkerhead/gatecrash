@@ -643,11 +643,12 @@ function renderDevices(devices) {
   list.innerHTML = devices.map(dev => {
     const label    = dev.hostname || dev.ip;
     const sublabel = dev.hostname ? dev.ip : '';
+    const vendor   = dev.vendor ? ` (${dev.vendor})` : '';
     return `
       <div class="device-row" id="drow-${dev.ip.replace(/\./g,'-')}">
         <div class="device-name">
           ${label}
-          ${sublabel ? `<div style="font-weight:400;color:#999;font-size:11px;">${sublabel}</div>` : ''}
+          <div style="font-weight:400;color:#999;font-size:11px;">${sublabel}${vendor}</div>
         </div>
         <div class="device-mac">${dev.mac || ''}</div>
         <button class="device-add" onclick="addDevice('${dev.ip}', this)">+ Add</button>

@@ -249,9 +249,10 @@ def parse_nmap_devices(output):
                 devices.append(current)
             current = {"hostname": "", "ip": m.group(1), "mac": ""}
             continue
-        m = re.search(r"MAC Address: ([0-9A-Fa-f:]{17})", line)
+        m = re.search(r"MAC Address: ([0-9A-Fa-f:]{17})(?: \((.+)\))?", line)
         if m and current:
             current["mac"] = m.group(1).lower()
+            current["vendor"] = m.group(2) or ""
     if current:
         devices.append(current)
     devices.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
