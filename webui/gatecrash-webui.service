@@ -1,6 +1,7 @@
 [Unit]
 Description=Gatecrash Web UI
 After=network.target
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
 
 [Service]
 Type=simple

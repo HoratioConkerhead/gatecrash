@@ -28,12 +28,22 @@ echo ""
 
 echo "Installing dependencies..."
 apt-get update -q
-apt-get install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump
+apt-get install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon
 
 for bin in wg-quick arpspoof iptables ip curl python3 tcpdump; do
     command -v "$bin" &>/dev/null || { echo "ERROR: $bin not found after install."; exit 1; }
 done
 echo "  [OK] Dependencies installed."
+
+# ---------------------------------------------------------------------------
+# Hostname
+# ---------------------------------------------------------------------------
+
+echo "Setting hostname to 'gatecrash'..."
+hostnamectl set-hostname gatecrash
+systemctl enable avahi-daemon
+systemctl start avahi-daemon
+echo "  [OK] Hostname set. Device accessible at http://gatecrash.local"
 
 # ---------------------------------------------------------------------------
 # 2. Enable IP forwarding

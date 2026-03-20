@@ -15,6 +15,17 @@ WG_CONF_PATH   = "/etc/wireguard/wg0.conf"
 REPO_PATH_FILE = "/opt/gatecrash/repo_path"
 
 
+def get_version():
+    repo = get_repo_path()
+    if repo:
+        try:
+            with open(os.path.join(repo, "VERSION")) as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            pass
+    return "unknown"
+
+
 def get_repo_path():
     try:
         with open(REPO_PATH_FILE) as f:
@@ -117,7 +128,7 @@ def ensure_dns_thread():
 @app.route("/")
 def index():
     ensure_dns_thread()
-    return render_template("index.html")
+    return render_template("index.html", version=get_version())
 
 
 @app.route("/api/status")
@@ -244,4 +255,4 @@ bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
 
 if __name__ == "__main__":
     ensure_dns_thread()
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    app.run(host="0.0.0.0", port=80, debug=False)
