@@ -214,9 +214,15 @@
   <!-- Controls -->
   <div class="card">
     <h2>Controls</h2>
+    <p style="font-size:12px;color:#999;margin-bottom:8px;">Gatecrash</p>
     <div class="btn-row">
       <button class="btn-green" onclick="startGC()">&#9654; Start Gatecrash</button>
       <button class="btn-red"   onclick="stopGC()">&#9632; Stop Gatecrash</button>
+    </div>
+    <p style="font-size:12px;color:#999;margin:14px 0 8px;">WireGuard</p>
+    <div class="btn-row">
+      <button class="btn-green" onclick="startWG()">&#9654; Start WireGuard</button>
+      <button class="btn-red"   onclick="stopWG()">&#9632; Stop WireGuard</button>
     </div>
     <div class="output-box hidden" id="ctrl-output"></div>
   </div>
@@ -380,6 +386,22 @@ async function stopGC() {
   const r = await fetch('/api/stop', {method: 'POST'});
   const d = await r.json();
   showOutput(d.output || (d.ok ? 'Stopped.' : 'Failed.'));
+  fetchStatus();
+}
+
+async function startWG() {
+  showOutput('Starting WireGuard...');
+  const r = await fetch('/api/wg/start', {method: 'POST'});
+  const d = await r.json();
+  showOutput(d.output || (d.ok ? 'WireGuard started.' : 'Failed.'));
+  fetchStatus();
+}
+
+async function stopWG() {
+  showOutput('Stopping WireGuard...');
+  const r = await fetch('/api/wg/stop', {method: 'POST'});
+  const d = await r.json();
+  showOutput(d.output || (d.ok ? 'WireGuard stopped.' : 'Failed.'));
   fetchStatus();
 }
 

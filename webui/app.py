@@ -113,8 +113,8 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    _, rc = run("pgrep -f arpspoof")
-    gc_running = rc == 0
+    out, _ = run("systemctl is-active gatecrash 2>/dev/null")
+    gc_running = out.strip() == "active"
 
     _, rc = run("ip link show wg0 2>/dev/null")
     wg_up = rc == 0
@@ -138,6 +138,18 @@ def api_start():
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     out, rc = run("systemctl stop gatecrash 2>&1", timeout=30)
+    return jsonify({"ok": rc == 0, "output": out})
+
+
+@app.route("/api/wg/start", methods=["POST"])
+def api_wg_start():
+    out, rc = run("wg-quick up wg0 2>&1", timeout=20)
+    return jsonify({"ok": rc == 0, "output": out})
+
+
+@app.route("/api/wg/stop", methods=["POST"])
+def api_wg_stop():
+    out, rc = run("wg-quick down wg0 2>&1", timeout=20)
     return jsonify({"ok": rc == 0, "output": out})
 
 
