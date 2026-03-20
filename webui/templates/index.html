@@ -245,6 +245,14 @@
   </div>
 </header>
 
+<!-- Upgrade log panel (hidden until upgrade starts) -->
+<div id="upgrade-panel" style="display:none;background:#1a1a2e;color:#a8e6cf;font-family:monospace;font-size:13px;padding:16px 24px;max-height:300px;overflow-y:auto;border-bottom:3px solid #4caf50;">
+  <div style="color:#4caf50;font-weight:700;margin-bottom:8px;">&#9654; Upgrading Gatecrash — do not close this page</div>
+  <div id="upgrade-log-lines"></div>
+</div>
+<div style="display:none" id="upgrade-panel-spacer">
+</header>
+
 <main>
 
   <!-- Controls -->
@@ -725,29 +733,57 @@ async function checkUpdate() {
 }
 
 async function applyUpdate() {
-  const status = document.getElementById('update-status');
+  const status   = document.getElementById('update-status');
   const applyBtn = document.getElementById('btn-apply-update');
   const checkBtn = document.getElementById('btn-check-update');
-  applyBtn.disabled = true;
+  const panel    = document.getElementById('upgrade-panel');
+  const logLines = document.getElementById('upgrade-log-lines');
+
+  applyBtn.style.display = 'none';
   checkBtn.disabled = true;
-  status.textContent = 'Upgrading — page will reload when ready...';
+  status.textContent = '';
+  panel.style.display = '';
+  logLines.textContent = '';
 
   await fetch('/api/update/apply', {method: 'POST'});
 
-  // Poll until upgrade flag is gone (set at start, removed at end of setup.sh)
-  // This ensures we don't reload until setup has fully completed.
-  const poll = setInterval(async () => {
-    try {
-      const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(2000)});
-      if (r.ok) {
-        const d = await r.json();
-        if (!d.upgrading) {
-          clearInterval(poll);
-          window.location.reload();
+  // Stream the upgrade log via SSE
+  const es = new EventSource('/api/upgrade-log');
+
+  es.onmessage = (e) => {
+    if (e.data === '') return;
+    const line = document.createElement('div');
+    line.textContent = e.data;
+    logLines.appendChild(line);
+    panel.scrollTop = panel.scrollHeight;
+  };
+
+  es.addEventListener('done', () => {
+    es.close();
+    const line = document.createElement('div');
+    line.style.color = '#4caf50';
+    line.style.marginTop = '8px';
+    line.textContent = 'Reloading...';
+    logLines.appendChild(line);
+    // Poll until the service is back up after restart
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(2000)});
+        if (r.ok) {
+          const d = await r.json();
+          if (!d.upgrading) {
+            clearInterval(poll);
+            window.location.reload();
+          }
         }
-      }
-    } catch(e) { /* still restarting, keep polling */ }
-  }, 2000);
+      } catch(e) { /* still restarting */ }
+    }, 2000);
+  });
+
+  es.onerror = () => {
+    // SSE connection dropped (service restarted) — keep polling flag file
+    es.close();
+  };
 }
 
 // Load on page open
