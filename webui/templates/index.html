@@ -204,6 +204,10 @@
 
 <header>
   <h1>&#x1F6E1; Gatecrash <span style="font-size:13px;font-weight:400;color:#666;">v{{ version }}</span></h1>
+  <a href="https://github.com/HoratioConkerhead/gatecrash#readme" target="_blank"
+     style="color:#aaa;font-size:13px;text-decoration:none;padding:5px 10px;border:1px solid #444;border-radius:5px;">
+    &#10067; Help
+  </a>
   <div class="badge"><div class="dot grey" id="dot-gc"></div><span id="lbl-gc">Gatecrash</span></div>
   <div class="badge"><div class="dot grey" id="dot-wg"></div><span id="lbl-wg">WireGuard</span></div>
   <div class="badge" style="font-size:12px;color:#aaa;" id="lbl-arps"></div>
@@ -252,11 +256,6 @@
       <div class="hint">The bridged network adapter connected to your LAN</div>
     </div>
     <div class="field">
-      <label>Gateway IP</label>
-      <input type="text" id="cfg-gw" placeholder="192.168.1.254">
-      <div class="hint">Your router's IP address</div>
-    </div>
-    <div class="field">
       <label>Target IPs</label>
       <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
       <div class="hint">Space-separated IPs of devices to route through VPN</div>
@@ -267,6 +266,13 @@
     </div>
     <button class="btn-blue" onclick="saveConfig()">&#128190; Save Config</button>
     <div class="save-status" id="cfg-status"></div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #eee;">
+      <div style="font-size:12px;font-weight:600;color:#999;margin-bottom:8px;">NETWORK REFERENCE</div>
+      <div style="font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;">
+        <span style="color:#888;">Gateway</span><span id="ref-gw" style="font-family:monospace;">—</span>
+        <span style="color:#888;">VM IP</span><span id="ref-vmip" style="font-family:monospace;">—</span>
+      </div>
+    </div>
   </div>
 
   <!-- WireGuard Config -->
@@ -289,6 +295,31 @@
       <div class="stat"><div class="label">Endpoint</div><div class="value" id="wg-endpoint">—</div></div>
       <div class="stat"><div class="label">Last Handshake</div><div class="value" id="wg-handshake">—</div></div>
       <div class="stat" style="grid-column:1/-1"><div class="label">Data Transfer</div><div class="value" id="wg-transfer">—</div></div>
+    </div>
+  </div>
+
+  <!-- System -->
+  <div class="card">
+    <h2>System</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px;background:#f7f8fa;border-radius:8px;">
+        <input type="checkbox" id="as-wg" onchange="setAutostart('wg', this.checked)" style="width:16px;height:16px;">
+        <div>
+          <div style="font-weight:600;font-size:14px;">WireGuard</div>
+          <div style="font-size:12px;color:#888;">Start on boot</div>
+        </div>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px;background:#f7f8fa;border-radius:8px;">
+        <input type="checkbox" id="as-gc" onchange="setAutostart('gatecrash', this.checked)" style="width:16px;height:16px;">
+        <div>
+          <div style="font-weight:600;font-size:14px;">Gatecrash</div>
+          <div style="font-size:12px;color:#888;">Start on boot</div>
+        </div>
+      </label>
+    </div>
+    <div class="save-status" id="as-status"></div>
+    <div style="border-top:1px solid #eee;padding-top:14px;margin-top:4px;">
+      <button class="btn-grey" onclick="reboot()" style="width:100%;">&#8635; Reboot Device</button>
     </div>
   </div>
 
@@ -432,10 +463,31 @@ async function testVPN() {
 async function loadConfig() {
   const r = await fetch('/api/config');
   const d = await r.json();
-  document.getElementById('cfg-lan').value     = d.LAN_IF      || '';
-  document.getElementById('cfg-gw').value      = d.GATEWAY_IP  || '';
-  document.getElementById('cfg-targets').value = d.TARGET_IPS  || '';
-  document.getElementById('cfg-vpn').value     = d.VPN_IF      || 'wg0';
+  document.getElementById('cfg-lan').value     = d.LAN_IF     || '';
+  document.getElementById('cfg-targets').value = d.TARGET_IPS || '';
+  document.getElementById('cfg-vpn').value     = d.VPN_IF     || 'wg0';
+  // Reference panel
+  document.getElementById('ref-gw').textContent = d.GATEWAY_IP || '—';
+  // VM IP from status
+  try {
+    const ri = await fetch('/api/gateway');
+    const di = await ri.json();
+    // Get VM's own IP
+    const resp = await fetch('/api/status');  // reuse connection
+  } catch(e) {}
+}
+
+async function loadNetworkInfo() {
+  // VM IP — find it from the page's own hostname
+  try {
+    const r = await fetch('/api/config');
+    const d = await r.json();
+    document.getElementById('ref-gw').textContent = d.GATEWAY_IP || '—';
+  } catch(e) {}
+  try {
+    const vmip = window.location.hostname;
+    document.getElementById('ref-vmip').textContent = vmip;
+  } catch(e) {}
 }
 
 async function saveConfig() {
@@ -443,7 +495,6 @@ async function saveConfig() {
   const data = {
     LAN_IF:      document.getElementById('cfg-lan').value.trim(),
     VPN_IF:      document.getElementById('cfg-vpn').value.trim(),
-    GATEWAY_IP:  document.getElementById('cfg-gw').value.trim(),
     TARGET_IPS:  document.getElementById('cfg-targets').value.trim(),
     ROUTE_TABLE: 'vpntarget',
     FWMARK:      '0x1',
@@ -457,6 +508,45 @@ async function saveConfig() {
   el.className = 'save-status ' + (d.ok ? '' : 'error');
   el.textContent = d.ok ? '✓ Saved' : '✗ ' + d.error;
   setTimeout(() => { el.textContent = ''; }, 3000);
+  loadConfig(); // refresh gateway reference
+}
+
+async function loadAutostart() {
+  const r = await fetch('/api/autostart');
+  const d = await r.json();
+  document.getElementById('as-wg').checked = d.wg;
+  document.getElementById('as-gc').checked = d.gatecrash;
+}
+
+async function setAutostart(which, enabled) {
+  const el = document.getElementById('as-status');
+  const body = {};
+  body[which === 'wg' ? 'wg' : 'gatecrash'] = enabled;
+  const r = await fetch('/api/autostart', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  el.className = 'save-status ' + (d.ok ? '' : 'error');
+  el.textContent = d.ok ? '✓ Saved' : '✗ Failed';
+  setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+async function reboot() {
+  if (!confirm('Reboot the Gatecrash device?')) return;
+  await fetch('/api/reboot', {method: 'POST'});
+  document.getElementById('ctrl-output').classList.remove('hidden');
+  document.getElementById('ctrl-output').textContent = 'Rebooting... page will reload when device is back.';
+  setTimeout(() => {
+    const poll = setInterval(async () => {
+      try {
+        await fetch('/api/status', {signal: AbortSignal.timeout(2000)});
+        clearInterval(poll);
+        window.location.reload();
+      } catch(e) {}
+    }, 3000);
+  }, 5000);
 }
 
 async function loadWGConfig() {
@@ -494,6 +584,7 @@ async function checkUpdate() {
       status.textContent = '✗ ' + d.error;
     } else if (d.behind === 0) {
       status.textContent = '✓ Up to date';
+      setTimeout(() => { status.textContent = ''; }, 5000);
     } else {
       status.textContent = `${d.behind} update${d.behind > 1 ? 's' : ''} available`;
       applyBtn.style.display = '';
@@ -525,9 +616,11 @@ async function applyUpdate() {
   }, 2000);
 }
 
-// Load config on page open
+// Load on page open
 loadConfig();
+loadNetworkInfo();
 loadWGConfig();
+loadAutostart();
 </script>
 </body>
 </html>

@@ -12,33 +12,30 @@ Linux VM yet.
 **1. Clone and run setup:**
 
 ```bash
+sudo apt install -y git
 git clone https://github.com/HoratioConkerhead/gatecrash
 cd gatecrash
 sudo bash setup.sh
 ```
 
-This installs dependencies, sets up policy routing, copies scripts, and
-starts the web UI. It does not start Gatecrash itself.
+This installs dependencies, sets the hostname to `gatecrash`, and starts
+the web UI. It does not start Gatecrash itself.
 
 **2. Open the web UI:**
 
 ```
-http://<VM-IP>:8080
+http://gatecrash.local
 ```
 
 Use the web UI to paste in your WireGuard config and set your target
-device IPs, gateway, and LAN interface. Then use the Start button when ready.
+device IPs, gateway, and LAN interface.
 
-**3. Test WireGuard first** (before starting Gatecrash):
+**3. Test WireGuard first** using the **Start WireGuard** and **Check VPN IP**
+buttons in the web UI before starting Gatecrash.
 
-```bash
-sudo wg-quick up wg0
-curl --interface wg0 -m 10 http://ifconfig.me   # should return VPN IP
-```
+**4. Start Gatecrash** using the **Start Gatecrash** button in the web UI.
 
-Or use the **Check VPN IP** button in the web UI.
-
-**4. Enable Gatecrash on boot** once you're happy it works:
+**5. Enable Gatecrash on boot** once you're happy it works:
 
 ```bash
 sudo systemctl enable gatecrash
@@ -47,9 +44,9 @@ sudo systemctl enable gatecrash
 **CLI commands (if preferred):**
 
 ```bash
-sudo /opt/gatecrash/start.sh         # start
-sudo /opt/gatecrash/stop.sh          # stop and restore normal routing
-sudo systemctl status gatecrash      # service status
+sudo /opt/gatecrash/start.sh           # start Gatecrash
+sudo /opt/gatecrash/stop.sh            # stop and restore normal routing
+sudo systemctl status gatecrash        # Gatecrash service status
 sudo systemctl status gatecrash-webui  # web UI status
 ```
 
@@ -66,8 +63,7 @@ Gatecrash needs a stable IP on your LAN. The cleanest way is a DHCP
 reservation on your router — the VM keeps DHCP (simpler to manage) but
 always gets the same IP.
 
-Find the VM's MAC address first. In Hyper-V Manager, before the VM is
-created or after creation:
+Find the VM's MAC address first. In Hyper-V Manager:
 
 - **Settings → Network Adapter → Advanced Features**
 - The MAC address is listed here (you can also let Hyper-V assign one
@@ -96,7 +92,7 @@ virtual network.
 ### 3. Create the VM
 
 - **New → Virtual Machine**
-- Generation 2 (UEFI), 1–2 vCPUs, 512 MB RAM (1 GB to be comfortable)
+- Generation 2 (UEFI), 1–2 vCPUs, 1 GB RAM minimum
 - Attach the **External Virtual Switch** you created above as the network adapter
 - Install **Debian 12 (Bookworm)** — use the netinstall ISO for a minimal install
 
@@ -105,7 +101,7 @@ everything except:
 - **SSH server**
 - **Standard system utilities**
 
-No desktop, no print server. This keeps the VM footprint small.
+No desktop. This keeps the VM footprint small.
 
 ### 4. Enable MAC Address Spoofing (Hyper-V)
 
@@ -145,7 +141,15 @@ This should return your ISP's IP. If networking isn't working, check the
 virtual switch assignment and that the DHCP reservation is active on your
 router.
 
-### 6. Install git and clone the repo
+### 6. SSH in and clone the repo
+
+From your Windows machine you can now SSH in:
+
+```bash
+ssh username@192.168.x.x
+```
+
+Then install git and clone:
 
 ```bash
 sudo apt update
@@ -165,7 +169,7 @@ Target Device (e.g. 192.168.1.90)
     │  ARP spoofed — thinks the VM is the default gateway
     │
     ▼
-Gatecrash VM (e.g. 192.168.1.100)
+Gatecrash VM (gatecrash.local)
     │
     ├── Marks target traffic with fwmark → policy routes into WireGuard
     │
@@ -178,6 +182,19 @@ The target device needs zero configuration changes. It doesn't know anything
 has changed. If Gatecrash stops, the device's ARP cache self-corrects within
 a couple of minutes and traffic flows normally again.
 
+## Web UI
+
+After setup, the web UI is available at **http://gatecrash.local**. It provides:
+
+- **Status** — live indicators for Gatecrash and WireGuard
+- **Controls** — start/stop Gatecrash and WireGuard independently
+- **VPN Test** — checks your VPN exit IP through the tunnel
+- **Config editor** — set target IPs, gateway, and LAN interface
+- **WireGuard config editor** — paste your VPN provider's config
+- **WireGuard stats** — endpoint, last handshake, bytes transferred
+- **DNS query log** — live view of DNS requests from target devices
+- **Updates** — check for and apply updates from GitHub in one click
+
 ## Manual Setup
 
 > The `setup.sh` script handles all of the steps below automatically.
@@ -188,7 +205,7 @@ a couple of minutes and traffic flows normally again.
 
 ```bash
 sudo apt update
-sudo apt install -y wireguard dsniff iptables iproute2
+sudo apt install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon
 ```
 
 `dsniff` provides `arpspoof`.
@@ -272,7 +289,7 @@ sudo ip rule add fwmark 0x1 table vpntarget
 
 **Important:** `wg-quick down/up` wipes the vpntarget routing table. You must
 re-run `ip route add default dev wg0 table vpntarget` after any WireGuard
-restart.
+restart. `start.sh` handles this automatically.
 
 ### 6. iptables Rules
 
@@ -350,80 +367,31 @@ sudo iptables -t mangle -L PREROUTING -v -n
 On the target device, visit https://whatismyip.com — it should show the VPN
 exit IP, not your ISP's IP.
 
-## Switching Target Devices
-
-```bash
-OLD_IP="192.168.1.183"
-NEW_IP="192.168.1.90"
-GATEWAY_IP="192.168.1.254"
-LAN_IF="eth0"
-
-# Stop arpspoof for old target
-sudo pkill arpspoof
-
-# Remove old iptables rules
-sudo iptables -t mangle -D PREROUTING -s $OLD_IP -i $LAN_IF -j MARK --set-mark 0x1
-sudo iptables -D FORWARD -i $LAN_IF -o wg0 -s $OLD_IP -j ACCEPT
-sudo iptables -D FORWARD -i wg0 -o $LAN_IF -d $OLD_IP -m state --state RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -t nat -D PREROUTING -s $OLD_IP -p udp --dport 53 -j REDIRECT --to-port 53
-sudo iptables -t nat -D PREROUTING -s $OLD_IP -p tcp --dport 53 -j REDIRECT --to-port 53
-
-# Add new target rules
-sudo iptables -t mangle -A PREROUTING -s $NEW_IP -i $LAN_IF -j MARK --set-mark 0x1
-sudo iptables -A FORWARD -i $LAN_IF -o wg0 -s $NEW_IP -j ACCEPT
-sudo iptables -A FORWARD -i wg0 -o $LAN_IF -d $NEW_IP -m state --state RELATED,ESTABLISHED -j ACCEPT
-sudo iptables -t nat -A PREROUTING -s $NEW_IP -p udp --dport 53 -j REDIRECT --to-port 53
-sudo iptables -t nat -A PREROUTING -s $NEW_IP -p tcp --dport 53 -j REDIRECT --to-port 53
-
-# Start arpspoof for new target
-sudo arpspoof -i $LAN_IF -t $NEW_IP $GATEWAY_IP > /dev/null 2>&1 &
-sudo arpspoof -i $LAN_IF -t $GATEWAY_IP $NEW_IP > /dev/null 2>&1 &
-```
-
-## Multiple Devices
-
-Add iptables and arpspoof rules per IP, all using the same fwmark:
-
-```bash
-for ip in 192.168.1.90 192.168.1.183 192.168.1.50; do
-    iptables -t mangle -A PREROUTING -s $ip -i eth0 -j MARK --set-mark 0x1
-    iptables -A FORWARD -i eth0 -o wg0 -s $ip -j ACCEPT
-    iptables -A FORWARD -i wg0 -o eth0 -d $ip -m state --state RELATED,ESTABLISHED -j ACCEPT
-    iptables -t nat -A PREROUTING -s $ip -p udp --dport 53 -j REDIRECT --to-port 53
-    iptables -t nat -A PREROUTING -s $ip -p tcp --dport 53 -j REDIRECT --to-port 53
-    arpspoof -i eth0 -t $ip 192.168.1.254 > /dev/null 2>&1 &
-    arpspoof -i eth0 -t 192.168.1.254 $ip > /dev/null 2>&1 &
-done
-```
-
 ## Auto-Start on Boot
 
 `setup.sh` installs and enables the systemd service automatically. The
-service file is `gatecrash.service` in this repo.
-
-To install manually:
+web UI (`gatecrash-webui`) starts on boot automatically. Gatecrash itself
+must be manually enabled once you're satisfied it works:
 
 ```bash
-sudo cp gatecrash.service /etc/systemd/system/
-sudo systemctl daemon-reload
 sudo systemctl enable gatecrash
-sudo systemctl start gatecrash
 ```
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
+| `http://gatecrash.local` not reachable | avahi-daemon not running | `sudo systemctl status avahi-daemon` |
 | Target loses internet completely | IP forwarding not enabled | `sysctl net.ipv4.ip_forward` should return 1 |
 | Target has internet but not via VPN | vpntarget routing table empty | `ip route show table vpntarget` — re-add route if missing |
-| vpntarget route disappears | WireGuard was restarted | Run `ip route add default dev wg0 table vpntarget` after every `wg-quick` restart |
+| vpntarget route disappears | WireGuard was restarted | `start.sh` restores it automatically on next start |
 | ARP spoof silently fails (Hyper-V) | MAC spoofing disabled | VM Settings → Network → Advanced → Enable MAC Address Spoofing |
 | TCP connections hang | MTU too high | Set `MTU = 1280` in wg0.conf, add MSS clamp iptables rule |
 | DNS not resolving | DNS routed through tunnel (UDP unreliable) | Use REDIRECT to local systemd-resolved instead of DNAT to remote DNS |
 | dnsmasq won't start | Port 53 conflict with systemd-resolved | Don't install dnsmasq — systemd-resolved handles port 53 |
-| `tcpdump -i wg0` says "No such device" | WireGuard tunnel is down | `sudo wg-quick up wg0` then re-add vpntarget route |
+| `tcpdump -i wg0` says "No such device" | WireGuard tunnel is down | Use Start WireGuard button in web UI, or `sudo wg-quick up wg0` |
 | VM's own internet breaks | `Table = off` missing in wg0.conf | WireGuard is hijacking the default route |
-| Works initially then stops | arpspoof process died | `pgrep arpspoof` — restart if missing |
+| Works initially then stops | arpspoof process died | Restart Gatecrash via web UI or `sudo systemctl restart gatecrash` |
 | Slow speeds | MTU too low or ISP throttling | Try increasing MTU in increments of 20 from 1280 |
 
 ## How It Fails Safely
@@ -443,10 +411,9 @@ sudo systemctl start gatecrash
 
 ## Future Ideas
 
-- Web UI for managing targets (add/remove devices, enter WireGuard config, view status)
 - CLI wrapper (`gatecrash add/remove/status/list`)
 - Per-device VPN exit selection (different countries for different devices)
-- **Appliance image** — a flashable SD card image (Pi-hole style) for Raspberry Pi or similar SBC, so setup is: flash → plug in → open browser. No Linux knowledge required. Likely based on Raspberry Pi OS Lite or DietPi as the base OS
+- **Appliance image** — a flashable SD card image (Pi-hole style) for Raspberry Pi or similar SBC, so setup is: flash → plug in → open browser. No Linux knowledge required. Likely based on Raspberry Pi OS Lite as the base OS
 
 ## License
 

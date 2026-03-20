@@ -173,6 +173,40 @@ def api_wg_stop():
     return jsonify({"ok": rc == 0, "output": out})
 
 
+@app.route("/api/autostart", methods=["GET", "POST"])
+def api_autostart():
+    if request.method == "GET":
+        wg_out, _ = run("systemctl is-enabled wg-quick@wg0 2>/dev/null")
+        gc_out, _ = run("systemctl is-enabled gatecrash 2>/dev/null")
+        return jsonify({
+            "wg": wg_out.strip() == "enabled",
+            "gatecrash": gc_out.strip() == "enabled",
+        })
+    data = request.json
+    results = {}
+    if "wg" in data:
+        cmd = "enable" if data["wg"] else "disable"
+        _, rc = run(f"systemctl {cmd} wg-quick@wg0 2>&1")
+        results["wg"] = rc == 0
+    if "gatecrash" in data:
+        cmd = "enable" if data["gatecrash"] else "disable"
+        _, rc = run(f"systemctl {cmd} gatecrash 2>&1")
+        results["gatecrash"] = rc == 0
+    return jsonify({"ok": True, "results": results})
+
+
+@app.route("/api/gateway")
+def api_gateway():
+    gw, rc = run("ip route show default | awk '/default/ {print $3}' | head -1")
+    return jsonify({"ok": rc == 0, "gateway": gw.strip()})
+
+
+@app.route("/api/reboot", methods=["POST"])
+def api_reboot():
+    subprocess.Popen(["shutdown", "-r", "now"])
+    return jsonify({"ok": True})
+
+
 @app.route("/api/test-vpn")
 def api_test_vpn():
     ip, rc = run("curl --interface wg0 -m 10 -s http://ifconfig.me 2>&1")
@@ -182,9 +216,18 @@ def api_test_vpn():
 @app.route("/api/config", methods=["GET", "POST"])
 def api_config():
     if request.method == "GET":
-        return jsonify(read_conf())
+        conf = read_conf()
+        # Always inject the live detected gateway
+        gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
+        conf["GATEWAY_IP"] = gw.strip() or conf.get("GATEWAY_IP", "")
+        return jsonify(conf)
     try:
-        write_conf(request.json)
+        data = request.json
+        # Refresh gateway from routing table before saving
+        gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
+        if gw.strip():
+            data["GATEWAY_IP"] = gw.strip()
+        write_conf(data)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
