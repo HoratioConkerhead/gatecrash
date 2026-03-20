@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatecrash</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, sans-serif;
+    background: #f0f2f5;
+    color: #1a1a2e;
+    font-size: 15px;
+  }
+
+  header {
+    background: #1a1a2e;
+    color: white;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  header h1 { font-size: 20px; font-weight: 700; flex: 1; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #2d2d44;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #555;
+    transition: background 0.3s;
+  }
+  .dot.green { background: #4caf50; }
+  .dot.red   { background: #f44336; }
+  .dot.grey  { background: #888; }
+
+  main {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 0 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .card h2 {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #555;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .full-width { grid-column: 1 / -1; }
+
+  /* Buttons */
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  button {
+    padding: 9px 18px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-green  { background: #4caf50; color: white; }
+  .btn-red    { background: #f44336; color: white; }
+  .btn-blue   { background: #2196f3; color: white; }
+  .btn-grey   { background: #e0e0e0; color: #333; }
+
+  .output-box {
+    margin-top: 12px;
+    background: #1a1a2e;
+    color: #a8e6cf;
+    font-family: monospace;
+    font-size: 13px;
+    padding: 12px;
+    border-radius: 6px;
+    min-height: 36px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .output-box.hidden { display: none; }
+
+  /* Forms */
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 5px;
+  }
+  .field input, .field textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.15s;
+  }
+  .field input:focus, .field textarea:focus {
+    outline: none;
+    border-color: #2196f3;
+  }
+  .field textarea {
+    font-family: monospace;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 200px;
+  }
+  .field .hint {
+    font-size: 12px;
+    color: #999;
+    margin-top: 4px;
+  }
+
+  .save-status {
+    font-size: 13px;
+    margin-top: 10px;
+    height: 18px;
+    color: #4caf50;
+    font-weight: 600;
+  }
+  .save-status.error { color: #f44336; }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: #f7f8fa;
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .stat .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .stat .value { font-size: 15px; font-weight: 600; font-family: monospace; }
+
+  /* DNS log */
+  .dns-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .dns-table th {
+    text-align: left;
+    padding: 6px 8px;
+    background: #f7f8fa;
+    color: #666;
+    font-weight: 600;
+    font-size: 12px;
+    border-bottom: 1px solid #eee;
+  }
+  .dns-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #f0f0f0;
+    font-family: monospace;
+  }
+  .dns-table tbody tr:hover { background: #fafbfc; }
+  .dns-empty { color: #aaa; font-size: 13px; padding: 12px 0; text-align: center; }
+
+  .scroll-box { max-height: 260px; overflow-y: auto; }
+
+  /* VPN test result */
+  #vpn-result {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 20px;
+  }
+  #vpn-result.ok    { color: #4caf50; }
+  #vpn-result.fail  { color: #f44336; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F6E1; Gatecrash</h1>
+  <div class="badge"><div class="dot grey" id="dot-gc"></div><span id="lbl-gc">Gatecrash</span></div>
+  <div class="badge"><div class="dot grey" id="dot-wg"></div><span id="lbl-wg">WireGuard</span></div>
+  <div class="badge" style="font-size:12px;color:#aaa;" id="lbl-arps"></div>
+</header>
+
+<main>
+
+  <!-- Controls -->
+  <div class="card">
+    <h2>Controls</h2>
+    <div class="btn-row">
+      <button class="btn-green" onclick="startGC()">&#9654; Start Gatecrash</button>
+      <button class="btn-red"   onclick="stopGC()">&#9632; Stop Gatecrash</button>
+    </div>
+    <div class="output-box hidden" id="ctrl-output"></div>
+  </div>
+
+  <!-- VPN Test -->
+  <div class="card">
+    <h2>VPN Test</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">
+      Checks your VPN exit IP via the WireGuard tunnel.
+      Should differ from your ISP's IP.
+    </p>
+    <button class="btn-blue" onclick="testVPN()">&#128270; Check VPN IP</button>
+    <div id="vpn-result"></div>
+  </div>
+
+  <!-- Gatecrash Config -->
+  <div class="card">
+    <h2>Gatecrash Config</h2>
+    <div class="field">
+      <label>LAN Interface</label>
+      <input type="text" id="cfg-lan" placeholder="eth0">
+      <div class="hint">The bridged network adapter connected to your LAN</div>
+    </div>
+    <div class="field">
+      <label>Gateway IP</label>
+      <input type="text" id="cfg-gw" placeholder="192.168.1.254">
+      <div class="hint">Your router's IP address</div>
+    </div>
+    <div class="field">
+      <label>Target IPs</label>
+      <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
+      <div class="hint">Space-separated IPs of devices to route through VPN</div>
+    </div>
+    <div class="field">
+      <label>VPN Interface</label>
+      <input type="text" id="cfg-vpn" placeholder="wg0">
+    </div>
+    <button class="btn-blue" onclick="saveConfig()">&#128190; Save Config</button>
+    <div class="save-status" id="cfg-status"></div>
+  </div>
+
+  <!-- WireGuard Config -->
+  <div class="card">
+    <h2>WireGuard Config</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:10px;">
+      Must include <code>Table = off</code> and <code>MTU = 1280</code>. No DNS line.
+    </p>
+    <div class="field">
+      <textarea id="wg-conf" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = ...&#10;Table = off&#10;MTU = 1280&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = ...&#10;AllowedIPs = 0.0.0.0/0&#10;PersistentKeepalive = 25"></textarea>
+    </div>
+    <button class="btn-blue" onclick="saveWGConfig()">&#128190; Save WireGuard Config</button>
+    <div class="save-status" id="wg-status"></div>
+  </div>
+
+  <!-- WireGuard Stats -->
+  <div class="card">
+    <h2>WireGuard Stats</h2>
+    <div class="stats-grid">
+      <div class="stat"><div class="label">Endpoint</div><div class="value" id="wg-endpoint">—</div></div>
+      <div class="stat"><div class="label">Last Handshake</div><div class="value" id="wg-handshake">—</div></div>
+      <div class="stat" style="grid-column:1/-1"><div class="label">Data Transfer</div><div class="value" id="wg-transfer">—</div></div>
+    </div>
+  </div>
+
+  <!-- DNS Log -->
+  <div class="card">
+    <h2>DNS Queries <span style="font-weight:400;font-size:12px;color:#aaa">(live)</span></h2>
+    <div class="scroll-box">
+      <table class="dns-table">
+        <thead>
+          <tr><th>Time</th><th>Source</th><th>Query</th></tr>
+        </thead>
+        <tbody id="dns-tbody">
+          <tr><td colspan="3" class="dns-empty">Waiting for DNS queries...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Status polling
+// ---------------------------------------------------------------------------
+
+async function fetchStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+
+    // Gatecrash indicator
+    const dotGC = document.getElementById('dot-gc');
+    const lblGC = document.getElementById('lbl-gc');
+    dotGC.className = 'dot ' + (d.gatecrash_running ? 'green' : 'red');
+    lblGC.textContent = 'Gatecrash ' + (d.gatecrash_running ? 'running' : 'stopped');
+
+    // WireGuard indicator
+    const dotWG = document.getElementById('dot-wg');
+    const lblWG = document.getElementById('lbl-wg');
+    dotWG.className = 'dot ' + (d.wg_up ? 'green' : 'red');
+    lblWG.textContent = 'WireGuard ' + (d.wg_up ? 'up' : 'down');
+
+    // arpspoof count
+    document.getElementById('lbl-arps').textContent =
+      d.arp_processes > 0 ? `${d.arp_processes} arpspoof` : '';
+
+    // WireGuard stats
+    if (d.wg) {
+      document.getElementById('wg-endpoint').textContent  = d.wg.endpoint  || '—';
+      document.getElementById('wg-handshake').textContent = d.wg.handshake || '—';
+      document.getElementById('wg-transfer').textContent  = d.wg.transfer  || '—';
+    } else {
+      document.getElementById('wg-endpoint').textContent  = '—';
+      document.getElementById('wg-handshake').textContent = '—';
+      document.getElementById('wg-transfer').textContent  = '—';
+    }
+  } catch(e) { /* ignore */ }
+}
+
+async function fetchDNS() {
+  try {
+    const r = await fetch('/api/dns-log');
+    const d = await r.json();
+    const tbody = document.getElementById('dns-tbody');
+    if (!d.entries || d.entries.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" class="dns-empty">No DNS queries seen yet</td></tr>';
+    } else {
+      tbody.innerHTML = d.entries.map(e =>
+        `<tr><td>${e.time}</td><td>${e.src}</td><td>${e.query}</td></tr>`
+      ).join('');
+    }
+  } catch(e) { /* ignore */ }
+}
+
+setInterval(fetchStatus, 3000);
+setInterval(fetchDNS, 5000);
+fetchStatus();
+fetchDNS();
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
+
+function showOutput(text) {
+  const el = document.getElementById('ctrl-output');
+  el.classList.remove('hidden');
+  el.textContent = text || '(no output)';
+}
+
+async function startGC() {
+  showOutput('Starting...');
+  const r = await fetch('/api/start', {method: 'POST'});
+  const d = await r.json();
+  showOutput(d.output || (d.ok ? 'Started.' : 'Failed.'));
+  fetchStatus();
+}
+
+async function stopGC() {
+  showOutput('Stopping...');
+  const r = await fetch('/api/stop', {method: 'POST'});
+  const d = await r.json();
+  showOutput(d.output || (d.ok ? 'Stopped.' : 'Failed.'));
+  fetchStatus();
+}
+
+async function testVPN() {
+  const el = document.getElementById('vpn-result');
+  el.className = '';
+  el.textContent = 'Testing... (up to 10s)';
+  const r = await fetch('/api/test-vpn');
+  const d = await r.json();
+  if (d.ok && d.ip) {
+    el.className = 'ok';
+    el.textContent = '✓ VPN exit IP: ' + d.ip;
+  } else {
+    el.className = 'fail';
+    el.textContent = '✗ Failed: ' + (d.ip || 'no response');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+async function loadConfig() {
+  const r = await fetch('/api/config');
+  const d = await r.json();
+  document.getElementById('cfg-lan').value     = d.LAN_IF      || '';
+  document.getElementById('cfg-gw').value      = d.GATEWAY_IP  || '';
+  document.getElementById('cfg-targets').value = d.TARGET_IPS  || '';
+  document.getElementById('cfg-vpn').value     = d.VPN_IF      || 'wg0';
+}
+
+async function saveConfig() {
+  const el = document.getElementById('cfg-status');
+  const data = {
+    LAN_IF:      document.getElementById('cfg-lan').value.trim(),
+    VPN_IF:      document.getElementById('cfg-vpn').value.trim(),
+    GATEWAY_IP:  document.getElementById('cfg-gw').value.trim(),
+    TARGET_IPS:  document.getElementById('cfg-targets').value.trim(),
+    ROUTE_TABLE: 'vpntarget',
+    FWMARK:      '0x1',
+  };
+  const r = await fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  });
+  const d = await r.json();
+  el.className = 'save-status ' + (d.ok ? '' : 'error');
+  el.textContent = d.ok ? '✓ Saved' : '✗ ' + d.error;
+  setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+async function loadWGConfig() {
+  const r = await fetch('/api/wg-config');
+  const d = await r.json();
+  document.getElementById('wg-conf').value = d.content || '';
+}
+
+async function saveWGConfig() {
+  const el = document.getElementById('wg-status');
+  const r = await fetch('/api/wg-config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: document.getElementById('wg-conf').value}),
+  });
+  const d = await r.json();
+  el.className = 'save-status ' + (d.ok ? '' : 'error');
+  el.textContent = d.ok ? '✓ Saved' : '✗ ' + d.error;
+  setTimeout(() => { el.textContent = ''; }, 3000);
+}
+
+// Load config on page open
+loadConfig();
+loadWGConfig();
+</script>
+</body>
+</html>

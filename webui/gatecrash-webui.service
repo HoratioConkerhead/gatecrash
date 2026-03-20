@@ -1,0 +1,13 @@
+[Unit]
+Description=Gatecrash Web UI
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/gatecrash/webui/venv/bin/python /opt/gatecrash/webui/app.py
+WorkingDirectory=/opt/gatecrash/webui
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -28,9 +28,9 @@ echo ""
 
 echo "Installing dependencies..."
 apt-get update -q
-apt-get install -y wireguard dsniff iptables iproute2 curl
+apt-get install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump
 
-for bin in wg-quick arpspoof iptables ip curl; do
+for bin in wg-quick arpspoof iptables ip curl python3 tcpdump; do
     command -v "$bin" &>/dev/null || { echo "ERROR: $bin not found after install."; exit 1; }
 done
 echo "  [OK] Dependencies installed."
@@ -116,6 +116,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 6. Install web UI
+# ---------------------------------------------------------------------------
+
+echo "Installing web UI..."
+WEBUI_DIR="$INSTALL_DIR/webui"
+mkdir -p "$WEBUI_DIR/templates"
+
+cp "$SCRIPT_DIR/webui/app.py" "$WEBUI_DIR/app.py"
+cp "$SCRIPT_DIR/webui/templates/index.html" "$WEBUI_DIR/templates/index.html"
+
+echo "  Creating Python virtual environment..."
+python3 -m venv "$WEBUI_DIR/venv"
+"$WEBUI_DIR/venv/bin/pip" install --quiet flask
+
+cp "$SCRIPT_DIR/webui/gatecrash-webui.service" /etc/systemd/system/gatecrash-webui.service
+systemctl daemon-reload
+systemctl enable gatecrash-webui
+systemctl start gatecrash-webui
+echo "  [OK] Web UI installed and started."
+
+# ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
 
@@ -142,4 +163,8 @@ echo "       sudo /opt/gatecrash/start.sh"
 echo ""
 echo "  5. To start on boot once you're happy it works:"
 echo "       sudo systemctl enable gatecrash"
+echo ""
+echo "  Web UI is running at:"
+WEBUI_IP=$(ip -4 addr show | grep -oP '(?<=inet )[\d.]+' | grep -v 127 | head -1)
+echo "       http://${WEBUI_IP:-<VM-IP>}:8080"
 echo ""

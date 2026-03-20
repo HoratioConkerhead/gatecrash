@@ -9,7 +9,7 @@ traffic from target devices through a WireGuard VPN.
 See [Preparing the VM](#preparing-the-vm) first if you haven't set up your
 Linux VM yet.
 
-**1. Clone and run setup** (installs dependencies and scripts, starts nothing):
+**1. Clone and run setup:**
 
 ```bash
 git clone https://github.com/HoratioConkerhead/gatecrash
@@ -17,48 +17,40 @@ cd gatecrash
 sudo bash setup.sh
 ```
 
-**2. Create your WireGuard config** (see [Configure WireGuard](#2-configure-wireguard) for the required format):
+This installs dependencies, sets up policy routing, copies scripts, and
+starts the web UI. It does not start Gatecrash itself.
 
-```bash
-sudo nano /etc/wireguard/wg0.conf
+**2. Open the web UI:**
+
+```
+http://<VM-IP>:8080
 ```
 
-**3. Edit the Gatecrash config:**
+Use the web UI to paste in your WireGuard config and set your target
+device IPs, gateway, and LAN interface. Then use the Start button when ready.
 
-```bash
-sudo nano /opt/gatecrash/gatecrash.conf
-```
-
-Set `LAN_IF` (your bridged network interface), `GATEWAY_IP` (your router),
-and `TARGET_IPS` (the device(s) to route through VPN).
-
-**4. Test WireGuard before starting:**
+**3. Test WireGuard first** (before starting Gatecrash):
 
 ```bash
 sudo wg-quick up wg0
-curl --interface wg0 -m 10 http://ifconfig.me   # should return VPN IP, not your ISP's
+curl --interface wg0 -m 10 http://ifconfig.me   # should return VPN IP
 ```
 
-**5. Start Gatecrash:**
+Or use the **Check VPN IP** button in the web UI.
 
-```bash
-sudo /opt/gatecrash/start.sh
-```
-
-On the target device, visit https://whatismyip.com — it should show the VPN
-exit IP, not your ISP's IP.
-
-**6. Enable on boot once you're happy it works:**
+**4. Enable Gatecrash on boot** once you're happy it works:
 
 ```bash
 sudo systemctl enable gatecrash
 ```
 
-**Other commands:**
+**CLI commands (if preferred):**
 
 ```bash
+sudo /opt/gatecrash/start.sh         # start
 sudo /opt/gatecrash/stop.sh          # stop and restore normal routing
-sudo systemctl status gatecrash      # check service status
+sudo systemctl status gatecrash      # service status
+sudo systemctl status gatecrash-webui  # web UI status
 ```
 
 ---
