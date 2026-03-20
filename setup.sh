@@ -28,7 +28,7 @@ echo ""
 
 echo "Installing dependencies..."
 apt-get update -q
-apt-get install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon
+apt-get install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon nmap
 
 for bin in wg-quick arpspoof iptables ip curl python3 tcpdump; do
     command -v "$bin" &>/dev/null || { echo "ERROR: $bin not found after install."; exit 1; }
@@ -153,6 +153,9 @@ echo "  [OK] Repo path saved."
 # Allow root to run git in this repo (owned by a different user)
 git config --global --add safe.directory "$SCRIPT_DIR"
 echo "  [OK] Git safe.directory configured."
+
+# Signal that upgrade is complete
+rm -f /tmp/gatecrash-upgrading
 
 # ---------------------------------------------------------------------------
 # Done

@@ -195,6 +195,25 @@ def api_autostart():
     return jsonify({"ok": True, "results": results})
 
 
+@app.route("/api/upgrading")
+def api_upgrading():
+    return jsonify({"upgrading": os.path.exists("/tmp/gatecrash-upgrading")})
+
+
+@app.route("/api/devices/scan", methods=["POST"])
+def api_devices_scan():
+    conf = read_conf()
+    lan_if = conf.get("LAN_IF", "eth0")
+    # Detect subnet from the LAN interface
+    subnet, rc = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | head -1")
+    if rc != 0 or not subnet.strip():
+        return jsonify({"ok": False, "error": f"Could not detect subnet for {lan_if}"})
+    out, rc = run(f"nmap -sn {subnet.strip()} 2>&1", timeout=60)
+    if rc != 0:
+        return jsonify({"ok": False, "error": out})
+    return jsonify({"ok": True})
+
+
 @app.route("/api/devices")
 def api_devices():
     import socket
@@ -306,10 +325,12 @@ def api_update_apply():
     # Write a small upgrade script and run it detached.
     # setup.sh restarts this service, so we must not wait for it.
     upgrade_script = f"""#!/bin/bash
+touch /tmp/gatecrash-upgrading
 sleep 1
 cd {repo}
 git -c safe.directory={repo} pull
 bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
+rm -f /tmp/gatecrash-upgrading
 """
     script_path = "/tmp/gatecrash-upgrade.sh"
     with open(script_path, "w") as f:

@@ -292,8 +292,11 @@
       </button>
       <div id="device-browser" style="display:none;margin-top:10px;border:1px solid #eee;border-radius:8px;overflow:hidden;">
         <div style="padding:8px 12px;background:#f7f8fa;font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:center;">
-          <span>Devices seen on the network (ARP cache)</span>
-          <button type="button" onclick="loadDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#2196f3;padding:0;">&#8635; Refresh</button>
+          <span id="device-browser-status">Devices seen on the network</span>
+          <div style="display:flex;gap:10px;">
+            <button type="button" onclick="scanDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#4caf50;padding:0;font-weight:600;">&#128269; Scan network</button>
+            <button type="button" onclick="loadDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#2196f3;padding:0;">&#8635; Refresh</button>
+          </div>
         </div>
         <div id="device-list" style="max-height:220px;overflow-y:auto;">
           <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading...</div>
@@ -555,6 +558,26 @@ async function saveConfig() {
 // Device browser
 // ---------------------------------------------------------------------------
 
+async function scanDevices() {
+  const status = document.getElementById('device-browser-status');
+  const list = document.getElementById('device-list');
+  status.textContent = 'Scanning network... (up to 30s)';
+  list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Scanning — this may take a few seconds...</div>';
+  try {
+    const r = await fetch('/api/devices/scan', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok) {
+      status.textContent = '✗ Scan failed: ' + d.error;
+      return;
+    }
+  } catch(e) {
+    status.textContent = '✗ Scan failed';
+    return;
+  }
+  status.textContent = 'Devices seen on the network';
+  await loadDevices();
+}
+
 async function toggleDeviceBrowser() {
   const el = document.getElementById('device-browser');
   if (el.style.display === 'none') {
@@ -711,19 +734,19 @@ async function applyUpdate() {
 
   await fetch('/api/update/apply', {method: 'POST'});
 
-  // Poll until the service goes down, then comes back up, then give
-  // setup.sh a few extra seconds to finish before reloading.
-  let wentDown = false;
+  // Poll until upgrade flag is gone (set at start, removed at end of setup.sh)
+  // This ensures we don't reload until setup has fully completed.
   const poll = setInterval(async () => {
     try {
-      const r = await fetch('/api/status', {signal: AbortSignal.timeout(2000)});
-      if (r.ok && wentDown) {
-        clearInterval(poll);
-        setTimeout(() => window.location.reload(), 5000);
+      const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(2000)});
+      if (r.ok) {
+        const d = await r.json();
+        if (!d.upgrading) {
+          clearInterval(poll);
+          window.location.reload();
+        }
       }
-    } catch(e) {
-      wentDown = true; // service is down — setup is running
-    }
+    } catch(e) { /* still restarting, keep polling */ }
   }, 2000);
 }
 
