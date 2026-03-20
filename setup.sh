@@ -133,8 +133,8 @@ python3 -m venv "$WEBUI_DIR/venv"
 cp "$SCRIPT_DIR/webui/gatecrash-webui.service" /etc/systemd/system/gatecrash-webui.service
 systemctl daemon-reload
 systemctl enable gatecrash-webui
-systemctl start gatecrash-webui
-echo "  [OK] Web UI installed and started."
+systemctl restart gatecrash-webui
+echo "  [OK] Web UI installed and restarted."
 
 # ---------------------------------------------------------------------------
 # Done
