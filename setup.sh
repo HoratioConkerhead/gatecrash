@@ -51,6 +51,16 @@ echo "  [OK] IP forwarding enabled."
 # ---------------------------------------------------------------------------
 
 echo "Configuring policy routing..."
+if [[ ! -f "$RT_TABLES" ]]; then
+    mkdir -p /etc/iproute2
+    cat > "$RT_TABLES" <<EOF
+255     local
+254     main
+253     default
+0       unspec
+EOF
+    echo "  [OK] Created $RT_TABLES."
+fi
 if grep -q "vpntarget" "$RT_TABLES"; then
     echo "  [OK] vpntarget routing table already present."
 else
