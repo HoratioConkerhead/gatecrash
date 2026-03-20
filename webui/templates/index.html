@@ -302,12 +302,13 @@
         <div style="padding:8px 12px;background:#f7f8fa;font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:center;">
           <span id="device-browser-status">Devices seen on the network</span>
           <div style="display:flex;gap:10px;">
-            <button type="button" onclick="scanDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#4caf50;padding:0;font-weight:600;">&#128269; Scan network</button>
-            <button type="button" onclick="loadDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#2196f3;padding:0;">&#8635; Refresh</button>
+            <button type="button" id="btn-scan" onclick="scanDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#4caf50;padding:0;font-weight:600;">&#128269; Scan network</button>
+            <button type="button" onclick="loadDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#2196f3;padding:0;">&#8635; ARP cache</button>
           </div>
         </div>
+        <div id="scan-log" style="display:none;background:#1a1a2e;color:#a8e6cf;font-family:monospace;font-size:12px;padding:10px 12px;max-height:140px;overflow-y:auto;"></div>
         <div id="device-list" style="max-height:220px;overflow-y:auto;">
-          <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading...</div>
+          <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Click Scan or ARP cache to find devices</div>
         </div>
       </div>
     </div>
@@ -566,24 +567,43 @@ async function saveConfig() {
 // Device browser
 // ---------------------------------------------------------------------------
 
-async function scanDevices() {
-  const status = document.getElementById('device-browser-status');
-  const list = document.getElementById('device-list');
-  status.textContent = 'Scanning network... (up to 30s)';
-  list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Scanning — this may take a few seconds...</div>';
-  try {
-    const r = await fetch('/api/devices/scan', {method: 'POST'});
-    const d = await r.json();
-    if (!d.ok) {
-      status.textContent = '✗ Scan failed: ' + d.error;
-      return;
-    }
-  } catch(e) {
-    status.textContent = '✗ Scan failed';
-    return;
-  }
-  status.textContent = 'Devices seen on the network';
-  await loadDevices();
+function scanDevices() {
+  const status  = document.getElementById('device-browser-status');
+  const scanLog = document.getElementById('scan-log');
+  const list    = document.getElementById('device-list');
+  const btn     = document.getElementById('btn-scan');
+
+  status.textContent = 'Scanning...';
+  scanLog.style.display = '';
+  scanLog.textContent = '';
+  list.innerHTML = '';
+  btn.style.color = '#aaa';
+  btn.disabled = true;
+
+  const es = new EventSource('/api/devices/scan-stream');
+
+  es.onmessage = (e) => {
+    const line = document.createElement('div');
+    line.textContent = e.data;
+    scanLog.appendChild(line);
+    scanLog.scrollTop = scanLog.scrollHeight;
+  };
+
+  es.addEventListener('devices', (e) => {
+    es.close();
+    btn.disabled = false;
+    btn.style.color = '#4caf50';
+    const devices = JSON.parse(e.data);
+    status.textContent = `Found ${devices.length} device${devices.length !== 1 ? 's' : ''}`;
+    renderDevices(devices);
+  });
+
+  es.onerror = () => {
+    es.close();
+    btn.disabled = false;
+    btn.style.color = '#4caf50';
+    status.textContent = 'Scan error — check LAN interface in config';
+  };
 }
 
 async function toggleDeviceBrowser() {
@@ -598,20 +618,31 @@ async function toggleDeviceBrowser() {
 
 async function loadDevices() {
   const list = document.getElementById('device-list');
-  list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Scanning...</div>';
+  const status = document.getElementById('device-browser-status');
+  document.getElementById('scan-log').style.display = 'none';
+  list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading ARP cache...</div>';
   const r = await fetch('/api/devices');
   const d = await r.json();
-
   if (!d.ok || !d.devices.length) {
-    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No devices found in ARP cache</div>';
+    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No devices in ARP cache — try Scan network</div>';
+    return;
+  }
+  status.textContent = `${d.devices.length} device${d.devices.length !== 1 ? 's' : ''} in ARP cache`;
+  renderDevices(d.devices);
+}
+
+function renderDevices(devices) {
+  const list = document.getElementById('device-list');
+  const currentTargets = document.getElementById('cfg-targets').value
+    .split(/\s+/).map(s => s.trim()).filter(Boolean);
+
+  if (!devices.length) {
+    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No devices found</div>';
     return;
   }
 
-  const currentTargets = () => document.getElementById('cfg-targets').value
-    .split(/\s+/).map(s => s.trim()).filter(Boolean);
-
-  list.innerHTML = d.devices.map(dev => {
-    const label = dev.hostname || dev.ip;
+  list.innerHTML = devices.map(dev => {
+    const label    = dev.hostname || dev.ip;
     const sublabel = dev.hostname ? dev.ip : '';
     return `
       <div class="device-row" id="drow-${dev.ip.replace(/\./g,'-')}">
@@ -619,13 +650,12 @@ async function loadDevices() {
           ${label}
           ${sublabel ? `<div style="font-weight:400;color:#999;font-size:11px;">${sublabel}</div>` : ''}
         </div>
-        <div class="device-mac">${dev.mac}</div>
+        <div class="device-mac">${dev.mac || ''}</div>
         <button class="device-add" onclick="addDevice('${dev.ip}', this)">+ Add</button>
       </div>`;
   }).join('');
 
-  // Mark already-added devices
-  currentTargets().forEach(ip => markAdded(ip));
+  currentTargets.forEach(ip => markAdded(ip));
 }
 
 function addDevice(ip, btn) {

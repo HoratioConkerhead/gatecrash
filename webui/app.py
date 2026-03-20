@@ -231,18 +231,73 @@ def api_upgrade_log():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.route("/api/devices/scan", methods=["POST"])
-def api_devices_scan():
+def parse_nmap_devices(output):
+    """Parse nmap -sn output into a list of device dicts."""
+    import re
+    devices = []
+    current = {}
+    for line in output.splitlines():
+        m = re.match(r"Nmap scan report for (.+?) \((\d+\.\d+\.\d+\.\d+)\)", line)
+        if m:
+            if current:
+                devices.append(current)
+            current = {"hostname": m.group(1), "ip": m.group(2), "mac": ""}
+            continue
+        m = re.match(r"Nmap scan report for (\d+\.\d+\.\d+\.\d+)", line)
+        if m:
+            if current:
+                devices.append(current)
+            current = {"hostname": "", "ip": m.group(1), "mac": ""}
+            continue
+        m = re.search(r"MAC Address: ([0-9A-Fa-f:]{17})", line)
+        if m and current:
+            current["mac"] = m.group(1).lower()
+    if current:
+        devices.append(current)
+    devices.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
+    return devices
+
+
+@app.route("/api/devices/scan-stream")
+def api_devices_scan_stream():
+    """SSE stream of nmap scan output, followed by parsed device list."""
     conf = read_conf()
     lan_if = conf.get("LAN_IF", "eth0")
-    # Detect subnet from the LAN interface
-    subnet, rc = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | head -1")
-    if rc != 0 or not subnet.strip():
-        return jsonify({"ok": False, "error": f"Could not detect subnet for {lan_if}"})
-    out, rc = run(f"nmap -sn {subnet.strip()} 2>&1", timeout=60)
-    if rc != 0:
-        return jsonify({"ok": False, "error": out})
-    return jsonify({"ok": True})
+
+    def generate():
+        subnet, rc = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | head -1")
+        if rc != 0 or not subnet.strip():
+            yield f"data: ERROR: Could not detect subnet for {lan_if}\n\n"
+            yield "event: done\ndata: []\n\n"
+            return
+
+        yield f"data: Scanning {subnet.strip()} ...\n\n"
+
+        try:
+            proc = subprocess.Popen(
+                ["nmap", "-sn", "--stats-every", "3s", subnet.strip()],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            output_lines = []
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    output_lines.append(line)
+                    yield f"data: {line}\n\n"
+            proc.wait()
+            full_output = "\n".join(output_lines)
+            devices = parse_nmap_devices(full_output)
+            import json
+            yield f"event: devices\ndata: {json.dumps(devices)}\n\n"
+        except Exception as e:
+            yield f"data: ERROR: {e}\n\n"
+            yield "event: devices\ndata: []\n\n"
+
+    return Response(stream_with_context(generate()),
+                    mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/api/devices")
