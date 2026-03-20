@@ -218,10 +218,10 @@ def api_update_check():
     repo = get_repo_path()
     if not repo:
         return jsonify({"ok": False, "error": "Repo path not set — re-run setup.sh"})
-    fetch_out, rc = run(f"git -C {repo} fetch origin 2>&1")
+    fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1")
     if rc != 0:
         return jsonify({"ok": False, "error": fetch_out})
-    behind_out, _ = run(f"git -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
+    behind_out, _ = run(f"git -c safe.directory={repo} -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
     try:
         behind = int(behind_out.strip())
     except ValueError:
@@ -239,7 +239,7 @@ def api_update_apply():
     upgrade_script = f"""#!/bin/bash
 sleep 1
 cd {repo}
-git pull
+git -c safe.directory={repo} pull
 bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
 """
     script_path = "/tmp/gatecrash-upgrade.sh"

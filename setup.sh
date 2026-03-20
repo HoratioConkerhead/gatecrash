@@ -150,6 +150,10 @@ echo "  [OK] Web UI installed and restarted."
 echo "$SCRIPT_DIR" > "$INSTALL_DIR/repo_path"
 echo "  [OK] Repo path saved."
 
+# Allow root to run git in this repo (owned by a different user)
+git config --global --add safe.directory "$SCRIPT_DIR"
+echo "  [OK] Git safe.directory configured."
+
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
