@@ -451,11 +451,10 @@ sudo systemctl start gatecrash
 
 ## Future Ideas
 
-- Config file driven target management
+- Web UI for managing targets (add/remove devices, enter WireGuard config, view status)
 - CLI wrapper (`gatecrash add/remove/status/list`)
-- Automatic vpntarget route restoration after WireGuard restart
-- Web UI for managing targets
 - Per-device VPN exit selection (different countries for different devices)
+- **Appliance image** — a flashable SD card image (Pi-hole style) for Raspberry Pi or similar SBC, so setup is: flash → plug in → open browser. No Linux knowledge required. Likely based on Raspberry Pi OS Lite or DietPi as the base OS
 
 ## License
 
