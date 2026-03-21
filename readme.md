@@ -409,10 +409,19 @@ sudo systemctl enable gatecrash
 - Surfshark WireGuard (Albania endpoint)
 - LG smart TV and Windows laptop as target devices
 
+## Known Issues / TODO
+
+- **Upgrade log doesn't stream in real time** — log panel appears but doesn't update until after the upgrade completes; SSE connection drops when the web UI restarts mid-upgrade
+- **nmap window** — make it larger and collapsible, ideally as a modal overlay that can be dismissed
+- **Device list** — make it taller with an expand/collapse toggle
+- **Update available text** — show the git commit message and target version number (e.g. "Upgrade to v0.3.0 — Add MAC tracking") rather than just a commit count
+- **Update button flow** — when an update is available, hide the Check button and show only the Upgrade button labelled with the version and commit message; hide it again once up to date
+
 ## Future Ideas
 
-- CLI wrapper (`gatecrash add/remove/status/list`)
-- Per-device VPN exit selection (different countries for different devices)
+- **MAC-based device tracking** — store devices by MAC address rather than IP, monitor the ARP table for MAC→IP changes, and automatically update iptables rules and arpspoof when a device's IP changes. Currently a DHCP reservation is needed to keep IPs stable; MAC tracking would make Gatecrash robust without it
+- **Per-device VPN exit selection** — different countries for different devices
+- **CLI wrapper** — `gatecrash add/remove/status/list`
 - **Appliance image** — a flashable SD card image (Pi-hole style) for Raspberry Pi or similar SBC, so setup is: flash → plug in → open browser. No Linux knowledge required. Likely based on Raspberry Pi OS Lite as the base OS
 
 ## License

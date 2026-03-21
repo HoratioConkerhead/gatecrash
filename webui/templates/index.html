@@ -369,8 +369,9 @@
       </label>
     </div>
     <div class="save-status" id="as-status"></div>
-    <div style="border-top:1px solid #eee;padding-top:14px;margin-top:4px;">
-      <button class="btn-grey" onclick="reboot()" style="width:100%;">&#8635; Reboot Device</button>
+    <div style="border-top:1px solid #eee;padding-top:14px;margin-top:4px;display:flex;gap:10px;">
+      <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
+      <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
     </div>
   </div>
 
@@ -704,8 +705,9 @@ async function setAutostart(which, enabled) {
 async function reboot() {
   if (!confirm('Reboot the Gatecrash device?')) return;
   await fetch('/api/reboot', {method: 'POST'});
-  document.getElementById('ctrl-output').classList.remove('hidden');
-  document.getElementById('ctrl-output').textContent = 'Rebooting... page will reload when device is back.';
+  const out = document.getElementById('ctrl-output');
+  out.classList.remove('hidden');
+  out.textContent = 'Rebooting... page will reload when device is back.';
   setTimeout(() => {
     const poll = setInterval(async () => {
       try {
@@ -715,6 +717,14 @@ async function reboot() {
       } catch(e) {}
     }, 3000);
   }, 5000);
+}
+
+async function shutdown() {
+  if (!confirm('Shut down the Gatecrash device?')) return;
+  await fetch('/api/shutdown', {method: 'POST'});
+  const out = document.getElementById('ctrl-output');
+  out.classList.remove('hidden');
+  out.textContent = 'Shutting down... you will need to physically power the device back on.';
 }
 
 async function loadWGConfig() {

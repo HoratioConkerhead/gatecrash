@@ -339,6 +339,12 @@ def api_reboot():
     return jsonify({"ok": True})
 
 
+@app.route("/api/shutdown", methods=["POST"])
+def api_shutdown():
+    subprocess.Popen(["shutdown", "-h", "now"])
+    return jsonify({"ok": True})
+
+
 @app.route("/api/test-vpn")
 def api_test_vpn():
     ip, rc = run("curl --interface wg0 -m 10 -s http://ifconfig.me 2>&1")
