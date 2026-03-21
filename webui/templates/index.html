@@ -369,8 +369,14 @@
             <button type="button" onclick="loadDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#2196f3;padding:0;">&#8635; ARP cache</button>
           </div>
         </div>
-        <div id="device-list" style="max-height:220px;overflow-y:auto;">
+        <div id="device-list" style="max-height:220px;overflow-y:auto;transition:max-height 0.3s ease;">
           <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Click Scan or ARP cache to find devices</div>
+        </div>
+        <div style="text-align:center;padding:4px;border-top:1px solid #eee;background:#fafbfc;">
+          <button type="button" id="btn-expand-devices" onclick="toggleDeviceListSize()"
+                  style="background:none;border:none;cursor:pointer;font-size:12px;color:#999;padding:4px 12px;">
+            &#9660; Expand
+          </button>
         </div>
       </div>
     </div>
@@ -720,6 +726,15 @@ async function loadDevices() {
   }
   status.textContent = `${d.devices.length} device${d.devices.length !== 1 ? 's' : ''} in ARP cache`;
   renderDevices(d.devices);
+}
+
+let deviceListExpanded = false;
+function toggleDeviceListSize() {
+  const list = document.getElementById('device-list');
+  const btn  = document.getElementById('btn-expand-devices');
+  deviceListExpanded = !deviceListExpanded;
+  list.style.maxHeight = deviceListExpanded ? '520px' : '220px';
+  btn.innerHTML = deviceListExpanded ? '&#9650; Collapse' : '&#9660; Expand';
 }
 
 function renderDevices(devices) {

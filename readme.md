@@ -516,7 +516,6 @@ sudo systemctl enable gatecrash
 
 ## Known Issues / TODO
 
-- **Device list** — make it taller with an expand/collapse toggle
 
 ## Future Ideas
 
