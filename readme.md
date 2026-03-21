@@ -55,7 +55,112 @@ sudo systemctl status gatecrash-webui  # web UI status
 ## Preparing the VM
 
 These steps get the VM ready before you run `setup.sh`. The instructions
-cover Hyper-V specifically but the concepts apply to any hypervisor.
+cover Hyper-V on Windows specifically.
+
+> **Note:** This process is more involved than it needs to be. Streamlining
+> it (ideally into a flashable image) is on the roadmap.
+
+### Hyper-V VM Setup (Detailed)
+
+#### 1. Create the VM in Hyper-V Manager
+
+- **New → Virtual Machine**
+- Memory: 2 GB
+- Network: select your **External** virtual switch
+- Disk: 8 GB, stored wherever you keep your VMs
+- ISO: **Debian 13 netinstall** — use the small installation image from [debian.org](https://www.debian.org/distrib/)
+
+Then before starting, go into **Settings**:
+- **Security** → disable Secure Boot
+- **Network Adapter → Advanced Features** → enable MAC address spoofing
+
+Start the VM and connect to it. Once Debian is installed, go back into
+Settings and:
+- **Network Adapter → Advanced Features** → switch MAC address from Dynamic
+  to **Static** and note the value (e.g. `00:15:5d:01:51:1e`)
+
+Then on your router, create a **DHCP reservation** binding that MAC address
+to a fixed IP (e.g. `192.168.1.9`).
+
+#### 2. Install Debian
+
+Choose **graphical install** or plain **install** — either works.
+
+- Language: English, location: UK, locale: British English
+- Hostname: `gatecrash`, domain: leave blank
+- Set a root password (keep a note of it)
+- Create a user account with a username and password of your choice
+- Disk: **Guided — use entire disk**, partitioning scheme: **all files in one partition**
+- Extra media: No
+- Mirror: pick any
+
+**Software selection** — uncheck everything except:
+- **SSH server**
+- **Standard system utilities**
+
+No desktop environment.
+
+#### 3. Post-install: enable sudo
+
+Log in as your user. You'll need to use `su` to run root commands until
+`sudo` is set up:
+
+```bash
+su -
+/usr/sbin/usermod -aG sudo yourusername
+exit
+```
+
+Log out and back in, then verify:
+
+```bash
+sudo apt update
+```
+
+#### 4. Enable SSH password authentication
+
+```bash
+sudo nano /etc/ssh/sshd_config
+```
+
+Make sure these lines are set to `yes`:
+
+```
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+```
+
+Then:
+
+```bash
+sudo systemctl restart ssh
+```
+
+You can now SSH in from Windows: `ssh yourusername@192.168.1.x`
+
+#### 5. Create a GitHub token
+
+You need a read-only token to clone the (private) repo:
+
+1. GitHub → profile picture → **Settings → Developer settings**
+2. **Fine-grained tokens → Generate new token**
+3. Repository access: **Only select repositories** → pick `gatecrash`
+4. Permissions → **Contents: Read-only**
+5. Expiry: your preference (No expiry is fine for a dedicated device)
+6. Copy the token — you won't see it again
+
+#### 6. Clone and run setup
+
+```bash
+sudo apt install -y git
+git clone https://YOUR_TOKEN@github.com/HoratioConkerhead/gatecrash
+cd gatecrash
+sudo bash setup.sh
+```
+
+Replace `YOUR_TOKEN` with the token you just created.
+
+---
 
 ### 1. Reserve a static IP for the VM on your router
 
