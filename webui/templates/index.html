@@ -311,7 +311,10 @@
 
 <!-- Upgrade log panel (hidden until upgrade starts) -->
 <div id="upgrade-panel" style="display:none;background:#1a1a2e;color:#a8e6cf;font-family:monospace;font-size:13px;padding:16px 24px;max-height:300px;overflow-y:auto;border-bottom:3px solid #4caf50;">
-  <div style="color:#4caf50;font-weight:700;margin-bottom:8px;">&#9654; Upgrading Gatecrash — do not close this page</div>
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;">
+    <span style="color:#4caf50;font-weight:700;">&#9654; Upgrading Gatecrash — do not close this page</span>
+    <a href="/" style="color:#888;font-size:12px;text-decoration:underline;cursor:pointer;">Reload manually if stuck</a>
+  </div>
   <div id="upgrade-log-lines"></div>
 </div>
 </header>
@@ -899,7 +902,7 @@ async function applyUpdate() {
     // 1. Check upgrading flag
     let upgrading = true;
     try {
-      const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(1500)});
+      const r = await fetch('/api/upgrading');
       if (r.ok) {
         const d = await r.json();
         upgrading = d.upgrading;
@@ -918,7 +921,7 @@ async function applyUpdate() {
 
     // 2. Show any new log lines
     try {
-      const lr = await fetch('/api/upgrade-log-content', {signal: AbortSignal.timeout(1500)});
+      const lr = await fetch('/api/upgrade-log-content');
       const ld = await lr.json();
       if (ld.ok) {
         const allLines = ld.content.split('\n').filter(l => l);
@@ -933,7 +936,7 @@ async function applyUpdate() {
     if (!upgrading) {
       clearInterval(poll);
       appendLogLine('Setup complete. Reloading...', '#4caf50');
-      setTimeout(() => window.location.reload(), 1500);
+      setTimeout(() => { window.location.href = '/'; }, 1500);
     }
   }, 1000);
 }
