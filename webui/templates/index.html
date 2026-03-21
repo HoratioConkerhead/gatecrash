@@ -366,11 +366,10 @@
           <span id="device-browser-status">Devices seen on the network</span>
           <div style="display:flex;gap:10px;">
             <button type="button" id="btn-scan" onclick="scanDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#4caf50;padding:0;font-weight:600;">&#128269; Scan network</button>
-            <button type="button" onclick="loadDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#2196f3;padding:0;">&#8635; ARP cache</button>
           </div>
         </div>
         <div id="device-list" style="max-height:220px;overflow-y:auto;transition:max-height 0.3s ease;">
-          <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Click Scan or ARP cache to find devices</div>
+          <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Click Scan network to find devices</div>
         </div>
         <div style="text-align:center;padding:4px;border-top:1px solid #eee;background:#fafbfc;">
           <button type="button" id="btn-expand-devices" onclick="toggleDeviceListSize()"
@@ -703,29 +702,13 @@ function closeScanModalNow() {
   document.getElementById('scan-modal').classList.remove('open');
 }
 
-async function toggleDeviceBrowser() {
+function toggleDeviceBrowser() {
   const el = document.getElementById('device-browser');
   if (el.style.display === 'none') {
     el.style.display = '';
-    await loadDevices();
   } else {
     el.style.display = 'none';
   }
-}
-
-async function loadDevices() {
-  const list = document.getElementById('device-list');
-  const status = document.getElementById('device-browser-status');
-  document.getElementById('scan-log').style.display = 'none';
-  list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading ARP cache...</div>';
-  const r = await fetch('/api/devices');
-  const d = await r.json();
-  if (!d.ok || !d.devices.length) {
-    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No devices in ARP cache — try Scan network</div>';
-    return;
-  }
-  status.textContent = `${d.devices.length} device${d.devices.length !== 1 ? 's' : ''} in ARP cache`;
-  renderDevices(d.devices);
 }
 
 let deviceListExpanded = false;
