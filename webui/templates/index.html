@@ -907,62 +907,52 @@ async function applyUpdate() {
 
   await fetch('/api/update/apply', {method: 'POST'});
 
-  // Phase 1: stream live SSE output until the service restarts
+  // Poll the log file and upgrading flag every second.
+  // Simple polling is more reliable than SSE across a service restart.
   let lastLineCount = 0;
-  const es = new EventSource('/api/upgrade-log');
+  let restarting = false;
 
-  es.onmessage = (e) => {
-    if (!e.data) return;
-    appendLogLine(e.data);
-    lastLineCount++;
-  };
-
-  es.addEventListener('done', () => {
-    // Setup finished without a service restart interrupting us
-    es.close();
-    appendLogLine('Reloading...', '#4caf50');
-    setTimeout(() => window.location.reload(), 1500);
-  });
-
-  es.onerror = () => {
-    // Service restarted — SSE connection dropped
-    es.close();
-    appendLogLine('— web UI restarting, waiting for setup to finish... —', '#888');
-
-    // Phase 2: poll until upgrade flag is gone, then reload
-    const poll = setInterval(async () => {
-      // Check if upgrade is done — kept separate so a log fetch error can't block it
-      let upgrading = true;
-      try {
-        const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(2000)});
-        if (r.ok) {
-          const d = await r.json();
-          upgrading = d.upgrading;
+  const poll = setInterval(async () => {
+    // 1. Check upgrading flag
+    let upgrading = true;
+    try {
+      const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(1500)});
+      if (r.ok) {
+        const d = await r.json();
+        upgrading = d.upgrading;
+        if (restarting) {
+          restarting = false;
+          appendLogLine('— web UI back up —', '#4caf50');
         }
-      } catch(e) {
-        return; // service still restarting, try again next tick
       }
+    } catch(e) {
+      if (!restarting) {
+        restarting = true;
+        appendLogLine('— web UI restarting... —', '#888');
+      }
+      return; // service mid-restart, try again next tick
+    }
 
-      // Try to show new log lines (best effort — don't let this block the reload)
-      try {
-        const lr = await fetch('/api/upgrade-log-content', {signal: AbortSignal.timeout(2000)});
-        const ld = await lr.json();
-        if (ld.ok) {
-          const allLines = ld.content.split('\n').filter(l => l);
-          for (let i = lastLineCount; i < allLines.length; i++) {
-            appendLogLine(allLines[i]);
-          }
-          lastLineCount = allLines.length;
+    // 2. Show any new log lines
+    try {
+      const lr = await fetch('/api/upgrade-log-content', {signal: AbortSignal.timeout(1500)});
+      const ld = await lr.json();
+      if (ld.ok) {
+        const allLines = ld.content.split('\n').filter(l => l);
+        for (let i = lastLineCount; i < allLines.length; i++) {
+          appendLogLine(allLines[i]);
         }
-      } catch(e) { /* log fetch failed — ignore */ }
-
-      if (!upgrading) {
-        clearInterval(poll);
-        appendLogLine('Setup complete. Reloading...', '#4caf50');
-        setTimeout(() => window.location.reload(), 1500);
+        lastLineCount = allLines.length;
       }
-    }, 2000);
-  };
+    } catch(e) { /* log temporarily unavailable — ignore */ }
+
+    // 3. Reload when done
+    if (!upgrading) {
+      clearInterval(poll);
+      appendLogLine('Setup complete. Reloading...', '#4caf50');
+      setTimeout(() => window.location.reload(), 1500);
+    }
+  }, 1000);
 }
 
 // Load on page open
