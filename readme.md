@@ -522,7 +522,8 @@ sudo systemctl enable gatecrash
 ## Future Ideas
 
 - **MAC-based device tracking** — store devices by MAC address rather than IP, monitor the ARP table for MAC→IP changes, and automatically update iptables rules and arpspoof when a device's IP changes. Currently a DHCP reservation is needed to keep IPs stable; MAC tracking would make Gatecrash robust without it
-- **Per-device VPN exit selection** — different countries for different devices
+- **Per-app VPN** — route only traffic from specific app ot to specific destinastions, e.g. all youtube traffic
+- **Auto configu VPN** - for known VPNs, get config by logging on as user, or accept the vpn config file the vpn provider provides
 - **CLI wrapper** — `gatecrash add/remove/status/list`
 - **Appliance image** — a flashable SD card image (Pi-hole style) for Raspberry Pi or similar SBC, so setup is: flash → plug in → open browser. No Linux knowledge required. Likely based on Raspberry Pi OS Lite as the base OS
 
