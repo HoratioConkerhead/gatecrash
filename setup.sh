@@ -136,13 +136,20 @@ mkdir -p "$WEBUI_DIR/templates"
 cp "$SCRIPT_DIR/webui/app.py" "$WEBUI_DIR/app.py"
 cp "$SCRIPT_DIR/webui/templates/index.html" "$WEBUI_DIR/templates/index.html"
 
-echo "  Creating Python virtual environment..."
-python3 -m venv "$WEBUI_DIR/venv"
-"$WEBUI_DIR/venv/bin/pip" install --quiet flask
+if [[ ! -d "$WEBUI_DIR/venv" ]]; then
+    echo "  Creating Python virtual environment..."
+    python3 -m venv "$WEBUI_DIR/venv"
+    echo "  Installing Flask..."
+    "$WEBUI_DIR/venv/bin/pip" install --quiet flask
+    echo "  [OK] Python environment ready."
+else
+    echo "  [OK] Python virtual environment already exists — skipping."
+fi
 
 cp "$SCRIPT_DIR/webui/gatecrash-webui.service" /etc/systemd/system/gatecrash-webui.service
 systemctl daemon-reload
 systemctl enable gatecrash-webui
+echo "  Restarting web UI service (connection will drop briefly)..."
 systemctl restart gatecrash-webui
 echo "  [OK] Web UI installed and restarted."
 
