@@ -516,7 +516,6 @@ sudo systemctl enable gatecrash
 
 ## Known Issues / TODO
 
-- **nmap window** — make it larger and collapsible, ideally as a modal overlay that can be dismissed
 - **Device list** — make it taller with an expand/collapse toggle
 
 ## Future Ideas
