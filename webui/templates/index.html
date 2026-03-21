@@ -914,15 +914,23 @@ async function applyUpdate() {
     es.close();
     appendLogLine('— web UI restarting, waiting for setup to finish... —', '#888');
 
-    // Phase 2: poll until upgrade flag is gone, then fetch full log
+    // Phase 2: poll until upgrade flag is gone, then reload
     const poll = setInterval(async () => {
+      // Check if upgrade is done — kept separate so a log fetch error can't block it
+      let upgrading = true;
       try {
         const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(2000)});
-        if (!r.ok) return;
-        const d = await r.json();
+        if (r.ok) {
+          const d = await r.json();
+          upgrading = d.upgrading;
+        }
+      } catch(e) {
+        return; // service still restarting, try again next tick
+      }
 
-        // Show any new log lines that appeared while we were disconnected
-        const lr = await fetch('/api/upgrade-log-content');
+      // Try to show new log lines (best effort — don't let this block the reload)
+      try {
+        const lr = await fetch('/api/upgrade-log-content', {signal: AbortSignal.timeout(2000)});
         const ld = await lr.json();
         if (ld.ok) {
           const allLines = ld.content.split('\n').filter(l => l);
@@ -931,13 +939,13 @@ async function applyUpdate() {
           }
           lastLineCount = allLines.length;
         }
+      } catch(e) { /* log fetch failed — ignore */ }
 
-        if (!d.upgrading) {
-          clearInterval(poll);
-          appendLogLine('Setup complete. Reloading...', '#4caf50');
-          setTimeout(() => window.location.reload(), 1500);
-        }
-      } catch(e) { /* still restarting, keep polling */ }
+      if (!upgrading) {
+        clearInterval(poll);
+        appendLogLine('Setup complete. Reloading...', '#4caf50');
+        setTimeout(() => window.location.reload(), 1500);
+      }
     }, 2000);
   };
 }
