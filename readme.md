@@ -516,11 +516,8 @@ sudo systemctl enable gatecrash
 
 ## Known Issues / TODO
 
-- **Upgrade log doesn't stream in real time** — log panel appears but doesn't update until after the upgrade completes; SSE connection drops when the web UI restarts mid-upgrade
 - **nmap window** — make it larger and collapsible, ideally as a modal overlay that can be dismissed
 - **Device list** — make it taller with an expand/collapse toggle
-- **Update available text** — show the git commit message and target version number (e.g. "Upgrade to v0.3.0 — Add MAC tracking") rather than just a commit count
-- **Update button flow** — when an update is available, hide the Check button and show only the Upgrade button labelled with the version and commit message; hide it again once up to date
 
 ## Future Ideas
 

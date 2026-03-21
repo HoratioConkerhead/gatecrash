@@ -407,7 +407,23 @@ def api_update_check():
         behind = int(behind_out.strip())
     except ValueError:
         behind = 0
-    return jsonify({"ok": True, "behind": behind})
+    commit_msg, _ = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null")
+    remote_version, _ = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null")
+    return jsonify({
+        "ok": True,
+        "behind": behind,
+        "commit_message": commit_msg.strip(),
+        "remote_version": remote_version.strip(),
+    })
+
+
+@app.route("/api/upgrade-log-content")
+def api_upgrade_log_content():
+    try:
+        with open("/var/log/gatecrash-upgrade.log") as f:
+            return jsonify({"ok": True, "content": f.read()})
+    except Exception as e:
+        return jsonify({"ok": False, "content": "", "error": str(e)})
 
 
 @app.route("/api/update/apply", methods=["POST"])

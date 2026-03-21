@@ -241,7 +241,7 @@
   <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
     <span id="update-status" style="font-size:13px;color:#aaa;"></span>
     <button class="btn-grey" id="btn-check-update" onclick="checkUpdate()" style="padding:6px 14px;font-size:13px;">Check for updates</button>
-    <button class="btn-blue" id="btn-apply-update" onclick="applyUpdate()" style="padding:6px 14px;font-size:13px;display:none;">&#8593; Apply Update</button>
+    <button class="btn-blue" id="btn-apply-update" onclick="applyUpdate()" style="padding:6px 14px;font-size:13px;display:none;">&#8593; Upgrade</button>
   </div>
 </header>
 
@@ -751,10 +751,12 @@ async function saveWGConfig() {
 // ---------------------------------------------------------------------------
 
 async function checkUpdate() {
-  const status = document.getElementById('update-status');
+  const status   = document.getElementById('update-status');
   const applyBtn = document.getElementById('btn-apply-update');
+  const checkBtn = document.getElementById('btn-check-update');
   status.textContent = 'Checking...';
   applyBtn.style.display = 'none';
+  checkBtn.style.display = '';
   try {
     const r = await fetch('/api/update/check');
     const d = await r.json();
@@ -764,65 +766,88 @@ async function checkUpdate() {
       status.textContent = '✓ Up to date';
       setTimeout(() => { status.textContent = ''; }, 5000);
     } else {
-      status.textContent = `${d.behind} update${d.behind > 1 ? 's' : ''} available`;
+      const ver = d.remote_version ? `v${d.remote_version}` : `${d.behind} commit${d.behind > 1 ? 's' : ''}`;
+      const msg = d.commit_message || '';
+      status.textContent = '';
+      applyBtn.textContent = `↑ Upgrade to ${ver}${msg ? ' — ' + msg : ''}`;
       applyBtn.style.display = '';
+      checkBtn.style.display = 'none';
     }
   } catch(e) {
     status.textContent = '✗ Check failed';
   }
 }
 
+function appendLogLine(text, color) {
+  const panel    = document.getElementById('upgrade-panel');
+  const logLines = document.getElementById('upgrade-log-lines');
+  const line = document.createElement('div');
+  line.textContent = text;
+  if (color) line.style.color = color;
+  logLines.appendChild(line);
+  panel.scrollTop = panel.scrollHeight;
+}
+
 async function applyUpdate() {
-  const status   = document.getElementById('update-status');
   const applyBtn = document.getElementById('btn-apply-update');
   const checkBtn = document.getElementById('btn-check-update');
   const panel    = document.getElementById('upgrade-panel');
   const logLines = document.getElementById('upgrade-log-lines');
 
   applyBtn.style.display = 'none';
-  checkBtn.disabled = true;
-  status.textContent = '';
+  checkBtn.style.display = 'none';
   panel.style.display = '';
   logLines.textContent = '';
 
   await fetch('/api/update/apply', {method: 'POST'});
 
-  // Stream the upgrade log via SSE
+  // Phase 1: stream live SSE output until the service restarts
+  let lastLineCount = 0;
   const es = new EventSource('/api/upgrade-log');
 
   es.onmessage = (e) => {
-    if (e.data === '') return;
-    const line = document.createElement('div');
-    line.textContent = e.data;
-    logLines.appendChild(line);
-    panel.scrollTop = panel.scrollHeight;
+    if (!e.data) return;
+    appendLogLine(e.data);
+    lastLineCount++;
   };
 
   es.addEventListener('done', () => {
+    // Setup finished without a service restart interrupting us
     es.close();
-    const line = document.createElement('div');
-    line.style.color = '#4caf50';
-    line.style.marginTop = '8px';
-    line.textContent = 'Reloading...';
-    logLines.appendChild(line);
-    // Poll until the service is back up after restart
-    const poll = setInterval(async () => {
-      try {
-        const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(2000)});
-        if (r.ok) {
-          const d = await r.json();
-          if (!d.upgrading) {
-            clearInterval(poll);
-            window.location.reload();
-          }
-        }
-      } catch(e) { /* still restarting */ }
-    }, 2000);
+    appendLogLine('Reloading...', '#4caf50');
+    setTimeout(() => window.location.reload(), 1500);
   });
 
   es.onerror = () => {
-    // SSE connection dropped (service restarted) — keep polling flag file
+    // Service restarted — SSE connection dropped
     es.close();
+    appendLogLine('— web UI restarting, waiting for setup to finish... —', '#888');
+
+    // Phase 2: poll until upgrade flag is gone, then fetch full log
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(2000)});
+        if (!r.ok) return;
+        const d = await r.json();
+
+        // Show any new log lines that appeared while we were disconnected
+        const lr = await fetch('/api/upgrade-log-content');
+        const ld = await lr.json();
+        if (ld.ok) {
+          const allLines = ld.content.split('\n').filter(l => l);
+          for (let i = lastLineCount; i < allLines.length; i++) {
+            appendLogLine(allLines[i]);
+          }
+          lastLineCount = allLines.length;
+        }
+
+        if (!d.upgrading) {
+          clearInterval(poll);
+          appendLogLine('Setup complete. Reloading...', '#4caf50');
+          setTimeout(() => window.location.reload(), 1500);
+        }
+      } catch(e) { /* still restarting, keep polling */ }
+    }, 2000);
   };
 }
 
