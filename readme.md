@@ -516,6 +516,8 @@ sudo systemctl enable gatecrash
 
 ## Known Issues / TODO
 
+- **Upgrade log — page doesn't reload reliably when upgrade completes** — SSE drops when web UI restarts mid-upgrade; polling fallback isn't triggering the reload consistently. Needs a more robust reconnect strategy.
+
 
 ## Future Ideas
 
