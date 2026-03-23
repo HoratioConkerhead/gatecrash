@@ -554,11 +554,21 @@ sudo systemctl enable gatecrash
 
 ### Auto Mode (v2)
 
-- **DNS-triggered VPN activation per device** — lightweight DNS sniffer watches for queries matching configured domains (e.g. `youtube.com`, `googlevideo.com`, `ytimg.com`)
-- When a match is seen from a target device, activate VPN routing for that device
-- After a configurable idle period with no matching queries (default 5 minutes), deactivate VPN routing
-- Selectable per device: **always-on / auto / off**
-- Keeps non-targeted services (Netflix, iPlayer, general browsing) on the direct connection
+Gatecrash has two modes of operation:
+
+- **Normal mode** — user manually turns on spoof + VPN routing for selected devices whenever they want. Simple, no extra setup.
+- **Auto mode** — Gatecrash watches DNS traffic and automatically activates spoof + VPN routing per device when it sees queries for configured domains (e.g. `youtube.com`, `googlevideo.com`), then drops them after a configurable idle timeout.
+
+**Auto mode requires Gatecrash to act as the DNS server for the LAN.** The recommended setup is:
+
+- Run `dnsmasq` on Gatecrash in forwarding mode — receives all DNS queries, logs them with source IP, forwards to upstream (e.g. 1.1.1.1)
+- Configure the router's DHCP to advertise **Gatecrash as primary DNS, the router itself as secondary** — this way if Gatecrash is down, clients fall back to the router and still have DNS (avoids breaking the network if Gatecrash is off)
+- The Gatecrash daemon watches the dnsmasq query log; when a trigger domain is queried by a device in auto mode, it activates ARP spoof + VPN routing for that device only — no need to spoof all devices just to observe DNS
+- After a configurable idle period with no matching queries (default 1 minute), deactivate spoof + VPN routing for that device automatically
+
+**Per-device mode selection:** always-on / auto / off — keeps non-targeted traffic (iPlayer, general browsing) on the direct connection
+
+**Note:** This is an advanced configuration. Normal mode requires no router changes and no DNS server. Auto mode requires one router setting change (primary DNS) and is only needed if the user wants hands-free activation.
 
 ### Robustness
 
