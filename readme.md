@@ -519,11 +519,55 @@ sudo systemctl enable gatecrash
 
 ## Future Ideas
 
-- **MAC-based device tracking** — store devices by MAC address rather than IP, monitor the ARP table for MAC→IP changes, and automatically update iptables rules and arpspoof when a device's IP changes. Currently a DHCP reservation is needed to keep IPs stable; MAC tracking would make Gatecrash robust without it
-- **Per-app VPN** — route only traffic from specific app ot to specific destinastions, e.g. all youtube traffic
-- **Auto configu VPN** - for known VPNs, get config by logging on as user, or accept the vpn config file the vpn provider provides
+### Hardware Appliance
+
+- **Target platform: NanoPi Zero2 (2GB)** — 45×45mm, native Gigabit Ethernet, ~$28 with case, runs Ubuntu/Debian natively
+- **BOM** — NanoPi Zero2 2GB, microSD card, USB-C power supply, Ethernet cable — under £35 total
+- **Single RGB LED** for status: green (running), blue (VPN active), red (error), pulsing white (booting)
+- **Optional OLED display** for detailed status — future upgrade
+- **3D printed case** — custom design with Ethernet/USB-C cutouts, LED window, ventilation, logo, optional wall-mount clip; include OLED cutout even if not fitted initially; translucent filament option for LED glow-through
+- **Publish STL files and BOM** alongside the code in the repo
+
+### Web UI
+
+- **Per-device VPN toggle** — enable/disable VPN routing per device from the UI
+- **Country/exit selection** per device — choose VPN exit node per device
+- **Device naming** — assign friendly names ("Living Room TV", "Ian's Laptop"); auto-detect manufacturer from MAC OUI as a starting hint
+- **Device list from ARP table and DHCP leases** — richer source of truth than nmap-only
+- **PWA support** — manifest and service worker so users can "Add to Home Screen" on iOS/Android; looks and feels like a native app with no app store needed
+
+### Discovery and Access
+
+- **Authentication** — single shared password set during first-time setup, stored as bcrypt hash, cookie-based session
+- **mDNS** already implemented (`gatecrash.local`); ensure it works on all client platforms
+
+### First-Time Setup Wizard
+
+- On first boot with no config, serve a setup wizard at `gatecrash.local`
+- User enters VPN credentials or uploads a `.conf` file, sets admin password
+- No WiFi hotspot needed — device gets a DHCP address via Ethernet and is immediately reachable via mDNS
+
+### Set and Forget
+
+- **MAC-based device tracking** — store devices by MAC address rather than IP; poll ARP table periodically — if a saved MAC appears at a new IP, automatically update iptables rules and arpspoof targets. Handles DHCP renewals without needing static reservations. iPhones and Android use per-network randomised MACs which stay consistent on the same network, so this works reliably
+- **Automatic vpntarget route restoration** after WireGuard restart
+
+### Auto Mode (v2)
+
+- **DNS-triggered VPN activation per device** — lightweight DNS sniffer watches for queries matching configured domains (e.g. `youtube.com`, `googlevideo.com`, `ytimg.com`)
+- When a match is seen from a target device, activate VPN routing for that device
+- After a configurable idle period with no matching queries (default 5 minutes), deactivate VPN routing
+- Selectable per device: **always-on / auto / off**
+- Keeps non-targeted services (Netflix, iPlayer, general browsing) on the direct connection
+
+### Robustness
+
+- **Bulletproof cleanup on shutdown** — restore real gateway ARP entries with proper gratuitous ARPs before stopping; works even if the main process was killed ungracefully
+- **Rate-limit arpspoof** — send every 2 seconds rather than as fast as possible, to reduce router stress
+- **Per-app VPN** — route only traffic to specific destinations, e.g. all YouTube traffic
+- **Auto-configure VPN** — accept the `.conf` file the VPN provider supplies, or auto-fetch config by logging in for known providers
 - **CLI wrapper** — `gatecrash add/remove/status/list`
-- **Appliance image** — a flashable SD card image (Pi-hole style) for Raspberry Pi or similar SBC, so setup is: flash → plug in → open browser. No Linux knowledge required. Likely based on Raspberry Pi OS Lite as the base OS
+- **Appliance image** — a flashable SD card image (Pi-hole style) so setup is: flash → plug in → open browser. No Linux knowledge required
 
 ## License
 
