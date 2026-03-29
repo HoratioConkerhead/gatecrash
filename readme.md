@@ -516,6 +516,8 @@ sudo systemctl enable gatecrash
 
 ## Known Issues / TODO
 
+- **DNS live feed not populating** — the 5-second test capture works but the background thread doesn't show queries in the live table. Likely a thread startup timing or regex issue — needs investigation
+- **Troubleshooter / log exporter** — add a way to export diagnostics, iptables state, tcpdump samples, and logs as a single downloadable bundle for remote troubleshooting
 
 ## Future Ideas
 
@@ -532,8 +534,13 @@ sudo systemctl enable gatecrash
 
 - **Per-device VPN toggle** — enable/disable VPN routing per device from the UI
 - **Country/exit selection** per device — choose VPN exit node per device
-- **Device naming** — assign friendly names ("Living Room TV", "Ian's Laptop"); auto-detect manufacturer from MAC OUI as a starting hint
+- **Device management improvements:**
+  - **Search/filter** the device list when adding devices
+  - **Save by MAC address** so devices persist across DHCP IP changes
+  - **Favourite devices** as quick-add/remove buttons for one-click toggling
+  - **Saved nicknames** — assign friendly names ("Living Room TV", "Ian's Laptop") to find devices easily; auto-detect manufacturer from MAC OUI as a starting hint
 - **Device list from ARP table and DHCP leases** — richer source of truth than nmap-only
+- **Config backup** — export/import configuration to the cloud or as a downloadable file
 - **PWA support** — manifest and service worker so users can "Add to Home Screen" on iOS/Android; looks and feels like a native app with no app store needed
 
 ### Discovery and Access
