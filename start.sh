@@ -61,13 +61,14 @@ fi
 # Flushing is safe because Gatecrash owns these chains — no other service uses
 # mangle PREROUTING/FORWARD or nat PREROUTING/POSTROUTING on this box.
 
-echo "Flushing iptables rules..."
+echo "Flushing iptables rules and connection tracking..."
 iptables -t mangle -F PREROUTING
 iptables -t mangle -F FORWARD
 iptables -t nat -F PREROUTING
 iptables -t nat -F POSTROUTING
 iptables -F FORWARD
-echo "  [OK] iptables flushed."
+conntrack -F 2>/dev/null || true
+echo "  [OK] iptables and conntrack flushed."
 
 # ---------------------------------------------------------------------------
 # 4. Global iptables rules

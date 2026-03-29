@@ -28,13 +28,14 @@ fi
 # 2. Flush all iptables rules
 # ---------------------------------------------------------------------------
 
-echo "  Flushing iptables rules..."
+echo "  Flushing iptables rules and connection tracking..."
 iptables -t mangle -F PREROUTING
 iptables -t mangle -F FORWARD
 iptables -t nat -F PREROUTING
 iptables -t nat -F POSTROUTING
 iptables -F FORWARD
-echo "  [OK] iptables flushed."
+conntrack -F 2>/dev/null || true
+echo "  [OK] iptables and conntrack flushed."
 
 # ---------------------------------------------------------------------------
 # 3. vpntarget routes
