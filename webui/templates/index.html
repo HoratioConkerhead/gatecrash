@@ -911,21 +911,20 @@ function renderScannedDevices() {
   }
 
   list.innerHTML = _scannedDevices.map(dev => {
-    const label  = dev.hostname || dev.ip;
-    const sub    = dev.hostname ? dev.ip : '';
-    const vendor = dev.vendor ? ` (${dev.vendor})` : '';
+    const label  = dev.hostname || (dev.vendor ? dev.vendor : dev.ip);
+    const sub    = dev.hostname ? `${dev.ip}${dev.vendor ? ' · ' + dev.vendor : ''}` : (dev.vendor ? dev.ip : '');
     const saved  = dev.mac && savedMACs.has(dev.mac);
     return `
       <div class="device-row">
         <div class="device-name">
           ${label}
-          <div style="font-weight:400;color:#999;font-size:11px;">${sub}${vendor}</div>
+          <div style="font-weight:400;color:#999;font-size:11px;">${sub}</div>
         </div>
         <div class="device-mac">${dev.mac || '<span style=color:#ccc>no MAC</span>'}</div>
         ${dev.mac
           ? saved
             ? '<button class="device-add added" disabled>Saved</button>'
-            : `<button class="device-add" onclick="saveScannedDevice('${dev.mac}','${dev.ip}','${(dev.hostname||'').replace(/'/g,"\\'")}', this)">+ Save</button>`
+            : `<button class="device-add" onclick="saveScannedDevice('${dev.mac}','${dev.ip}','${(dev.hostname || dev.vendor || '').replace(/'/g,"\\'")}', this)">+ Save</button>`
           : '<span style="font-size:11px;color:#ccc;">—</span>'}
       </div>`;
   }).join('');
