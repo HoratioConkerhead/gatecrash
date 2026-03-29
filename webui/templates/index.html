@@ -604,6 +604,7 @@ async function fetchDNS() {
 
 setInterval(fetchStatus, 3000);
 setInterval(fetchDNS, 5000);
+setInterval(loadDiagnostics, 10000);
 fetchStatus();
 fetchDNS();
 
@@ -857,7 +858,8 @@ async function syncAndRestart() {
     // Refresh config panel to show updated TARGET_IPS
     loadConfig();
     fetchStatus();
-    loadDiagnostics();
+    // Delay diagnostics refresh to let arpspoof processes start
+    setTimeout(loadDiagnostics, 3000);
   } catch(e) {
     el.className = 'save-status error';
     el.textContent = 'Request failed: ' + e;
