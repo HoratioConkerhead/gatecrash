@@ -386,8 +386,12 @@
       <label>VPN Interface</label>
       <input type="text" id="cfg-vpn" placeholder="wg0">
     </div>
-    <button class="btn-blue" onclick="saveConfig()">&#128190; Save Config</button>
+    <div class="btn-row">
+      <button class="btn-blue" onclick="saveConfig()">&#128190; Save Config</button>
+      <button class="btn-green" onclick="saveAndRestart()" id="btn-save-restart">&#128190; Save &amp; Restart Gatecrash</button>
+    </div>
     <div class="save-status" id="cfg-status"></div>
+    <div style="font-size:12px;color:#999;margin-top:4px;">Config changes (e.g. new target IPs) require a restart to take effect.</div>
     <div style="margin-top:16px;padding-top:14px;border-top:1px solid #eee;">
       <div style="font-size:12px;font-weight:600;color:#999;margin-bottom:8px;">NETWORK REFERENCE</div>
       <div style="font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;">
@@ -492,8 +496,16 @@
   </div>
 
   <!-- DNS Log -->
-  <div class="card">
-    <h2>DNS Queries <span style="font-weight:400;font-size:12px;color:#aaa">(live)</span></h2>
+  <div class="card full-width">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;">
+      DNS Queries <span style="font-weight:400;font-size:12px;color:#aaa;margin-left:6px;">(live — UDP port 53 only)</span>
+      <button class="btn-grey" onclick="testDnsCapture()" id="btn-dns-test" style="padding:5px 14px;font-size:12px;">&#128270; Test capture (5s)</button>
+    </h2>
+    <div style="font-size:12px;color:#999;margin-bottom:10px;line-height:1.5;">
+      <strong>Note:</strong> Only plain DNS (UDP port 53) is shown. Windows 11 and modern browsers may use
+      <strong>DNS over HTTPS (DoH)</strong> on port 443, which is invisible here. Smart TVs and most IoT devices use plain DNS.
+      Use <em>Test capture</em> to confirm traffic is being seen on the interface.
+    </div>
     <div class="scroll-box">
       <table class="dns-table">
         <thead>
@@ -503,6 +515,10 @@
           <tr><td colspan="3" class="dns-empty">Waiting for DNS queries...</td></tr>
         </tbody>
       </table>
+    </div>
+    <div id="dns-test-output" style="display:none;margin-top:12px;">
+      <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">RAW TCPDUMP OUTPUT</div>
+      <div id="dns-test-lines" style="font-family:monospace;font-size:11px;background:#1a1a2e;color:#a8e6cf;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:40px;max-height:180px;overflow-y:auto;"></div>
     </div>
   </div>
 
@@ -694,6 +710,44 @@ async function saveConfig() {
   loadConfig(); // refresh gateway reference
 }
 
+async function saveAndRestart() {
+  const el  = document.getElementById('cfg-status');
+  const btn = document.getElementById('btn-save-restart');
+  btn.disabled = true;
+  el.className = 'save-status';
+  el.textContent = 'Saving...';
+  const data = {
+    LAN_IF:      document.getElementById('cfg-lan').value.trim(),
+    VPN_IF:      document.getElementById('cfg-vpn').value.trim(),
+    TARGET_IPS:  document.getElementById('cfg-targets').value.trim(),
+    ROUTE_TABLE: 'vpntarget',
+    FWMARK:      '0x1',
+  };
+  const sr = await fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  });
+  const sd = await sr.json();
+  if (!sd.ok) {
+    el.className = 'save-status error';
+    el.textContent = '✗ Save failed: ' + sd.error;
+    btn.disabled = false;
+    return;
+  }
+  el.textContent = 'Restarting Gatecrash...';
+  const rr = await fetch('/api/stop', {method: 'POST'});
+  await new Promise(r => setTimeout(r, 1000));
+  const rs = await fetch('/api/start', {method: 'POST'});
+  const rd = await rs.json();
+  el.className = 'save-status ' + (rd.ok ? '' : 'error');
+  el.textContent = rd.ok ? '✓ Saved and restarted' : '✗ Restart failed: ' + rd.output;
+  setTimeout(() => { el.textContent = ''; }, 4000);
+  btn.disabled = false;
+  fetchStatus();
+  loadDiagnostics();
+}
+
 // ---------------------------------------------------------------------------
 // Device browser
 // ---------------------------------------------------------------------------
@@ -815,6 +869,39 @@ function markAdded(ip) {
     btn.classList.add('added');
     btn.disabled = true;
   }
+}
+
+// ---------------------------------------------------------------------------
+// DNS capture test
+// ---------------------------------------------------------------------------
+
+async function testDnsCapture() {
+  const btn    = document.getElementById('btn-dns-test');
+  const output = document.getElementById('dns-test-output');
+  const lines  = document.getElementById('dns-test-lines');
+  btn.disabled = true;
+  btn.textContent = 'Capturing... (5s)';
+  output.style.display = '';
+  lines.textContent = 'Running tcpdump for 5 seconds — browse something on a target device now...';
+  try {
+    const r = await fetch('/api/dns-test');
+    const d = await r.json();
+    if (!d.ok) {
+      lines.textContent = 'Error: ' + d.error;
+    } else if (!d.lines.length) {
+      lines.textContent = `No DNS queries seen on ${d.interface} in 5 seconds.\n\nPossible reasons:\n` +
+        '  • LAN_IF in config is wrong (check Diagnostics panel)\n' +
+        '  • Device is using DNS over HTTPS (DoH) — port 443, not 53\n' +
+        '  • Gatecrash is not running / ARP spoofing not active for that device\n' +
+        '  • Try browsing on a smart TV or IoT device instead of a laptop';
+    } else {
+      lines.textContent = d.lines.join('\n');
+    }
+  } catch(e) {
+    lines.textContent = 'Request failed: ' + e;
+  }
+  btn.disabled = false;
+  btn.textContent = '🔍 Test capture (5s)';
 }
 
 // ---------------------------------------------------------------------------

@@ -95,18 +95,22 @@ def capture_dns():
     lan_if = conf.get("LAN_IF", "eth0")
     try:
         proc = subprocess.Popen(
-            ["tcpdump", "-i", lan_if, "-n", "-l", "-q", "udp port 53"],
+            ["tcpdump", "-i", lan_if, "-n", "-l", "udp dst port 53"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
         )
         for line in proc.stdout:
-            # Match: "HH:MM:SS.usec IP src.port > dst.port: proto domain?"
-            m = re.search(r"(\d+:\d+:\d+)\.\d+.*?(\d+\.\d+\.\d+\.\d+)\.\d+ > .+? (.+)\?$", line)
+            # Modern tcpdump (no -q) outputs:
+            # "HH:MM:SS.us IP src.port > dst.53: id+ TYPE? domain. (len)"
+            m = re.search(
+                r"(\d+:\d+:\d+)\.\d+\s+IP\s+(\d+\.\d+\.\d+\.\d+)\.\d+\s+>.*?\s+[A-Za-z]+\?\s+(\S+?)\.?\s+\(",
+                line,
+            )
             if m:
                 dns_log.appendleft({
-                    "time": m.group(1),
-                    "src":  m.group(2),
+                    "time":  m.group(1),
+                    "src":   m.group(2),
                     "query": m.group(3).strip(),
                 })
     except Exception:
@@ -306,6 +310,17 @@ def api_devices_scan_stream():
 def api_gateway():
     gw, rc = run("ip route show default | awk '/default/ {print $3}' | head -1")
     return jsonify({"ok": rc == 0, "gateway": gw.strip()})
+
+
+@app.route("/api/dns-test")
+def api_dns_test():
+    """Run tcpdump for 5 seconds on LAN interface, return raw lines for debugging."""
+    conf = read_conf()
+    lan_if = conf.get("LAN_IF", "eth0")
+    # 'timeout 5' kills tcpdump after 5s; '|| true' so non-zero exit doesn't raise
+    out, _ = run(f"timeout 5 tcpdump -i {lan_if} -n udp dst port 53 2>/dev/null || true", timeout=8)
+    lines = [l for l in out.splitlines() if l.strip()]
+    return jsonify({"ok": True, "interface": lan_if, "lines": lines})
 
 
 @app.route("/api/diagnostics")
