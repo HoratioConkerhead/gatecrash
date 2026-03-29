@@ -48,9 +48,6 @@
     max-width: 1100px;
     margin: 24px auto;
     padding: 0 16px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
   }
 
   .card {
@@ -296,6 +293,46 @@
   }
   #vpn-result.ok    { color: #4caf50; }
   #vpn-result.fail  { color: #f44336; }
+
+  /* Tabs */
+  .tab-bar {
+    display: flex;
+    background: #1a1a2e;
+    border-bottom: 2px solid #2d2d44;
+    padding: 0 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tab-btn {
+    padding: 12px 24px;
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab-btn:hover { color: #ccc; }
+  .tab-btn.active {
+    color: #4caf50;
+    border-bottom-color: #4caf50;
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: grid; }
+
+  @media (max-width: 700px) {
+    main { padding: 0 8px; }
+    .tab-content.active { grid-template-columns: 1fr !important; }
+    header { flex-wrap: wrap; gap: 10px; padding: 10px 16px; }
+    header h1 { width: 100%; }
+    .tab-btn { padding: 10px 16px; font-size: 13px; }
+    .card h2 { flex-direction: column; align-items: flex-start !important; gap: 8px; }
+    .stats-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -324,9 +361,17 @@
   </div>
   <div id="upgrade-log-lines"></div>
 </div>
-</header>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('main', this)">Main</button>
+  <button class="tab-btn" onclick="switchTab('config', this)">Config</button>
+  <button class="tab-btn" onclick="switchTab('diagnostics', this)">Diagnostics</button>
+</div>
 
 <main>
+
+  <!-- ==================== TAB: MAIN ==================== -->
+  <div class="tab-content active" id="tab-main" style="display:grid;grid-template-columns:1fr;gap:20px;">
 
   <!-- Controls -->
   <div class="card">
@@ -342,17 +387,6 @@
       <button class="btn-red"   onclick="stopWG()">&#9632; Stop WireGuard</button>
     </div>
     <div class="output-box hidden" id="ctrl-output"></div>
-  </div>
-
-  <!-- VPN Test -->
-  <div class="card">
-    <h2>VPN Test</h2>
-    <p style="font-size:13px;color:#666;margin-bottom:14px;">
-      Checks your VPN exit IP via the WireGuard tunnel.
-      Should differ from your ISP's IP.
-    </p>
-    <button class="btn-blue" onclick="testVPN()">&#128270; Check VPN IP</button>
-    <div id="vpn-result"></div>
   </div>
 
   <!-- Saved Devices -->
@@ -373,6 +407,11 @@
     </div>
     <div class="save-status" id="devices-status"></div>
   </div>
+
+  </div><!-- /tab-main -->
+
+  <!-- ==================== TAB: CONFIG ==================== -->
+  <div class="tab-content" id="tab-config" style="grid-template-columns:1fr 1fr;gap:20px;">
 
   <!-- Gatecrash Config -->
   <div class="card">
@@ -419,16 +458,6 @@
     <div class="save-status" id="wg-status"></div>
   </div>
 
-  <!-- WireGuard Stats -->
-  <div class="card">
-    <h2>WireGuard Stats</h2>
-    <div class="stats-grid">
-      <div class="stat"><div class="label">Endpoint</div><div class="value" id="wg-endpoint">—</div></div>
-      <div class="stat"><div class="label">Last Handshake</div><div class="value" id="wg-handshake">—</div></div>
-      <div class="stat" style="grid-column:1/-1"><div class="label">Data Transfer</div><div class="value" id="wg-transfer">—</div></div>
-    </div>
-  </div>
-
   <!-- System -->
   <div class="card">
     <h2>System</h2>
@@ -452,6 +481,32 @@
     <div style="border-top:1px solid #eee;padding-top:14px;margin-top:4px;display:flex;gap:10px;">
       <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
       <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
+    </div>
+  </div>
+
+  </div><!-- /tab-config -->
+
+  <!-- ==================== TAB: DIAGNOSTICS ==================== -->
+  <div class="tab-content" id="tab-diagnostics" style="grid-template-columns:1fr 1fr;gap:20px;">
+
+  <!-- VPN Test -->
+  <div class="card">
+    <h2>VPN Test</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">
+      Checks your VPN exit IP via the WireGuard tunnel.
+      Should differ from your ISP's IP.
+    </p>
+    <button class="btn-blue" onclick="testVPN()">&#128270; Check VPN IP</button>
+    <div id="vpn-result"></div>
+  </div>
+
+  <!-- WireGuard Stats -->
+  <div class="card">
+    <h2>WireGuard Stats</h2>
+    <div class="stats-grid">
+      <div class="stat"><div class="label">Endpoint</div><div class="value" id="wg-endpoint">—</div></div>
+      <div class="stat"><div class="label">Last Handshake</div><div class="value" id="wg-handshake">—</div></div>
+      <div class="stat" style="grid-column:1/-1"><div class="label">Data Transfer</div><div class="value" id="wg-transfer">—</div></div>
     </div>
   </div>
 
@@ -530,6 +585,8 @@
     </div>
   </div>
 
+  </div><!-- /tab-diagnostics -->
+
 </main>
 
 <!-- nmap scan modal -->
@@ -549,6 +606,22 @@
 </div>
 
 <script>
+// ---------------------------------------------------------------------------
+// Tab switching
+// ---------------------------------------------------------------------------
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => {
+    el.classList.remove('active');
+    el.style.display = 'none';
+  });
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  const tab = document.getElementById('tab-' + name);
+  tab.classList.add('active');
+  tab.style.display = 'grid';
+  btn.classList.add('active');
+}
+
 // ---------------------------------------------------------------------------
 // Status polling
 // ---------------------------------------------------------------------------
