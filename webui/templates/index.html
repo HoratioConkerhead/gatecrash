@@ -264,6 +264,13 @@
   }
   .device-row:last-child { border-bottom: none; }
   .device-row:hover { background: #f7f8fa; }
+
+  /* Inside the dark modal, invert device-row colors */
+  .modal .device-row { border-bottom-color: #2d2d44; }
+  .modal .device-row:hover { background: #2d2d44; }
+  .modal .device-name { color: #e0e0e0; }
+  .modal .device-name div { color: #888 !important; }
+  .modal .device-mac { color: #7a7a9a; }
   .device-name { flex: 1; font-weight: 600; }
   .device-ip { font-family: monospace; color: #555; min-width: 110px; }
   .device-mac { font-family: monospace; color: #aaa; font-size: 11px; min-width: 130px; }
