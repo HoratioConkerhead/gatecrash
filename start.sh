@@ -17,12 +17,6 @@ fi
 source "$CONF"
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-rule_exists() { iptables -C "$@" 2>/dev/null; }
-
-# ---------------------------------------------------------------------------
 # 1. WireGuard
 # ---------------------------------------------------------------------------
 
@@ -60,45 +54,49 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Global iptables rules
+# 3. Clean slate — flush all Gatecrash iptables rules before re-adding
+# ---------------------------------------------------------------------------
+# Previous versions used rule_exists checks to be idempotent, but this led to
+# stale rules accumulating (e.g. old REDIRECT rules blocking new DNAT rules).
+# Flushing is safe because Gatecrash owns these chains — no other service uses
+# mangle PREROUTING/FORWARD or nat PREROUTING/POSTROUTING on this box.
+
+echo "Flushing iptables rules..."
+iptables -t mangle -F PREROUTING
+iptables -t mangle -F FORWARD
+iptables -t nat -F PREROUTING
+iptables -t nat -F POSTROUTING
+iptables -F FORWARD
+echo "  [OK] iptables flushed."
+
+# ---------------------------------------------------------------------------
+# 4. Global iptables rules
 # ---------------------------------------------------------------------------
 
-rule_exists -t mangle FORWARD -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu \
-    || iptables -t mangle -A FORWARD -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-
-rule_exists -t nat POSTROUTING -o "$VPN_IF" -j MASQUERADE \
-    || iptables -t nat -A POSTROUTING -o "$VPN_IF" -j MASQUERADE
+iptables -t mangle -A FORWARD -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+iptables -t nat -A POSTROUTING -o "$VPN_IF" -j MASQUERADE
 
 # ---------------------------------------------------------------------------
-# 4. Per-target rules and ARP spoofing
+# 5. Per-target rules and ARP spoofing
 # ---------------------------------------------------------------------------
 
 for ip in $TARGET_IPS; do
     echo "Activating target: $ip"
 
-    rule_exists -t mangle PREROUTING -s "$ip" -i "$LAN_IF" -j MARK --set-mark "$FWMARK" \
-        || iptables -t mangle -A PREROUTING -s "$ip" -i "$LAN_IF" -j MARK --set-mark "$FWMARK"
+    # Mark traffic from this device for policy routing
+    iptables -t mangle -A PREROUTING -s "$ip" -i "$LAN_IF" -j MARK --set-mark "$FWMARK"
 
     # Forward target traffic (to VPN or to real gateway — no output interface
     # restriction so the fallback route works when VPN is down)
-    rule_exists FORWARD -i "$LAN_IF" -s "$ip" -j ACCEPT \
-        || iptables -A FORWARD -i "$LAN_IF" -s "$ip" -j ACCEPT
-
-    rule_exists FORWARD -d "$ip" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT \
-        || iptables -A FORWARD -d "$ip" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-    # Return path from VPN
-    rule_exists FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT \
-        || iptables -A FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -A FORWARD -i "$LAN_IF" -s "$ip" -j ACCEPT
+    iptables -A FORWARD -d "$ip" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -A FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT
 
     # DNAT DNS to Cloudflare via the VPN tunnel (prevents DNS leaks and avoids
     # needing a local DNS server — REDIRECT to local :53 broke devices that
     # use plain DNS because nothing was listening).
-    rule_exists -t nat PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53 \
-        || iptables -t nat -A PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53
-
-    rule_exists -t nat PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53 \
-        || iptables -t nat -A PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53
+    iptables -t nat -A PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53
+    iptables -t nat -A PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53
 
     # Kill any stale arpspoof for this target before (re)starting
     pkill -f "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true
@@ -109,7 +107,7 @@ for ip in $TARGET_IPS; do
 done
 
 # ---------------------------------------------------------------------------
-# 5. Status summary
+# 6. Status summary
 # ---------------------------------------------------------------------------
 
 echo ""
