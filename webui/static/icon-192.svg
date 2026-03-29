@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="40" fill="#1a1a2e"/>
+  <g transform="translate(96,96)">
+    <!-- Shield outline -->
+    <path d="M0-60 C30-60 50-45 55-30 L55 10 C55 40 30 60 0 70 C-30 60 -55 40 -55 10 L-55-30 C-50-45 -30-60 0-60Z"
+          fill="none" stroke="#4caf50" stroke-width="5"/>
+    <!-- VPN tunnel arrow -->
+    <path d="M-20 10 L0-20 L20 10" fill="none" stroke="#4caf50" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="0" y1="-20" x2="0" y2="30" stroke="#4caf50" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gatecrash</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gatecrash">
+<link rel="apple-touch-icon" href="/static/icon-192.svg">
+<link rel="icon" type="image/svg+xml" href="/static/icon-192.svg">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1270,6 +1277,11 @@ loadWGConfig();
 loadAutostart();
 loadDiagnostics();
 loadSavedDevices();
+
+// Service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
