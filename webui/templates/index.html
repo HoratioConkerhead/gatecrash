@@ -454,7 +454,10 @@
   <div class="card full-width">
     <h2 style="display:flex;align-items:center;justify-content:space-between;">
       Diagnostics
-      <button class="btn-grey" onclick="loadDiagnostics()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
+      <div style="display:flex;gap:8px;">
+        <a href="/api/diagnostics/dump" class="btn-blue" style="padding:5px 14px;font-size:12px;text-decoration:none;border-radius:6px;">&#128190; Download full dump</a>
+        <button class="btn-grey" onclick="loadDiagnostics()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
+      </div>
     </h2>
 
     <!-- MAC address + ARP check hint -->

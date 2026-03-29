@@ -327,6 +327,58 @@ def api_gateway():
     return jsonify({"ok": rc == 0, "gateway": gw.strip()})
 
 
+@app.route("/api/diagnostics/dump")
+def api_diagnostics_dump():
+    """Generate a full troubleshooting dump as a downloadable text file."""
+    conf = read_conf()
+    lan_if = conf.get("LAN_IF", "eth0")
+    vpn_if = conf.get("VPN_IF", "wg0")
+    rt = conf.get("ROUTE_TABLE", "vpntarget")
+
+    sections = []
+
+    def section(title, cmd):
+        out, _ = run(cmd, timeout=10)
+        sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd}\n\n{out or '(empty)'}\n")
+
+    sections.append(f"Gatecrash Diagnostics Dump\nGenerated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nVersion: {get_version()}\n")
+
+    section("Gatecrash Config", f"cat {CONF_PATH}")
+    section("Gatecrash Service Status", "systemctl status gatecrash --no-pager -l 2>&1")
+    section("Web UI Service Status", "systemctl status gatecrash-webui --no-pager -l 2>&1")
+
+    section(f"LAN Interface ({lan_if})", f"ip addr show {lan_if} 2>&1")
+    section("WireGuard Interface", f"ip addr show {vpn_if} 2>&1")
+    section("WireGuard Status", f"wg show {vpn_if} 2>&1")
+    section("Default Route", "ip route show default 2>&1")
+    section(f"vpntarget Routing Table ({rt})", f"ip route show table {rt} 2>&1")
+    section("IP Policy Rules", "ip rule show 2>&1")
+
+    section("iptables — mangle PREROUTING (packet marks)",
+            "iptables -t mangle -L PREROUTING -n -v --line-numbers 2>&1")
+    section("iptables — nat PREROUTING (DNS DNAT)",
+            "iptables -t nat -L PREROUTING -n -v --line-numbers 2>&1")
+    section("iptables — nat POSTROUTING (MASQUERADE)",
+            "iptables -t nat -L POSTROUTING -n -v --line-numbers 2>&1")
+    section("iptables — FORWARD",
+            "iptables -L FORWARD -n -v --line-numbers 2>&1")
+    section("iptables — mangle FORWARD (MSS clamp)",
+            "iptables -t mangle -L FORWARD -n -v --line-numbers 2>&1")
+
+    section("Active arpspoof Processes", "ps -eo pid,args | grep arpspoof | grep -v grep 2>&1")
+    section("VPN Exit IP Test", f"curl --interface {vpn_if} -m 10 -s http://ifconfig.me 2>&1")
+    section("DNS Resolution via 1.1.1.1", "dig @1.1.1.1 google.com +short 2>&1")
+    section("DNS Resolution via Gateway", f"dig @{conf.get('GATEWAY_IP', '192.168.1.254')} google.com +short 2>&1")
+
+    section("IPv6 Addresses", "ip -6 addr show 2>&1")
+    section("ARP Table", "ip neigh show 2>&1")
+    section("Listening on Port 53", "ss -ulnp sport = :53 2>&1")
+
+    body = "\n\n".join(sections)
+    return Response(body, mimetype="text/plain",
+                    headers={"Content-Disposition": "attachment; filename=gatecrash-diagnostics.txt"})
+
+
 @app.route("/api/dns-test")
 def api_dns_test():
     """Run tcpdump for 5 seconds on LAN interface, return raw lines for debugging."""
