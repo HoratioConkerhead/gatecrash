@@ -34,17 +34,29 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Policy routing (wg-quick wipes the vpntarget route on every restart)
+# 2. Policy routing
 # ---------------------------------------------------------------------------
+# Two routes in the vpntarget table with different metrics:
+#   metric 100 = VPN tunnel (preferred when wg0 is up)
+#   metric 200 = real gateway (fallback — keeps devices online when VPN is down)
+# When wg0 goes down, Linux removes its route automatically → traffic falls
+# back to the real gateway. When wg0 comes back, it wins again.
 
-if ! ip route show table "$ROUTE_TABLE" 2>/dev/null | grep -q "^default"; then
-    echo "Restoring vpntarget default route..."
-    ip route add default dev "$VPN_IF" table "$ROUTE_TABLE"
+if ip link show "$VPN_IF" &>/dev/null; then
+    ip route replace default dev "$VPN_IF" table "$ROUTE_TABLE" metric 100
+    echo "  vpntarget: VPN route via $VPN_IF (metric 100)"
+else
+    echo "  vpntarget: $VPN_IF not up — VPN route skipped"
 fi
 
+ip route replace default via "$GATEWAY_IP" dev "$LAN_IF" table "$ROUTE_TABLE" metric 200
+echo "  vpntarget: fallback route via $GATEWAY_IP (metric 200)"
+
 if ! ip rule show | grep -q "fwmark $FWMARK lookup $ROUTE_TABLE"; then
-    echo "Restoring fwmark rule..."
     ip rule add fwmark "$FWMARK" table "$ROUTE_TABLE"
+    echo "  fwmark rule added: $FWMARK → $ROUTE_TABLE"
+else
+    echo "  fwmark rule already present."
 fi
 
 # ---------------------------------------------------------------------------
@@ -67,9 +79,15 @@ for ip in $TARGET_IPS; do
     rule_exists -t mangle PREROUTING -s "$ip" -i "$LAN_IF" -j MARK --set-mark "$FWMARK" \
         || iptables -t mangle -A PREROUTING -s "$ip" -i "$LAN_IF" -j MARK --set-mark "$FWMARK"
 
-    rule_exists FORWARD -i "$LAN_IF" -o "$VPN_IF" -s "$ip" -j ACCEPT \
-        || iptables -A FORWARD -i "$LAN_IF" -o "$VPN_IF" -s "$ip" -j ACCEPT
+    # Forward target traffic (to VPN or to real gateway — no output interface
+    # restriction so the fallback route works when VPN is down)
+    rule_exists FORWARD -i "$LAN_IF" -s "$ip" -j ACCEPT \
+        || iptables -A FORWARD -i "$LAN_IF" -s "$ip" -j ACCEPT
 
+    rule_exists FORWARD -d "$ip" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT \
+        || iptables -A FORWARD -d "$ip" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+    # Return path from VPN
     rule_exists FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT \
         || iptables -A FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT
 

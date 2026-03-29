@@ -36,8 +36,16 @@ for ip in $TARGET_IPS; do
     echo "  Removing rules for target: $ip"
 
     rule_delete -t mangle PREROUTING -s "$ip" -i "$LAN_IF" -j MARK --set-mark "$FWMARK"
-    rule_delete FORWARD -i "$LAN_IF" -o "$VPN_IF" -s "$ip" -j ACCEPT
+
+    # Current FORWARD rules (interface-agnostic)
+    rule_delete FORWARD -i "$LAN_IF" -s "$ip" -j ACCEPT
+    rule_delete FORWARD -d "$ip" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
     rule_delete FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+    # Clean up old interface-specific FORWARD rules from previous versions
+    rule_delete FORWARD -i "$LAN_IF" -o "$VPN_IF" -s "$ip" -j ACCEPT
+
+    # DNS DNAT
     rule_delete -t nat PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53
     rule_delete -t nat PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53
     # Clean up old REDIRECT rules if still present from a previous version
@@ -54,14 +62,14 @@ rule_delete -t mangle FORWARD -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCP
 rule_delete -t nat POSTROUTING -o "$VPN_IF" -j MASQUERADE
 
 # ---------------------------------------------------------------------------
-# 4. vpntarget route
+# 4. vpntarget routes
 # ---------------------------------------------------------------------------
 
-if ip route del default dev "$VPN_IF" table "$ROUTE_TABLE" 2>/dev/null; then
-    echo "  vpntarget route removed."
-else
-    echo "  vpntarget route was not present."
-fi
+ip route del default dev "$VPN_IF" table "$ROUTE_TABLE" 2>/dev/null && echo "  vpntarget VPN route removed." || true
+ip route del default via "$GATEWAY_IP" dev "$LAN_IF" table "$ROUTE_TABLE" 2>/dev/null && echo "  vpntarget fallback route removed." || true
+# Clean up old non-metric routes from previous versions
+ip route del default dev "$VPN_IF" table "$ROUTE_TABLE" metric 100 2>/dev/null || true
+ip route del default via "$GATEWAY_IP" dev "$LAN_IF" table "$ROUTE_TABLE" metric 200 2>/dev/null || true
 
 # ip rule and rt_tables entry are left intact — they are harmless
 # and will be needed again on next start.
