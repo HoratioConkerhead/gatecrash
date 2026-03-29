@@ -1,8 +1,31 @@
 # Gatecrash
 
-Force specific devices on your LAN through a VPN tunnel — without touching
-the devices or your router. Uses ARP spoofing to transparently redirect
-traffic from target devices through a WireGuard VPN.
+**Route specific devices on your network through a VPN — without installing
+anything on them, without replacing your router, and without any inline
+hardware.**
+
+Gatecrash is a small Linux appliance that sits alongside your existing router
+and uses ARP spoofing to selectively intercept traffic from chosen devices,
+routing it through a WireGuard VPN tunnel. Target devices don't know anything
+has changed — no apps to install, no settings to configure, no profiles to
+accept. Your smart TV, games console, or streaming box just quietly gets a
+different exit IP.
+
+### What makes this different?
+
+- **VPN routers** (GL.iNet, Vilfo, pfSense) can route per-device — but they
+  replace your router. Gatecrash works alongside it.
+- **Device VPN apps** (NordVPN, Surfshark) require software on each device.
+  Smart TVs and IoT devices often can't run them at all.
+- **Inline devices** (Hak5 Packet Squirrel) sit physically between a device
+  and the network. Gatecrash works from anywhere on the LAN.
+- **Pi-hole** has a similar "plug in a box" philosophy — but it blocks ads
+  via DNS, not route traffic through a VPN.
+
+Gatecrash needs nothing from the target device and nothing from the router.
+Plug it in, point it at the devices you want, and their traffic exits from
+a different country. Everything else on your network is unaffected. If the
+VPN drops, target devices fall back to the normal gateway automatically.
 
 ## Quickstart
 
