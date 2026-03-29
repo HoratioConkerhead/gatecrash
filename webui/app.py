@@ -308,6 +308,54 @@ def api_gateway():
     return jsonify({"ok": rc == 0, "gateway": gw.strip()})
 
 
+@app.route("/api/diagnostics")
+def api_diagnostics():
+    conf = read_conf()
+    lan_if = conf.get("LAN_IF", "eth0")
+
+    # MAC address of the LAN interface
+    mac_out, _ = run(f"ip link show {lan_if} 2>/dev/null")
+    mac = ""
+    m = re.search(r"link/ether ([0-9a-f:]+)", mac_out)
+    if m:
+        mac = m.group(1)
+
+    # IP address of the LAN interface
+    ip_out, _ = run(f"ip -4 addr show {lan_if} 2>/dev/null")
+    lan_ip = ""
+    m = re.search(r"inet (\S+)", ip_out)
+    if m:
+        lan_ip = m.group(1)
+
+    # Active arpspoof processes
+    arps_out, _ = run("ps -eo pid,args | grep arpspoof | grep -v grep")
+    arps = [line.strip() for line in arps_out.splitlines() if line.strip()] if arps_out else []
+
+    # iptables mangle PREROUTING rules
+    ipt_out, _ = run("iptables -t mangle -L PREROUTING -n --line-numbers 2>/dev/null")
+
+    # IP policy rules
+    iprules_out, _ = run("ip rule show 2>/dev/null")
+
+    # vpntarget routing table
+    vt_out, _ = run("ip route show table vpntarget 2>/dev/null")
+
+    # WireGuard interface
+    wg_out, wg_rc = run("ip link show wg0 2>/dev/null")
+    wg_if = wg_out.strip() if wg_rc == 0 else "wg0 not found"
+
+    return jsonify({
+        "lan_if": lan_if,
+        "lan_mac": mac,
+        "lan_ip": lan_ip,
+        "arpspoof_procs": arps,
+        "iptables_mangle": ipt_out.strip(),
+        "ip_rules": iprules_out.strip(),
+        "vpntarget_routes": vt_out.strip() or "(empty — WireGuard may be down)",
+        "wg_if": wg_if,
+    })
+
+
 @app.route("/api/reboot", methods=["POST"])
 def api_reboot():
     subprocess.Popen(["shutdown", "-r", "now"])

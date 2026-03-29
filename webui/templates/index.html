@@ -446,6 +446,51 @@
     </div>
   </div>
 
+  <!-- Diagnostics -->
+  <div class="card full-width">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;">
+      Diagnostics
+      <button class="btn-grey" onclick="loadDiagnostics()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
+    </h2>
+
+    <!-- MAC address + ARP check hint -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+      <div style="background:#f7f8fa;border-radius:8px;padding:14px;">
+        <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">GATECRASH LAN INTERFACE</div>
+        <div style="font-family:monospace;font-size:14px;">
+          <span id="diag-lan-if" style="color:#555;"></span>
+          &nbsp;·&nbsp;
+          <span id="diag-lan-ip" style="color:#555;"></span>
+        </div>
+        <div style="font-family:monospace;font-size:15px;font-weight:700;margin-top:4px;" id="diag-lan-mac">—</div>
+        <div style="font-size:12px;color:#999;margin-top:8px;line-height:1.5;">
+          To verify spoofing on a client: run <code>arp -a</code> (Windows) or <code>arp -n</code> (Linux/Mac) and check
+          that the <strong>router's IP</strong> shows this MAC address. If it shows the real router MAC, spoofing is not working.
+        </div>
+      </div>
+      <div style="background:#f7f8fa;border-radius:8px;padding:14px;">
+        <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">ACTIVE ARPSPOOF PROCESSES</div>
+        <div id="diag-arps" style="font-family:monospace;font-size:12px;color:#333;white-space:pre-wrap;line-height:1.6;">—</div>
+      </div>
+    </div>
+
+    <!-- iptables / routing -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+      <div>
+        <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">IPTABLES MANGLE (PREROUTING)</div>
+        <div id="diag-ipt" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">IP POLICY RULES</div>
+        <div id="diag-iprules" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">VPNTARGET ROUTES</div>
+        <div id="diag-vt" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
+      </div>
+    </div>
+  </div>
+
   <!-- DNS Log -->
   <div class="card">
     <h2>DNS Queries <span style="font-weight:400;font-size:12px;color:#aaa">(live)</span></h2>
@@ -772,6 +817,31 @@ function markAdded(ip) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
+
+async function loadDiagnostics() {
+  try {
+    const r = await fetch('/api/diagnostics');
+    const d = await r.json();
+
+    document.getElementById('diag-lan-if').textContent  = d.lan_if  || '—';
+    document.getElementById('diag-lan-ip').textContent  = d.lan_ip  || '—';
+    document.getElementById('diag-lan-mac').textContent = d.lan_mac || '— (check LAN interface in config)';
+
+    const arps = d.arpspoof_procs;
+    document.getElementById('diag-arps').textContent =
+      arps && arps.length ? arps.join('\n') : 'None — Gatecrash is not running or no targets set';
+
+    document.getElementById('diag-ipt').textContent      = d.iptables_mangle   || '(empty)';
+    document.getElementById('diag-iprules').textContent  = d.ip_rules           || '(empty)';
+    document.getElementById('diag-vt').textContent       = d.vpntarget_routes   || '(empty)';
+  } catch(e) {
+    document.getElementById('diag-lan-mac').textContent = 'Error loading diagnostics';
+  }
+}
+
 async function loadAutostart() {
   const r = await fetch('/api/autostart');
   const d = await r.json();
@@ -946,6 +1016,7 @@ loadConfig();
 loadNetworkInfo();
 loadWGConfig();
 loadAutostart();
+loadDiagnostics();
 </script>
 </body>
 </html>
