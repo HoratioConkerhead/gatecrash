@@ -38,6 +38,9 @@ for ip in $TARGET_IPS; do
     rule_delete -t mangle PREROUTING -s "$ip" -i "$LAN_IF" -j MARK --set-mark "$FWMARK"
     rule_delete FORWARD -i "$LAN_IF" -o "$VPN_IF" -s "$ip" -j ACCEPT
     rule_delete FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT
+    rule_delete -t nat PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53
+    rule_delete -t nat PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53
+    # Clean up old REDIRECT rules if still present from a previous version
     rule_delete -t nat PREROUTING -s "$ip" -p udp --dport 53 -j REDIRECT --to-port 53
     rule_delete -t nat PREROUTING -s "$ip" -p tcp --dport 53 -j REDIRECT --to-port 53
 done

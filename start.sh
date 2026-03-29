@@ -73,11 +73,14 @@ for ip in $TARGET_IPS; do
     rule_exists FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT \
         || iptables -A FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-    rule_exists -t nat PREROUTING -s "$ip" -p udp --dport 53 -j REDIRECT --to-port 53 \
-        || iptables -t nat -A PREROUTING -s "$ip" -p udp --dport 53 -j REDIRECT --to-port 53
+    # DNAT DNS to Cloudflare via the VPN tunnel (prevents DNS leaks and avoids
+    # needing a local DNS server — REDIRECT to local :53 broke devices that
+    # use plain DNS because nothing was listening).
+    rule_exists -t nat PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53 \
+        || iptables -t nat -A PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53
 
-    rule_exists -t nat PREROUTING -s "$ip" -p tcp --dport 53 -j REDIRECT --to-port 53 \
-        || iptables -t nat -A PREROUTING -s "$ip" -p tcp --dport 53 -j REDIRECT --to-port 53
+    rule_exists -t nat PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53 \
+        || iptables -t nat -A PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53
 
     # Kill any stale arpspoof for this target before (re)starting
     pkill -f "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true
