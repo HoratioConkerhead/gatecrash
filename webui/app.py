@@ -3,6 +3,7 @@
 
 import os
 import re
+import json
 import threading
 import subprocess
 from collections import deque
@@ -36,6 +37,8 @@ def get_repo_path():
 # Rolling DNS log — last 100 queries
 dns_log = deque(maxlen=100)
 dns_thread_started = False
+
+DEVICES_FILE = "/opt/gatecrash/devices.json"
 
 
 # ---------------------------------------------------------------------------
@@ -91,16 +94,23 @@ def wg_stats():
 # ---------------------------------------------------------------------------
 
 def capture_dns():
+    global dns_thread_started
     conf = read_conf()
     lan_if = conf.get("LAN_IF", "eth0")
     try:
         proc = subprocess.Popen(
             ["tcpdump", "-i", lan_if, "-n", "-l", "udp dst port 53"],
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
         )
-        for line in proc.stdout:
+        # IMPORTANT: use readline() instead of iterating proc.stdout directly.
+        # Python's for-loop over stdout uses an internal read-ahead buffer (~8KB)
+        # which delays output. readline() returns each line immediately.
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                break
             # Modern tcpdump (no -q) outputs:
             # "HH:MM:SS.us IP src.port > dst.53: id+ TYPE? domain. (len)"
             m = re.search(
@@ -115,6 +125,9 @@ def capture_dns():
                 })
     except Exception:
         pass
+    finally:
+        # Allow thread to be restarted if it dies
+        dns_thread_started = False
 
 
 def ensure_dns_thread():
@@ -123,6 +136,79 @@ def ensure_dns_thread():
         dns_thread_started = True
         t = threading.Thread(target=capture_dns, daemon=True)
         t.start()
+
+
+# ---------------------------------------------------------------------------
+# Saved devices (MAC-based persistence)
+# ---------------------------------------------------------------------------
+
+def load_devices():
+    """Load saved devices from JSON file. Returns list of device dicts."""
+    try:
+        with open(DEVICES_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_devices(devices):
+    """Write device list to JSON file."""
+    with open(DEVICES_FILE, "w") as f:
+        json.dump(devices, f, indent=2)
+
+
+def resolve_mac(ip):
+    """Look up MAC address for an IP from the ARP table."""
+    out, _ = run(f"ip neigh show {ip} 2>/dev/null")
+    m = re.search(r"lladdr\s+([0-9a-f:]+)", out)
+    return m.group(1).lower() if m else ""
+
+
+def sync_targets_from_devices():
+    """Update TARGET_IPS in gatecrash.conf from enabled saved devices.
+
+    Uses ARP table to resolve current IPs from saved MAC addresses.
+    Returns the list of active IPs written to config.
+    """
+    devices = load_devices()
+    active_ips = []
+    updated = False
+
+    # Read ARP table once for all devices
+    arp_out, _ = run("ip neigh show 2>/dev/null")
+    arp_lines = arp_out.splitlines()
+
+    for dev in devices:
+        if not dev.get("enabled", False):
+            continue
+        mac = dev.get("mac", "")
+        if not mac:
+            continue
+        # Find current IP for this MAC from ARP table
+        for line in arp_lines:
+            if mac in line.lower():
+                m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s", line)
+                if m:
+                    ip = m.group(1)
+                    active_ips.append(ip)
+                    # Update last-known IP
+                    if dev.get("ip") != ip:
+                        dev["ip"] = ip
+                        updated = True
+                    break
+        else:
+            # MAC not in ARP table — use last-known IP if available
+            if dev.get("ip"):
+                active_ips.append(dev["ip"])
+
+    if updated:
+        save_devices(devices)
+
+    # Write to gatecrash.conf
+    conf = read_conf()
+    conf["TARGET_IPS"] = " ".join(active_ips)
+    write_conf(conf)
+    return active_ips
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +223,7 @@ def index():
 
 @app.route("/api/status")
 def api_status():
+    ensure_dns_thread()  # auto-recover if thread died
     out, _ = run("systemctl is-active gatecrash 2>/dev/null")
     gc_running = out.strip() == "active"
 
@@ -309,7 +396,6 @@ def api_devices_scan_stream():
             proc.wait()
             full_output = "\n".join(output_lines)
             devices = parse_nmap_devices(full_output)
-            import json
             yield f"event: devices\ndata: {json.dumps(devices)}\n\n"
         except Exception as e:
             yield f"data: ERROR: {e}\n\n"
@@ -319,6 +405,63 @@ def api_devices_scan_stream():
                     mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+
+
+@app.route("/api/saved-devices", methods=["GET"])
+def api_saved_devices():
+    """Return the saved device list."""
+    return jsonify({"devices": load_devices()})
+
+
+@app.route("/api/saved-devices", methods=["POST"])
+def api_save_device():
+    """Add or update a saved device. Expects {mac, nickname?, ip?, enabled?}."""
+    data = request.json
+    mac = data.get("mac", "").lower().strip()
+    if not mac:
+        return jsonify({"ok": False, "error": "MAC address required"})
+
+    devices = load_devices()
+
+    # Find existing device by MAC
+    existing = next((d for d in devices if d["mac"] == mac), None)
+    if existing:
+        if "nickname" in data:
+            existing["nickname"] = data["nickname"]
+        if "ip" in data:
+            existing["ip"] = data["ip"]
+        if "enabled" in data:
+            existing["enabled"] = data["enabled"]
+    else:
+        devices.append({
+            "mac": mac,
+            "nickname": data.get("nickname", ""),
+            "ip": data.get("ip", ""),
+            "enabled": data.get("enabled", True),
+        })
+
+    save_devices(devices)
+    return jsonify({"ok": True, "devices": devices})
+
+
+@app.route("/api/saved-devices/delete", methods=["POST"])
+def api_delete_device():
+    """Remove a saved device by MAC."""
+    mac = request.json.get("mac", "").lower().strip()
+    devices = [d for d in load_devices() if d["mac"] != mac]
+    save_devices(devices)
+    return jsonify({"ok": True, "devices": devices})
+
+
+@app.route("/api/saved-devices/sync", methods=["POST"])
+def api_sync_devices():
+    """Sync enabled saved devices → TARGET_IPS in config, then restart Gatecrash."""
+    active_ips = sync_targets_from_devices()
+    # Restart Gatecrash to apply new targets
+    run("systemctl stop gatecrash 2>&1", timeout=30)
+    import time; time.sleep(1)
+    out, rc = run("systemctl start gatecrash 2>&1", timeout=30)
+    return jsonify({"ok": rc == 0, "active_ips": active_ips, "output": out})
 
 
 @app.route("/api/gateway")

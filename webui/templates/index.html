@@ -348,6 +348,25 @@
     <div id="vpn-result"></div>
   </div>
 
+  <!-- Saved Devices -->
+  <div class="card full-width">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;">
+      Devices
+      <div style="display:flex;gap:8px;">
+        <button class="btn-grey" onclick="scanDevices()" id="btn-scan" style="padding:5px 14px;font-size:12px;">&#128269; Scan network</button>
+        <button class="btn-green" onclick="syncAndRestart()" id="btn-sync" style="padding:5px 14px;font-size:12px;">&#9654; Apply &amp; Restart</button>
+      </div>
+    </h2>
+    <div style="font-size:12px;color:#999;margin-bottom:12px;line-height:1.5;">
+      Saved devices persist across IP changes. Gatecrash tracks devices by MAC address so DHCP reassignments
+      are handled automatically. Toggle devices on/off, then click <strong>Apply &amp; Restart</strong>.
+    </div>
+    <div id="saved-devices-list" style="margin-bottom:12px;">
+      <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading saved devices...</div>
+    </div>
+    <div class="save-status" id="devices-status"></div>
+  </div>
+
   <!-- Gatecrash Config -->
   <div class="card">
     <h2>Gatecrash Config</h2>
@@ -357,30 +376,9 @@
       <div class="hint">The bridged network adapter connected to your LAN</div>
     </div>
     <div class="field">
-      <label>Target IPs</label>
+      <label>Target IPs (manual override)</label>
       <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
-      <div class="hint">Space-separated IPs of devices to route through VPN</div>
-      <button type="button" class="btn-grey" onclick="toggleDeviceBrowser()"
-              style="margin-top:8px;font-size:13px;padding:6px 12px;">
-        &#128269; Browse network devices
-      </button>
-      <div id="device-browser" style="display:none;margin-top:10px;border:1px solid #eee;border-radius:8px;overflow:hidden;">
-        <div style="padding:8px 12px;background:#f7f8fa;font-size:12px;color:#888;display:flex;justify-content:space-between;align-items:center;">
-          <span id="device-browser-status">Devices seen on the network</span>
-          <div style="display:flex;gap:10px;">
-            <button type="button" id="btn-scan" onclick="scanDevices()" style="background:none;border:none;cursor:pointer;font-size:12px;color:#4caf50;padding:0;font-weight:600;">&#128269; Scan network</button>
-          </div>
-        </div>
-        <div id="device-list" style="max-height:220px;overflow-y:auto;transition:max-height 0.3s ease;">
-          <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Click Scan network to find devices</div>
-        </div>
-        <div style="text-align:center;padding:4px;border-top:1px solid #eee;background:#fafbfc;">
-          <button type="button" id="btn-expand-devices" onclick="toggleDeviceListSize()"
-                  style="background:none;border:none;cursor:pointer;font-size:12px;color:#999;padding:4px 12px;">
-            &#9660; Expand
-          </button>
-        </div>
-      </div>
+      <div class="hint">Auto-populated from saved devices. Only edit manually if needed.</div>
     </div>
     <div class="field">
       <label>VPN Interface</label>
@@ -535,7 +533,8 @@
       <span id="scan-modal-status" style="color:#aaa;font-size:12px;font-family:monospace;"></span>
       <button class="modal-close" onclick="closeScanModalNow()">&#x2715;</button>
     </div>
-    <div class="modal-body" id="scan-modal-body"></div>
+    <div class="modal-body" id="scan-modal-body" style="min-height:120px;max-height:200px;"></div>
+    <div id="scan-device-list" style="padding:0 18px;max-height:280px;overflow-y:auto;"></div>
     <div class="modal-footer">
       <button class="btn-grey" onclick="closeScanModalNow()" id="scan-modal-close-btn" style="font-size:13px;padding:7px 18px;">Close</button>
     </div>
@@ -752,18 +751,125 @@ async function saveAndRestart() {
 }
 
 // ---------------------------------------------------------------------------
-// Device browser
+// Saved devices
+// ---------------------------------------------------------------------------
+
+let _savedDevices = [];
+let _scannedDevices = [];
+
+async function loadSavedDevices() {
+  try {
+    const r = await fetch('/api/saved-devices');
+    const d = await r.json();
+    _savedDevices = d.devices || [];
+    renderSavedDevices();
+  } catch(e) {}
+}
+
+function renderSavedDevices() {
+  const list = document.getElementById('saved-devices-list');
+  if (!_savedDevices.length) {
+    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No saved devices. Use <strong>Scan network</strong> to find and add devices.</div>';
+    return;
+  }
+  list.innerHTML = _savedDevices.map((dev, i) => {
+    const name = dev.nickname || dev.mac;
+    const checked = dev.enabled ? 'checked' : '';
+    return `
+      <div class="device-row" style="gap:12px;">
+        <input type="checkbox" ${checked} onchange="toggleDevice('${dev.mac}', this.checked)"
+               style="width:16px;height:16px;cursor:pointer;">
+        <div class="device-name" style="flex:1;">
+          <span class="dev-nick" id="nick-${i}">${dev.nickname || '<span style=color:#aaa>no nickname</span>'}</span>
+          <div style="font-weight:400;color:#999;font-size:11px;">${dev.ip || 'IP unknown'}</div>
+        </div>
+        <div class="device-mac">${dev.mac}</div>
+        <button class="btn-grey" onclick="renameDevice('${dev.mac}', ${i})" style="padding:3px 10px;font-size:12px;">Rename</button>
+        <button style="padding:3px 10px;font-size:12px;background:#ffebee;color:#c62828;border:none;border-radius:4px;cursor:pointer;"
+                onclick="removeDevice('${dev.mac}')">Remove</button>
+      </div>`;
+  }).join('');
+}
+
+async function toggleDevice(mac, enabled) {
+  const el = document.getElementById('devices-status');
+  const r = await fetch('/api/saved-devices', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac, enabled}),
+  });
+  const d = await r.json();
+  if (d.ok) _savedDevices = d.devices;
+  el.textContent = enabled ? 'Enabled — click Apply & Restart to take effect' : 'Disabled — click Apply & Restart';
+  setTimeout(() => { el.textContent = ''; }, 4000);
+}
+
+async function renameDevice(mac, idx) {
+  const current = _savedDevices[idx]?.nickname || '';
+  const name = prompt('Nickname for this device:', current);
+  if (name === null) return;
+  const r = await fetch('/api/saved-devices', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac, nickname: name}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    _savedDevices = d.devices;
+    renderSavedDevices();
+  }
+}
+
+async function removeDevice(mac) {
+  if (!confirm('Remove this device?')) return;
+  const r = await fetch('/api/saved-devices/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    _savedDevices = d.devices;
+    renderSavedDevices();
+  }
+}
+
+async function syncAndRestart() {
+  const el  = document.getElementById('devices-status');
+  const btn = document.getElementById('btn-sync');
+  btn.disabled = true;
+  el.className = 'save-status';
+  el.textContent = 'Syncing devices and restarting Gatecrash...';
+  try {
+    const r = await fetch('/api/saved-devices/sync', {method: 'POST'});
+    const d = await r.json();
+    el.className = 'save-status ' + (d.ok ? '' : 'error');
+    el.textContent = d.ok
+      ? `Applied ${d.active_ips.length} device(s): ${d.active_ips.join(', ') || 'none'}`
+      : 'Failed: ' + d.output;
+    // Refresh config panel to show updated TARGET_IPS
+    loadConfig();
+    fetchStatus();
+    loadDiagnostics();
+  } catch(e) {
+    el.className = 'save-status error';
+    el.textContent = 'Request failed: ' + e;
+  }
+  btn.disabled = false;
+  setTimeout(() => { el.textContent = ''; }, 6000);
+}
+
+// ---------------------------------------------------------------------------
+// Network scanner (nmap)
 // ---------------------------------------------------------------------------
 
 let _scanES = null;
 
 function scanDevices() {
-  const btn          = document.getElementById('btn-scan');
-  const modalStatus  = document.getElementById('scan-modal-status');
-  const modalBody    = document.getElementById('scan-modal-body');
-  const browserStatus = document.getElementById('device-browser-status');
+  const btn         = document.getElementById('btn-scan');
+  const modalStatus = document.getElementById('scan-modal-status');
+  const modalBody   = document.getElementById('scan-modal-body');
 
-  // Open modal
   document.getElementById('scan-modal').classList.add('open');
   modalBody.textContent = '';
   modalStatus.textContent = 'scanning...';
@@ -781,10 +887,9 @@ function scanDevices() {
     _scanES.close();
     _scanES = null;
     btn.disabled = false;
-    const devices = JSON.parse(e.data);
-    modalStatus.textContent = `done — ${devices.length} device${devices.length !== 1 ? 's' : ''} found`;
-    browserStatus.textContent = `Found ${devices.length} device${devices.length !== 1 ? 's' : ''}`;
-    renderDevices(devices);
+    _scannedDevices = JSON.parse(e.data);
+    modalStatus.textContent = `done — ${_scannedDevices.length} device${_scannedDevices.length !== 1 ? 's' : ''} found`;
+    renderScannedDevices();
   });
 
   _scanES.onerror = () => {
@@ -792,86 +897,62 @@ function scanDevices() {
     _scanES = null;
     btn.disabled = false;
     modalStatus.textContent = 'error — check LAN interface in config';
-    browserStatus.textContent = 'Scan error';
   };
 }
 
-function closeScanModal(e) {
-  // Only close if clicking the backdrop itself, not the modal content
-  if (e.target === document.getElementById('scan-modal')) {
-    closeScanModalNow();
-  }
-}
+function renderScannedDevices() {
+  const list = document.getElementById('scan-device-list');
+  if (!list) return;
+  const savedMACs = new Set(_savedDevices.map(d => d.mac));
 
-function closeScanModalNow() {
-  document.getElementById('scan-modal').classList.remove('open');
-}
-
-function toggleDeviceBrowser() {
-  const el = document.getElementById('device-browser');
-  if (el.style.display === 'none') {
-    el.style.display = '';
-  } else {
-    el.style.display = 'none';
-  }
-}
-
-let deviceListExpanded = false;
-function toggleDeviceListSize() {
-  const list = document.getElementById('device-list');
-  const btn  = document.getElementById('btn-expand-devices');
-  deviceListExpanded = !deviceListExpanded;
-  list.style.maxHeight = deviceListExpanded ? '520px' : '220px';
-  btn.innerHTML = deviceListExpanded ? '&#9650; Collapse' : '&#9660; Expand';
-}
-
-function renderDevices(devices) {
-  const list = document.getElementById('device-list');
-  const currentTargets = document.getElementById('cfg-targets').value
-    .split(/\s+/).map(s => s.trim()).filter(Boolean);
-
-  if (!devices.length) {
+  if (!_scannedDevices.length) {
     list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No devices found</div>';
     return;
   }
 
-  list.innerHTML = devices.map(dev => {
-    const label    = dev.hostname || dev.ip;
-    const sublabel = dev.hostname ? dev.ip : '';
-    const vendor   = dev.vendor ? ` (${dev.vendor})` : '';
+  list.innerHTML = _scannedDevices.map(dev => {
+    const label  = dev.hostname || dev.ip;
+    const sub    = dev.hostname ? dev.ip : '';
+    const vendor = dev.vendor ? ` (${dev.vendor})` : '';
+    const saved  = dev.mac && savedMACs.has(dev.mac);
     return `
-      <div class="device-row" id="drow-${dev.ip.replace(/\./g,'-')}">
+      <div class="device-row">
         <div class="device-name">
           ${label}
-          <div style="font-weight:400;color:#999;font-size:11px;">${sublabel}${vendor}</div>
+          <div style="font-weight:400;color:#999;font-size:11px;">${sub}${vendor}</div>
         </div>
-        <div class="device-mac">${dev.mac || ''}</div>
-        <button class="device-add" onclick="addDevice('${dev.ip}', this)">+ Add</button>
+        <div class="device-mac">${dev.mac || '<span style=color:#ccc>no MAC</span>'}</div>
+        ${dev.mac
+          ? saved
+            ? '<button class="device-add added" disabled>Saved</button>'
+            : `<button class="device-add" onclick="saveScannedDevice('${dev.mac}','${dev.ip}','${(dev.hostname||'').replace(/'/g,"\\'")}', this)">+ Save</button>`
+          : '<span style="font-size:11px;color:#ccc;">—</span>'}
       </div>`;
   }).join('');
-
-  currentTargets.forEach(ip => markAdded(ip));
 }
 
-function addDevice(ip, btn) {
-  const input = document.getElementById('cfg-targets');
-  const targets = input.value.split(/\s+/).map(s => s.trim()).filter(Boolean);
-  if (!targets.includes(ip)) {
-    targets.push(ip);
-    input.value = targets.join(' ');
-  }
-  markAdded(ip);
-}
-
-function markAdded(ip) {
-  const id = 'drow-' + ip.replace(/\./g, '-');
-  const row = document.getElementById(id);
-  if (row) {
-    const btn = row.querySelector('.device-add');
-    btn.textContent = '✓ Added';
+async function saveScannedDevice(mac, ip, hostname, btn) {
+  const r = await fetch('/api/saved-devices', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac, ip, nickname: hostname, enabled: true}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    _savedDevices = d.devices;
+    renderSavedDevices();
+    btn.textContent = 'Saved';
     btn.classList.add('added');
     btn.disabled = true;
   }
+}
+
+function closeScanModal(e) {
+  if (e.target === document.getElementById('scan-modal')) closeScanModalNow();
+}
+
+function closeScanModalNow() {
+  document.getElementById('scan-modal').classList.remove('open');
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,6 +1188,7 @@ loadNetworkInfo();
 loadWGConfig();
 loadAutostart();
 loadDiagnostics();
+loadSavedDevices();
 </script>
 </body>
 </html>
