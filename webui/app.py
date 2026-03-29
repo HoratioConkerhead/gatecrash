@@ -145,6 +145,17 @@ def api_status():
 
     arp_out, _ = run("pgrep -c arpspoof 2>/dev/null || echo 0")
 
+    # Check if vpntarget has a VPN route (not just the fallback gateway)
+    vt_out, _ = run("ip route show table vpntarget 2>/dev/null")
+    vpn_route_missing = wg_up and gc_running and "dev wg0" not in (vt_out or "")
+
+    # Auto-fix: restore VPN route if WireGuard is up but route is missing
+    if vpn_route_missing:
+        conf = read_conf()
+        rt = conf.get("ROUTE_TABLE", "vpntarget")
+        run(f"ip route replace default dev wg0 table {rt} metric 100")
+        vpn_route_missing = False  # fixed
+
     return jsonify({
         "gatecrash_running": gc_running,
         "wg_up": wg_up,
@@ -168,6 +179,10 @@ def api_stop():
 @app.route("/api/wg/start", methods=["POST"])
 def api_wg_start():
     out, rc = run("wg-quick up wg0 2>&1", timeout=20)
+    # Restore vpntarget VPN route (wg-quick wipes it on down/up)
+    conf = read_conf()
+    rt = conf.get("ROUTE_TABLE", "vpntarget")
+    run(f"ip route replace default dev wg0 table {rt} metric 100")
     return jsonify({"ok": rc == 0, "output": out})
 
 
