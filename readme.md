@@ -539,9 +539,7 @@ sudo systemctl enable gatecrash
 
 ## Known Issues / TODO
 
-- **DNS live feed not populating** — the 5-second test capture works but the background thread doesn't show queries in the live table. Likely a thread startup timing or regex issue — needs investigation
 - **IPv6 bypass risk** — ARP spoofing only intercepts IPv4. If a target device prefers IPv6 (most modern devices do when available), its traffic goes directly to the router via NDP, completely bypassing Gatecrash. Investigate: warn in the UI if IPv6 is active on the LAN, consider NDP spoofing, or strip AAAA records from DNS responses to force IPv4
-- **Troubleshooter / log exporter** — add a way to export diagnostics, iptables state, tcpdump samples, and logs as a single downloadable bundle for remote troubleshooting
 
 ## Future Ideas
 
