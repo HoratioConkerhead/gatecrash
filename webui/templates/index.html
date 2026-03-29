@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Gatecrash</title>
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#1a1a2e">
@@ -14,22 +14,32 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
-  body {
-    font-family: system-ui, sans-serif;
+  html, body {
+    font-family: system-ui, -apple-system, sans-serif;
     background: #f0f2f5;
     color: #1a1a2e;
     font-size: 15px;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
   }
 
+  /* App shell layout: fixed header + fixed bottom tabs + scrollable middle */
   header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
     background: #1a1a2e;
     color: white;
-    padding: 14px 24px;
+    padding: 10px 16px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 10px;
+    min-height: 48px;
   }
-  header h1 { font-size: 20px; font-weight: 700; flex: 1; }
+  header h1 { font-size: 18px; font-weight: 700; white-space: nowrap; }
 
   .badge {
     display: inline-flex;
@@ -53,8 +63,11 @@
 
   main {
     max-width: 1100px;
-    margin: 24px auto;
-    padding: 0 16px;
+    margin: 0 auto;
+    padding: 16px;
+    padding-top: calc(60px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    min-height: 100dvh;
   }
 
   .card {
@@ -248,7 +261,7 @@
     color: #a8e6cf;
     white-space: pre-wrap;
     word-break: break-word;
-    min-height: 300px;
+    min-height: 120px;
   }
   .modal-footer {
     padding: 12px 18px;
@@ -276,8 +289,8 @@
   .modal .device-name div { color: #888 !important; }
   .modal .device-mac { color: #7a7a9a; }
   .device-name { flex: 1; font-weight: 600; }
-  .device-ip { font-family: monospace; color: #555; min-width: 110px; }
-  .device-mac { font-family: monospace; color: #aaa; font-size: 11px; min-width: 130px; }
+  .device-ip { font-family: monospace; color: #555; }
+  .device-mac { font-family: monospace; color: #aaa; font-size: 11px; }
   .device-add {
     padding: 3px 10px;
     font-size: 12px;
@@ -301,62 +314,80 @@
   #vpn-result.ok    { color: #4caf50; }
   #vpn-result.fail  { color: #f44336; }
 
-  /* Tabs */
+  /* Bottom tab bar */
   .tab-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
     display: flex;
     background: #1a1a2e;
-    border-bottom: 2px solid #2d2d44;
-    padding: 0 16px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    border-top: 1px solid #2d2d44;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .tab-btn {
-    padding: 12px 24px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 4px 6px;
     background: none;
     border: none;
-    color: #888;
-    font-size: 14px;
+    color: #666;
+    font-size: 10px;
     font-weight: 600;
     cursor: pointer;
-    white-space: nowrap;
-    border-bottom: 3px solid transparent;
-    margin-bottom: -2px;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
   }
-  .tab-btn:hover { color: #ccc; }
-  .tab-btn.active {
-    color: #4caf50;
-    border-bottom-color: #4caf50;
-  }
+  .tab-btn svg { width: 22px; height: 22px; fill: currentColor; }
+  .tab-btn:hover { color: #aaa; }
+  .tab-btn.active { color: #4caf50; }
+
   .tab-content { display: none; }
   .tab-content.active { display: grid; }
 
+  /* Desktop: header badges inline, generous spacing */
+  .header-badges { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; white-space: nowrap; }
+
+  /* Mobile */
   @media (max-width: 700px) {
-    main { padding: 0 8px; }
+    main { padding: 12px 10px; padding-top: calc(90px + env(safe-area-inset-top, 0px)); padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
     .tab-content.active { grid-template-columns: 1fr !important; }
-    header { flex-wrap: wrap; gap: 10px; padding: 10px 16px; }
-    header h1 { width: 100%; }
-    .tab-btn { padding: 10px 16px; font-size: 13px; }
+    header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+    header h1 { font-size: 16px; }
+    .header-badges { order: 2; width: 100%; gap: 6px; }
+    .header-actions { order: 1; }
+    .header-actions #btn-check-update,
+    .header-actions #btn-apply-update { font-size: 11px !important; padding: 4px 10px !important; }
+    .badge { font-size: 11px; padding: 3px 8px; }
+    .card { padding: 16px; }
     .card h2 { flex-direction: column; align-items: flex-start !important; gap: 8px; }
     .stats-grid { grid-template-columns: 1fr; }
+    .device-row { flex-wrap: wrap; gap: 6px; padding: 10px 8px; }
+    .device-mac { min-width: auto; font-size: 10px; }
+    .btn-row { flex-direction: column; }
+    .btn-row button { width: 100%; }
+    .diag-grid { grid-template-columns: 1fr !important; }
   }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>&#x1F6E1; Gatecrash <span style="font-size:13px;font-weight:400;color:#666;">v{{ version }}</span></h1>
-  <a href="https://github.com/HoratioConkerhead/gatecrash#readme" target="_blank"
-     style="color:#aaa;font-size:13px;text-decoration:none;padding:5px 10px;border:1px solid #444;border-radius:5px;">
-    &#10067; Help
-  </a>
-  <div class="badge"><div class="dot grey" id="dot-gc"></div><span id="lbl-gc">Gatecrash</span></div>
-  <div class="badge"><div class="dot grey" id="dot-wg"></div><span id="lbl-wg">WireGuard</span></div>
-  <div class="badge" style="font-size:12px;color:#aaa;" id="lbl-arps"></div>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
-    <span id="update-status" style="font-size:13px;color:#aaa;"></span>
-    <button class="btn-grey" id="btn-check-update" onclick="checkUpdate()" style="padding:6px 14px;font-size:13px;">Check for updates</button>
-    <button class="btn-blue" id="btn-apply-update" onclick="applyUpdate()" style="padding:6px 14px;font-size:13px;display:none;">&#8593; Upgrade</button>
+  <h1>&#x1F6E1; Gatecrash <span style="font-size:12px;font-weight:400;color:#666;">v{{ version }}</span></h1>
+  <div class="header-badges">
+    <div class="badge"><div class="dot grey" id="dot-gc"></div><span id="lbl-gc">Gatecrash</span></div>
+    <div class="badge"><div class="dot grey" id="dot-wg"></div><span id="lbl-wg">WireGuard</span></div>
+    <div class="badge" style="font-size:12px;color:#aaa;" id="lbl-arps"></div>
+  </div>
+  <div class="header-actions">
+    <span id="update-status" style="font-size:12px;color:#aaa;"></span>
+    <button class="btn-grey" id="btn-check-update" onclick="checkUpdate()" style="padding:5px 12px;font-size:12px;">Updates</button>
+    <button class="btn-blue" id="btn-apply-update" onclick="applyUpdate()" style="padding:5px 12px;font-size:12px;display:none;">&#8593; Upgrade</button>
   </div>
 </header>
 
@@ -367,12 +398,6 @@
     <a href="/" style="color:#888;font-size:12px;text-decoration:underline;cursor:pointer;">Reload manually if stuck</a>
   </div>
   <div id="upgrade-log-lines"></div>
-</div>
-
-<div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('main', this)">Main</button>
-  <button class="tab-btn" onclick="switchTab('config', this)">Config</button>
-  <button class="tab-btn" onclick="switchTab('diagnostics', this)">Diagnostics</button>
 </div>
 
 <main>
@@ -398,21 +423,18 @@
 
   <!-- Saved Devices -->
   <div class="card full-width">
-    <h2 style="display:flex;align-items:center;justify-content:space-between;">
-      Devices
-      <div style="display:flex;gap:8px;">
-        <button class="btn-grey" onclick="scanDevices()" id="btn-scan" style="padding:5px 14px;font-size:12px;">&#128269; Scan network</button>
-        <button class="btn-green" onclick="syncAndRestart()" id="btn-sync" style="padding:5px 14px;font-size:12px;">&#9654; Apply &amp; Restart</button>
-      </div>
-    </h2>
+    <h2>Devices</h2>
     <div style="font-size:12px;color:#999;margin-bottom:12px;line-height:1.5;">
-      Saved devices persist across IP changes. Gatecrash tracks devices by MAC address so DHCP reassignments
-      are handled automatically. Toggle devices on/off, then click <strong>Apply &amp; Restart</strong>.
+      Toggle devices on/off, then tap <strong>Apply &amp; Restart</strong>.
     </div>
     <div id="saved-devices-list" style="margin-bottom:12px;">
       <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading saved devices...</div>
     </div>
     <div class="save-status" id="devices-status"></div>
+    <div style="display:flex;gap:10px;margin-top:12px;">
+      <button class="btn-green" onclick="syncAndRestart()" id="btn-sync" style="flex:1;">&#9654; Apply &amp; Restart</button>
+      <button class="btn-grey" onclick="scanDevices()" id="btn-scan" style="flex:1;">&#128269; Scan network</button>
+    </div>
   </div>
 
   </div><!-- /tab-main -->
@@ -549,7 +571,7 @@
     </div>
 
     <!-- iptables / routing -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+    <div class="diag-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
       <div>
         <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">IPTABLES MANGLE (PREROUTING)</div>
         <div id="diag-ipt" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
@@ -1283,5 +1305,21 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/static/sw.js').catch(() => {});
 }
 </script>
+
+<nav class="tab-bar" id="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('main', this)">
+    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    Main
+  </button>
+  <button class="tab-btn" onclick="switchTab('config', this)">
+    <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.04 7.04 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+    Config
+  </button>
+  <button class="tab-btn" onclick="switchTab('diagnostics', this)">
+    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H6v-2h6v2zm4-4H6v-2h10v2zm0-4H6V7h10v2z"/></svg>
+    Diagnostics
+  </button>
+</nav>
+
 </body>
 </html>
