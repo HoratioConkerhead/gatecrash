@@ -840,9 +840,8 @@
              style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
     </div>
     <div id="scan-device-list" style="padding:0 18px;min-height:80px;max-height:380px;overflow-y:auto;"></div>
-    <div class="modal-footer" style="justify-content:space-between;">
+    <div class="modal-footer">
       <button class="btn-grey" onclick="closeScanModalNow()" style="font-size:13px;padding:7px 18px;">Close</button>
-      <button class="btn-grey" id="btn-full-scan" onclick="runNmapScan()" style="font-size:13px;padding:7px 18px;">&#128269; Full scan</button>
     </div>
   </div>
 </div>
@@ -1322,54 +1321,25 @@ async function autoRestart() {
 
 let _scanES = null;
 
-async function scanDevices() {
+function scanDevices() {
+  const btn         = document.getElementById('btn-scan');
   const modalStatus = document.getElementById('scan-modal-status');
   const list        = document.getElementById('scan-device-list');
 
   document.getElementById('scan-modal').classList.add('open');
   document.getElementById('scan-filter').value = '';
-  list.innerHTML = '<div style="padding:20px;display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;"><div class="spinner"></div> Loading...</div>';
-  modalStatus.textContent = '';
-
-  try {
-    const r = await fetch('/api/devices/arp');
-    const d = await r.json();
-    _scannedDevices = d.devices || [];
-    const unsaved = _scannedDevices.filter(d => !d.mac || !_savedDevices.find(s => s.mac === d.mac));
-    modalStatus.textContent = `${unsaved.length} device${unsaved.length !== 1 ? 's' : ''} found`;
-    renderScannedDevices();
-  } catch(e) {
-    list.innerHTML = '';
-    modalStatus.textContent = 'error loading ARP table';
-  }
-}
-
-function runNmapScan() {
-  const btn         = document.getElementById('btn-full-scan');
-  const modalStatus = document.getElementById('scan-modal-status');
+  list.innerHTML = '<div style="padding:20px;display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;"><div class="spinner"></div> Scanning...</div>';
+  modalStatus.textContent = 'scanning...';
+  btn.disabled = true;
 
   if (_scanES) { _scanES.close(); }
-  btn.disabled = true;
-  modalStatus.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> scanning...</span>';
-
   _scanES = new EventSource('/api/devices/scan-stream');
 
   _scanES.addEventListener('devices', (e) => {
     _scanES.close();
     _scanES = null;
     btn.disabled = false;
-
-    // Merge nmap results — fill in hostname/vendor and add any new devices
-    for (const nd of JSON.parse(e.data)) {
-      const existing = nd.mac && _scannedDevices.find(d => d.mac === nd.mac);
-      if (existing) {
-        if (nd.hostname) existing.hostname = nd.hostname;
-        if (nd.vendor)   existing.vendor   = nd.vendor;
-      } else {
-        _scannedDevices.push(nd);
-      }
-    }
-
+    _scannedDevices = JSON.parse(e.data);
     const unsaved = _scannedDevices.filter(d => !d.mac || !_savedDevices.find(s => s.mac === d.mac));
     modalStatus.textContent = `${unsaved.length} device${unsaved.length !== 1 ? 's' : ''} found`;
     renderScannedDevices();
@@ -1379,7 +1349,8 @@ function runNmapScan() {
     _scanES.close();
     _scanES = null;
     btn.disabled = false;
-    modalStatus.textContent = 'scan error — check LAN interface in config';
+    list.innerHTML = '';
+    modalStatus.textContent = 'error — check LAN interface in config';
   };
 }
 
