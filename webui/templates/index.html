@@ -834,8 +834,7 @@
       <span id="scan-modal-status" style="color:#aaa;font-size:12px;font-family:monospace;"></span>
       <button class="modal-close" onclick="closeScanModalNow()">&#x2715;</button>
     </div>
-    <div class="modal-body" id="scan-modal-body" style="min-height:120px;max-height:200px;"></div>
-    <div id="scan-device-list" style="padding:0 18px;max-height:280px;overflow-y:auto;"></div>
+    <div id="scan-device-list" style="padding:0 18px;min-height:80px;max-height:420px;overflow-y:auto;"></div>
     <div class="modal-footer">
       <button class="btn-grey" onclick="closeScanModalNow()" id="scan-modal-close-btn" style="font-size:13px;padding:7px 18px;">Close</button>
     </div>
@@ -1320,27 +1319,23 @@ let _scanES = null;
 function scanDevices() {
   const btn         = document.getElementById('btn-scan');
   const modalStatus = document.getElementById('scan-modal-status');
-  const modalBody   = document.getElementById('scan-modal-body');
+  const list        = document.getElementById('scan-device-list');
 
   document.getElementById('scan-modal').classList.add('open');
-  modalBody.textContent = '';
+  list.innerHTML = '<div style="padding:20px;color:#aaa;font-size:13px;text-align:center;">Scanning...</div>';
   modalStatus.textContent = 'scanning...';
   btn.disabled = true;
 
   if (_scanES) { _scanES.close(); }
   _scanES = new EventSource('/api/devices/scan-stream');
 
-  _scanES.onmessage = (e) => {
-    modalBody.textContent += e.data + '\n';
-    modalBody.scrollTop = modalBody.scrollHeight;
-  };
-
   _scanES.addEventListener('devices', (e) => {
     _scanES.close();
     _scanES = null;
     btn.disabled = false;
     _scannedDevices = JSON.parse(e.data);
-    modalStatus.textContent = `done — ${_scannedDevices.length} device${_scannedDevices.length !== 1 ? 's' : ''} found`;
+    const unsaved = _scannedDevices.filter(d => !d.mac || !_savedDevices.find(s => s.mac === d.mac));
+    modalStatus.textContent = `found ${unsaved.length} new device${unsaved.length !== 1 ? 's' : ''}`;
     renderScannedDevices();
   });
 
@@ -1348,35 +1343,46 @@ function scanDevices() {
     _scanES.close();
     _scanES = null;
     btn.disabled = false;
+    list.innerHTML = '';
     modalStatus.textContent = 'error — check LAN interface in config';
   };
+}
+
+const TV_KEYWORDS = ['samsung', 'lg electron', 'tcl', 'hisense', 'roku', 'vizio', 'philips', 'sony', 'toshiba', 'apple tv', 'fire tv', 'chromecast', 'shield', 'nvidia', 'sky', 'amazon'];
+
+function looksLikeTV(dev) {
+  const hay = ((dev.vendor || '') + ' ' + (dev.hostname || '')).toLowerCase();
+  return TV_KEYWORDS.some(k => hay.includes(k));
 }
 
 function renderScannedDevices() {
   const list = document.getElementById('scan-device-list');
   if (!list) return;
-  const savedMACs = new Set(_savedDevices.map(d => d.mac));
 
-  if (!_scannedDevices.length) {
-    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No devices found</div>';
+  // Filter out already-saved devices
+  const unsaved = _scannedDevices.filter(d => !d.mac || !_savedDevices.find(s => s.mac === d.mac));
+
+  if (!unsaved.length) {
+    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No new devices found</div>';
     return;
   }
 
-  list.innerHTML = _scannedDevices.map(dev => {
-    const label  = dev.hostname || (dev.vendor ? dev.vendor : dev.ip);
-    const sub    = dev.hostname ? `${dev.ip}${dev.vendor ? ' · ' + dev.vendor : ''}` : (dev.vendor ? dev.ip : '');
-    const saved  = dev.mac && savedMACs.has(dev.mac);
+  // TVs first, then rest
+  const sorted = [...unsaved].sort((a, b) => looksLikeTV(b) - looksLikeTV(a));
+
+  list.innerHTML = sorted.map(dev => {
+    const label = dev.hostname || dev.vendor || dev.ip;
+    const sub   = dev.hostname ? `${dev.ip}${dev.vendor ? ' · ' + dev.vendor : ''}` : (dev.vendor ? dev.ip : '');
+    const tvBadge = looksLikeTV(dev) ? '<span style="font-size:10px;background:#e3f2fd;color:#1565c0;border-radius:4px;padding:1px 5px;margin-left:6px;">TV</span>' : '';
     return `
       <div class="device-row">
         <div class="device-name">
-          ${label}
+          ${label}${tvBadge}
           <div style="font-weight:400;color:#999;font-size:11px;">${sub}</div>
         </div>
         <div class="device-mac">${dev.mac || '<span style=color:#ccc>no MAC</span>'}</div>
         ${dev.mac
-          ? saved
-            ? '<button class="device-add added" disabled>Saved</button>'
-            : `<button class="device-add" onclick="saveScannedDevice('${dev.mac}','${dev.ip}','${(dev.hostname || dev.vendor || '').replace(/'/g,"\\'")}', this)">+ Save</button>`
+          ? `<button class="device-add" onclick="saveScannedDevice('${dev.mac}','${dev.ip}','${(dev.hostname || dev.vendor || '').replace(/'/g,"\\'")}', this)">+ Save</button>`
           : '<span style="font-size:11px;color:#ccc;">—</span>'}
       </div>`;
   }).join('');
