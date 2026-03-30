@@ -432,11 +432,14 @@ def api_save_device():
             existing["ip"] = data["ip"]
         if "enabled" in data:
             existing["enabled"] = data["enabled"]
+        if "hostname" in data:
+            existing["hostname"] = data["hostname"]
     else:
         devices.append({
             "mac": mac,
             "nickname": data.get("nickname", ""),
             "ip": data.get("ip", ""),
+            "hostname": data.get("hostname", ""),
             "enabled": data.get("enabled", True),
         })
 

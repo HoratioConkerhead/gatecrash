@@ -386,10 +386,11 @@
 
   /* No-devices hint */
   .no-devices-hint {
-    font-size: 13px;
+    font-size: 14px;
     color: #f44336;
     text-align: center;
-    margin-top: 8px;
+    margin-top: 10px;
+    font-weight: 700;
   }
   .no-devices-hint.hidden { display: none; }
 
@@ -509,7 +510,6 @@
       &#9654; Start Gatecrash
     </button>
     <div class="no-devices-hint hidden" id="no-devices-hint">Enable at least one device below to start</div>
-    <div class="output-box hidden" id="ctrl-output" style="text-align:left;"></div>
   </div>
 
   <!-- Saved Devices -->
@@ -852,6 +852,7 @@ let _wgRunning = false;
 
 function showOutput(text) {
   const el = document.getElementById('ctrl-output');
+  if (!el) return;
   el.classList.remove('hidden');
   el.textContent = text || '(no output)';
 }
@@ -1305,7 +1306,7 @@ async function saveScannedDevice(mac, ip, hostname, btn) {
   const r = await fetch('/api/saved-devices', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({mac, ip, nickname: hostname, enabled: true}),
+    body: JSON.stringify({mac, ip, nickname: hostname, hostname, enabled: true}),
   });
   const d = await r.json();
   if (d.ok) {
@@ -1409,9 +1410,6 @@ async function setAutostart(which, enabled) {
 async function reboot() {
   if (!confirm('Reboot the Gatecrash device?')) return;
   await fetch('/api/reboot', {method: 'POST'});
-  const out = document.getElementById('ctrl-output');
-  out.classList.remove('hidden');
-  out.textContent = 'Rebooting... page will reload when device is back.';
   setTimeout(() => {
     const poll = setInterval(async () => {
       try {
@@ -1426,9 +1424,6 @@ async function reboot() {
 async function shutdown() {
   if (!confirm('Shut down the Gatecrash device?')) return;
   await fetch('/api/shutdown', {method: 'POST'});
-  const out = document.getElementById('ctrl-output');
-  out.classList.remove('hidden');
-  out.textContent = 'Shutting down... you will need to physically power the device back on.';
 }
 
 async function loadWGConfig() {
