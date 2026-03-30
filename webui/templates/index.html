@@ -524,7 +524,7 @@
     </div>
     <div class="modal-body" id="upgrade-log-lines" style="min-height:150px;max-height:50vh;"></div>
     <div class="modal-footer" style="gap:10px;">
-      <button class="btn-green" id="btn-upgrade-reload" onclick="window.location.href='/'" style="display:none;padding:8px 20px;">&#8635; Reload interface</button>
+      <button class="btn-green" id="btn-upgrade-reload" onclick="(window.caches?caches.open('gatecrash-v1').then(c=>c.delete('/')):Promise.resolve()).finally(()=>{window.location.href='/?upgraded='+Date.now()})" style="display:none;padding:8px 20px;">&#8635; Reload interface</button>
       <button class="btn-grey" id="btn-upgrade-close" onclick="document.getElementById('upgrade-modal').classList.remove('open')" style="display:none;font-size:13px;padding:7px 18px;">Close</button>
     </div>
   </div>
@@ -1786,6 +1786,7 @@ async function applyUpdate() {
   let lastLineCount = 0;
   let restarting = false;
   let done = false;
+  let upgradeComplete = false;
 
   async function pollOnce() {
     if (done) return;
@@ -1820,19 +1821,28 @@ async function applyUpdate() {
         const allLines = ld.content.split('\n').filter(l => l);
         for (let i = lastLineCount; i < allLines.length; i++) {
           appendLogLine(allLines[i]);
+          if (allLines[i].includes('=== Upgrade complete ===')) upgradeComplete = true;
         }
         lastLineCount = allLines.length;
       }
     } catch(e) { /* log temporarily unavailable — ignore */ }
 
     // 3. Done?
-    if (!upgrading) {
+    if (!upgrading || upgradeComplete) {
       done = true;
       status.textContent = 'complete';
-      appendLogLine('Upgrade complete.', '#4caf50');
+      if (!upgradeComplete) appendLogLine('Upgrade complete.', '#4caf50');
       reloadBtn.style.display = '';
       closeBtn.style.display = '';
-      setTimeout(() => { window.location.href = '/'; }, 3000);
+      setTimeout(() => {
+        // Clear the SW cache for '/' so the PWA loads fresh content, not a stale cached page
+        const doReload = () => { window.location.href = '/?upgraded=' + Date.now(); };
+        if (window.caches) {
+          caches.open('gatecrash-v1').then(c => c.delete('/')).finally(doReload);
+        } else {
+          doReload();
+        }
+      }, 3000);
       return;
     }
 

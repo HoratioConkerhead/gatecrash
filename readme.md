@@ -549,14 +549,8 @@ sudo systemctl enable gatecrash
   - tv's at the top?
   - remove existing results when scanning again
 
-- **config needs a lot of tidying up**
-  - don't need interface info?
-  - need  way of adding VPN easily
-  - start on boot options at the top.  convert to pills
-  - remove 'network reference' on config.
-
 - **diagnostics**
-  - Reboot and shutdown on there?
+  - remove dns for the gatecrash device, as it's just cluttering it up
 
 - **Device management improvements:**
   - **Search/filter** the device list when adding devices
@@ -565,6 +559,7 @@ sudo systemctl enable gatecrash
 
 - **Update refresh screen**
   - Doesn't refresh screen on upgrade.  Need to refresh webpage, but 'app' needs quiting and reloading.
+  
 
 ## Future Ideas
 
