@@ -564,7 +564,7 @@ sudo systemctl enable gatecrash
   - **no refresh on remove** - if a device that's not selected is removed from favourites, no need to stop/start Gatecrash
 
 - **Update refresh screen**
-  - Doesn't refresh screen on upgrade.
+  - Doesn't refresh screen on upgrade.  Need to refresh webpage, but 'app' needs quiting and reloading.
 
 ## Future Ideas
 

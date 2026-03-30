@@ -570,10 +570,18 @@ def api_diagnostics():
     wg_out, wg_rc = run("ip link show wg0 2>/dev/null")
     wg_if = wg_out.strip() if wg_rc == 0 else "wg0 not found"
 
+    # Hostname
+    hostname_out, _ = run("hostname 2>/dev/null")
+
+    # Gateway
+    gw_out, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
+
     return jsonify({
         "lan_if": lan_if,
         "lan_mac": mac,
         "lan_ip": lan_ip,
+        "hostname": hostname_out.strip(),
+        "gateway": gw_out.strip(),
         "arpspoof_procs": arps,
         "iptables_mangle": ipt_out.strip(),
         "ip_rules": iprules_out.strip(),
@@ -636,6 +644,79 @@ def api_wg_config():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/wg-config/upload", methods=["POST"])
+def api_wg_config_upload():
+    """Accept a raw WireGuard config, fix it for Gatecrash, and save."""
+    content = request.json.get("content", "")
+    if not content.strip():
+        return jsonify({"ok": False, "error": "Empty config file"})
+
+    # Validate it looks like a WireGuard config
+    if "[Interface]" not in content and "[Peer]" not in content:
+        return jsonify({"ok": False, "error": "Not a valid WireGuard config (missing [Interface] or [Peer])"})
+
+    fixes = []
+    lines = content.splitlines()
+    new_lines = []
+    in_interface = False
+    has_table = False
+    has_mtu = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Track which section we're in
+        if stripped.startswith("[Interface]"):
+            in_interface = True
+        elif stripped.startswith("["):
+            in_interface = False
+
+        # Remove DNS lines (Gatecrash handles DNS routing)
+        if in_interface and re.match(r"^\s*DNS\s*=", stripped, re.IGNORECASE):
+            fixes.append("removed DNS")
+            continue
+
+        # Check for Table and MTU
+        if in_interface and re.match(r"^\s*Table\s*=", stripped, re.IGNORECASE):
+            has_table = True
+            if "off" not in stripped.lower():
+                line = "Table = off"
+                fixes.append("set Table = off")
+        if in_interface and re.match(r"^\s*MTU\s*=", stripped, re.IGNORECASE):
+            has_mtu = True
+            if "1280" not in stripped:
+                line = "MTU = 1280"
+                fixes.append("set MTU = 1280")
+
+        new_lines.append(line)
+
+    # Add missing Table/MTU after [Interface] line
+    if not has_table or not has_mtu:
+        result = []
+        for line in new_lines:
+            result.append(line)
+            if line.strip() == "[Interface]":
+                if not has_table:
+                    result.append("Table = off")
+                    fixes.append("added Table = off")
+                if not has_mtu:
+                    result.append("MTU = 1280")
+                    fixes.append("added MTU = 1280")
+        new_lines = result
+
+    final_content = "\n".join(new_lines)
+    if not final_content.endswith("\n"):
+        final_content += "\n"
+
+    try:
+        with open(WG_CONF_PATH, "w") as f:
+            f.write(final_content)
+        os.chmod(WG_CONF_PATH, 0o600)
+        return jsonify({"ok": True, "fixes": fixes})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "fixes": []})
 
 
 @app.route("/api/dns-log")

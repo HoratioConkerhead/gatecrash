@@ -384,6 +384,37 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Pill toggles */
+  .pill-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 50px;
+    background: #f0f0f0;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: #666;
+    transition: background 0.2s, color 0.2s;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pill-toggle .pill-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ccc;
+    transition: background 0.2s;
+  }
+  .pill-toggle.active {
+    background: #e8f5e9;
+    color: #2e7d32;
+  }
+  .pill-toggle.active .pill-dot {
+    background: #4caf50;
+  }
+
   /* No-devices hint */
   .no-devices-hint {
     font-size: 14px;
@@ -534,76 +565,91 @@
   </div><!-- /tab-main -->
 
   <!-- ==================== TAB: CONFIG ==================== -->
-  <div class="tab-content" id="tab-config" style="grid-template-columns:1fr 1fr;gap:20px;">
+  <div class="tab-content" id="tab-config" style="grid-template-columns:1fr;gap:20px;">
 
-  <!-- Gatecrash Config -->
+  <!-- Start on Boot -->
   <div class="card">
-    <h2>Gatecrash Config</h2>
-    <div class="field">
-      <label>LAN Interface</label>
-      <input type="text" id="cfg-lan" placeholder="eth0">
-      <div class="hint">The bridged network adapter connected to your LAN</div>
-    </div>
-    <div class="field">
-      <label>Target IPs (manual override)</label>
-      <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
-      <div class="hint">Auto-populated from saved devices. Only edit manually if needed.</div>
-    </div>
-    <div class="field">
-      <label>VPN Interface</label>
-      <input type="text" id="cfg-vpn" placeholder="wg0">
-    </div>
-    <div class="btn-row">
-      <button class="btn-blue" onclick="saveConfig()">&#128190; Save Config</button>
-      <button class="btn-green" onclick="saveAndRestart()" id="btn-save-restart">&#128190; Save &amp; Restart Gatecrash</button>
-    </div>
-    <div class="save-status" id="cfg-status"></div>
-    <div style="font-size:12px;color:#999;margin-top:4px;">Config changes (e.g. new target IPs) require a restart to take effect.</div>
-    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #eee;">
-      <div style="font-size:12px;font-weight:600;color:#999;margin-bottom:8px;">NETWORK REFERENCE</div>
-      <div style="font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;">
-        <span style="color:#888;">Gateway</span><span id="ref-gw" style="font-family:monospace;">—</span>
-        <span style="color:#888;">VM IP</span><span id="ref-vmip" style="font-family:monospace;">—</span>
+    <h2>Start on Boot</h2>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="pill-toggle" id="pill-wg" onclick="toggleBootPill('wg')">
+        <div class="pill-dot"></div>
+        <span>WireGuard</span>
+      </div>
+      <div class="pill-toggle" id="pill-gc" onclick="toggleBootPill('gatecrash')">
+        <div class="pill-dot"></div>
+        <span>Gatecrash</span>
       </div>
     </div>
+    <div class="save-status" id="as-status"></div>
   </div>
 
-  <!-- WireGuard Config -->
+  <!-- VPN Config -->
   <div class="card">
-    <h2>WireGuard Config</h2>
-    <p style="font-size:13px;color:#666;margin-bottom:10px;">
-      Must include <code>Table = off</code> and <code>MTU = 1280</code>. No DNS line.
+    <h2>VPN Config (WireGuard)</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:14px;">
+      Upload a <code>.conf</code> file from your VPN provider. Gatecrash will automatically
+      add the required settings (<code>Table = off</code>, <code>MTU = 1280</code>) and remove any DNS lines.
     </p>
-    <div class="field">
-      <textarea id="wg-conf" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = ...&#10;Table = off&#10;MTU = 1280&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = ...&#10;AllowedIPs = 0.0.0.0/0&#10;PersistentKeepalive = 25"></textarea>
+    <div id="wg-upload-area" style="border:2px dashed #ddd;border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s;"
+         onclick="document.getElementById('wg-file-input').click()"
+         ondragover="event.preventDefault();this.style.borderColor='#2196f3';this.style.background='#f0f7ff'"
+         ondragleave="this.style.borderColor='#ddd';this.style.background=''"
+         ondrop="event.preventDefault();this.style.borderColor='#ddd';this.style.background='';handleWGFileDrop(event)">
+      <div style="font-size:28px;margin-bottom:8px;">&#128194;</div>
+      <div style="font-weight:600;font-size:14px;color:#333;">Drop .conf file here or click to browse</div>
+      <div style="font-size:12px;color:#999;margin-top:4px;">Supports WireGuard config files from most VPN providers</div>
+      <input type="file" id="wg-file-input" accept=".conf" style="display:none;" onchange="handleWGFileSelect(this)">
     </div>
-    <button class="btn-blue" onclick="saveWGConfig()">&#128190; Save WireGuard Config</button>
+    <div id="wg-upload-status" style="margin-top:12px;">
+      <div id="wg-config-summary" style="display:none;background:#f7f8fa;border-radius:8px;padding:14px;font-size:13px;">
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;">
+          <span style="color:#888;font-weight:600;">Status</span><span id="wg-cfg-status" style="font-weight:600;">—</span>
+          <span style="color:#888;">Endpoint</span><span id="wg-cfg-endpoint" style="font-family:monospace;">—</span>
+          <span style="color:#888;">Address</span><span id="wg-cfg-address" style="font-family:monospace;">—</span>
+        </div>
+      </div>
+    </div>
     <div class="save-status" id="wg-status"></div>
   </div>
 
   <!-- System -->
   <div class="card">
     <h2>System</h2>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px;background:#f7f8fa;border-radius:8px;">
-        <input type="checkbox" id="as-wg" onchange="setAutostart('wg', this.checked)" style="width:16px;height:16px;">
-        <div>
-          <div style="font-weight:600;font-size:14px;">WireGuard</div>
-          <div style="font-size:12px;color:#888;">Start on boot</div>
-        </div>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px;background:#f7f8fa;border-radius:8px;">
-        <input type="checkbox" id="as-gc" onchange="setAutostart('gatecrash', this.checked)" style="width:16px;height:16px;">
-        <div>
-          <div style="font-weight:600;font-size:14px;">Gatecrash</div>
-          <div style="font-size:12px;color:#888;">Start on boot</div>
-        </div>
-      </label>
-    </div>
-    <div class="save-status" id="as-status"></div>
-    <div style="border-top:1px solid #eee;padding-top:14px;margin-top:4px;display:flex;gap:10px;">
+    <div style="display:flex;gap:10px;">
       <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
       <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
+    </div>
+  </div>
+
+  <!-- Advanced Config -->
+  <div class="card">
+    <h2 style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;" onclick="toggleAdvancedConfig()">
+      Advanced Config
+      <span id="advanced-arrow" style="font-size:12px;color:#999;transition:transform 0.2s;">&#9660;</span>
+    </h2>
+    <div id="advanced-config-body" style="display:none;">
+      <div style="font-size:12px;color:#999;margin-bottom:14px;">
+        These settings are auto-detected during setup. Only change them if your network configuration differs from the defaults.
+      </div>
+      <div class="field">
+        <label>LAN Interface</label>
+        <input type="text" id="cfg-lan" placeholder="eth0">
+        <div class="hint">The bridged network adapter connected to your LAN</div>
+      </div>
+      <div class="field">
+        <label>VPN Interface</label>
+        <input type="text" id="cfg-vpn" placeholder="wg0">
+      </div>
+      <div class="field">
+        <label>Target IPs (manual override)</label>
+        <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
+        <div class="hint">Auto-populated from saved devices. Only edit manually if needed.</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-blue" onclick="saveConfig()">&#128190; Save Config</button>
+        <button class="btn-green" onclick="saveAndRestart()" id="btn-save-restart">&#128190; Save &amp; Restart Gatecrash</button>
+      </div>
+      <div class="save-status" id="cfg-status"></div>
     </div>
   </div>
 
@@ -656,19 +702,20 @@
       </div>
     </h2>
 
-    <!-- MAC address + ARP check hint -->
+    <!-- Network info + ARP check hint -->
     <div class="diag-top-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
       <div style="background:#f7f8fa;border-radius:8px;padding:14px;">
-        <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">GATECRASH LAN INTERFACE</div>
-        <div style="font-family:monospace;font-size:14px;">
-          <span id="diag-lan-if" style="color:#555;"></span>
-          &nbsp;·&nbsp;
-          <span id="diag-lan-ip" style="color:#555;"></span>
+        <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">GATECRASH NETWORK INFO</div>
+        <div style="font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin-bottom:8px;">
+          <span style="color:#888;">Interface</span><span id="diag-lan-if" style="font-family:monospace;color:#555;"></span>
+          <span style="color:#888;">IP Address</span><span id="diag-lan-ip" style="font-family:monospace;color:#555;"></span>
+          <span style="color:#888;">MAC Address</span><span id="diag-lan-mac" style="font-family:monospace;font-weight:700;">—</span>
+          <span style="color:#888;">Hostname</span><span id="diag-hostname" style="font-family:monospace;color:#555;">—</span>
+          <span style="color:#888;">Gateway</span><span id="diag-gateway" style="font-family:monospace;color:#555;">—</span>
         </div>
-        <div style="font-family:monospace;font-size:15px;font-weight:700;margin-top:4px;" id="diag-lan-mac">—</div>
-        <div style="font-size:12px;color:#999;margin-top:8px;line-height:1.5;">
+        <div style="font-size:12px;color:#999;line-height:1.5;">
           To verify spoofing on a client: run <code>arp -a</code> (Windows) or <code>arp -n</code> (Linux/Mac) and check
-          that the <strong>router's IP</strong> shows this MAC address. If it shows the real router MAC, spoofing is not working.
+          that the <strong>router's IP</strong> shows the MAC address above. If it shows the real router MAC, spoofing is not working.
         </div>
       </div>
       <div style="background:#f7f8fa;border-radius:8px;padding:14px;">
@@ -692,6 +739,16 @@
         <div id="diag-vt" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
       </div>
     </div>
+  </div>
+
+  <!-- WireGuard Config (read-only) -->
+  <div class="card full-width">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      WireGuard Config
+      <span style="font-weight:400;font-size:12px;color:#aaa;">(read-only)</span>
+    </h2>
+    <div id="diag-wg-conf" style="font-family:monospace;font-size:12px;background:#f7f8fa;border-radius:6px;padding:12px;white-space:pre-wrap;color:#333;min-height:40px;max-height:200px;overflow-y:auto;">Loading...</div>
+    <div style="font-size:12px;color:#999;margin-top:8px;">To change the VPN config, go to Config &gt; VPN Config (WireGuard) and upload a new file.</div>
   </div>
 
   <!-- DNS Log -->
@@ -976,28 +1033,6 @@ async function loadConfig() {
   document.getElementById('cfg-lan').value     = d.LAN_IF     || '';
   document.getElementById('cfg-targets').value = d.TARGET_IPS || '';
   document.getElementById('cfg-vpn').value     = d.VPN_IF     || 'wg0';
-  // Reference panel
-  document.getElementById('ref-gw').textContent = d.GATEWAY_IP || '—';
-  // VM IP from status
-  try {
-    const ri = await fetch('/api/gateway');
-    const di = await ri.json();
-    // Get VM's own IP
-    const resp = await fetch('/api/status');  // reuse connection
-  } catch(e) {}
-}
-
-async function loadNetworkInfo() {
-  // VM IP — find it from the page's own hostname
-  try {
-    const r = await fetch('/api/config');
-    const d = await r.json();
-    document.getElementById('ref-gw').textContent = d.GATEWAY_IP || '—';
-  } catch(e) {}
-  try {
-    const vmip = window.location.hostname;
-    document.getElementById('ref-vmip').textContent = vmip;
-  } catch(e) {}
 }
 
 async function saveConfig() {
@@ -1372,6 +1407,8 @@ async function loadDiagnostics() {
     document.getElementById('diag-lan-if').textContent  = d.lan_if  || '—';
     document.getElementById('diag-lan-ip').textContent  = d.lan_ip  || '—';
     document.getElementById('diag-lan-mac').textContent = d.lan_mac || '— (check LAN interface in config)';
+    document.getElementById('diag-hostname').textContent = d.hostname || '—';
+    document.getElementById('diag-gateway').textContent = d.gateway || '—';
 
     const arps = d.arpspoof_procs;
     document.getElementById('diag-arps').textContent =
@@ -1383,19 +1420,37 @@ async function loadDiagnostics() {
   } catch(e) {
     document.getElementById('diag-lan-mac').textContent = 'Error loading diagnostics';
   }
+
+  // Load read-only WireGuard config
+  try {
+    const wr = await fetch('/api/wg-config');
+    const wd = await wr.json();
+    const el = document.getElementById('diag-wg-conf');
+    if (wd.ok && wd.content) {
+      // Mask the private key for display
+      el.textContent = wd.content.replace(/PrivateKey\s*=\s*\S+/i, 'PrivateKey = [hidden]');
+    } else {
+      el.textContent = 'Not configured';
+      el.style.color = '#999';
+    }
+  } catch(e) {}
 }
 
 async function loadAutostart() {
   const r = await fetch('/api/autostart');
   const d = await r.json();
-  document.getElementById('as-wg').checked = d.wg;
-  document.getElementById('as-gc').checked = d.gatecrash;
+  document.getElementById('pill-wg').classList.toggle('active', d.wg);
+  document.getElementById('pill-gc').classList.toggle('active', d.gatecrash);
 }
 
-async function setAutostart(which, enabled) {
+async function toggleBootPill(which) {
+  const pill = document.getElementById(which === 'wg' ? 'pill-wg' : 'pill-gc');
+  const newState = !pill.classList.contains('active');
+  pill.classList.toggle('active', newState);
+
   const el = document.getElementById('as-status');
   const body = {};
-  body[which === 'wg' ? 'wg' : 'gatecrash'] = enabled;
+  body[which] = newState;
   const r = await fetch('/api/autostart', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1405,6 +1460,84 @@ async function setAutostart(which, enabled) {
   el.className = 'save-status ' + (d.ok ? '' : 'error');
   el.textContent = d.ok ? '✓ Saved' : '✗ Failed';
   setTimeout(() => { el.textContent = ''; }, 3000);
+  if (!d.ok) pill.classList.toggle('active', !newState); // revert on failure
+}
+
+// ---------------------------------------------------------------------------
+// Advanced config toggle
+// ---------------------------------------------------------------------------
+
+function toggleAdvancedConfig() {
+  const body = document.getElementById('advanced-config-body');
+  const arrow = document.getElementById('advanced-arrow');
+  const open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  arrow.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ---------------------------------------------------------------------------
+// WireGuard file upload
+// ---------------------------------------------------------------------------
+
+function handleWGFileDrop(e) {
+  const file = e.dataTransfer.files[0];
+  if (file) processWGFile(file);
+}
+
+function handleWGFileSelect(input) {
+  const file = input.files[0];
+  if (file) processWGFile(file);
+  input.value = ''; // allow re-selecting same file
+}
+
+async function processWGFile(file) {
+  const text = await file.text();
+  const el = document.getElementById('wg-status');
+
+  // Send to backend for parsing and fixing
+  el.className = 'save-status';
+  el.textContent = 'Processing config...';
+
+  const r = await fetch('/api/wg-config/upload', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content: text}),
+  });
+  const d = await r.json();
+
+  if (d.ok) {
+    el.className = 'save-status';
+    el.textContent = '✓ VPN config saved' + (d.fixes.length ? ' (' + d.fixes.join(', ') + ')' : '');
+    loadWGConfigSummary();
+  } else {
+    el.className = 'save-status error';
+    el.textContent = '✗ ' + (d.error || 'Failed to save config');
+  }
+  setTimeout(() => { el.textContent = ''; }, 5000);
+}
+
+async function loadWGConfigSummary() {
+  try {
+    const r = await fetch('/api/wg-config');
+    const d = await r.json();
+    const summary = document.getElementById('wg-config-summary');
+    if (d.ok && d.content && d.content.trim()) {
+      summary.style.display = '';
+      // Parse basic info from config
+      const endpoint = (d.content.match(/Endpoint\s*=\s*(\S+)/i) || [])[1] || '—';
+      const address = (d.content.match(/Address\s*=\s*(\S+)/i) || [])[1] || '—';
+      document.getElementById('wg-cfg-status').textContent = '✓ Configured';
+      document.getElementById('wg-cfg-status').style.color = '#4caf50';
+      document.getElementById('wg-cfg-endpoint').textContent = endpoint;
+      document.getElementById('wg-cfg-address').textContent = address;
+    } else {
+      summary.style.display = '';
+      document.getElementById('wg-cfg-status').textContent = '✗ Not configured';
+      document.getElementById('wg-cfg-status').style.color = '#f44336';
+      document.getElementById('wg-cfg-endpoint').textContent = '—';
+      document.getElementById('wg-cfg-address').textContent = '—';
+    }
+  } catch(e) {}
 }
 
 async function reboot() {
@@ -1426,24 +1559,7 @@ async function shutdown() {
   await fetch('/api/shutdown', {method: 'POST'});
 }
 
-async function loadWGConfig() {
-  const r = await fetch('/api/wg-config');
-  const d = await r.json();
-  document.getElementById('wg-conf').value = d.content || '';
-}
-
-async function saveWGConfig() {
-  const el = document.getElementById('wg-status');
-  const r = await fetch('/api/wg-config', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({content: document.getElementById('wg-conf').value}),
-  });
-  const d = await r.json();
-  el.className = 'save-status ' + (d.ok ? '' : 'error');
-  el.textContent = d.ok ? '✓ Saved' : '✗ ' + d.error;
-  setTimeout(() => { el.textContent = ''; }, 3000);
-}
+// saveWGConfig is now handled via file upload in processWGFile()
 
 // ---------------------------------------------------------------------------
 // Updates
@@ -1570,8 +1686,7 @@ async function applyUpdate() {
 
 // Load on page open
 loadConfig();
-loadNetworkInfo();
-loadWGConfig();
+loadWGConfigSummary();
 loadAutostart();
 loadDiagnostics();
 loadSavedDevices();
