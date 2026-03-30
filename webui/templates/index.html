@@ -374,13 +374,14 @@
     gap: 8px;
   }
   .restart-overlay.active { display: flex; }
-  .restart-overlay .spinner {
+  .spinner {
     width: 24px;
     height: 24px;
     border: 3px solid #ddd;
     border-top-color: #4caf50;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1327,7 +1328,7 @@ function scanDevices() {
 
   document.getElementById('scan-modal').classList.add('open');
   document.getElementById('scan-filter').value = '';
-  list.innerHTML = '<div style="padding:20px;display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;"><div class="spinner" style="border-top-color:#aaa;"></div> Scanning...</div>';
+  list.innerHTML = '<div style="padding:20px;display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;"><div class="spinner"></div> Scanning...</div>';
   modalStatus.textContent = 'scanning...';
   btn.disabled = true;
 
