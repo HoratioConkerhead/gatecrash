@@ -657,6 +657,14 @@ def api_wg_config_upload():
     if "[Interface]" not in content and "[Peer]" not in content:
         return jsonify({"ok": False, "error": "Not a valid WireGuard config (missing [Interface] or [Peer])"})
 
+    # Validate private key exists and looks correct (base64, 44 chars with trailing =)
+    pk_match = re.search(r"PrivateKey\s*=\s*(\S+)", content, re.IGNORECASE)
+    if not pk_match:
+        return jsonify({"ok": False, "error": "Missing PrivateKey — check your .conf file includes a PrivateKey line"})
+    pk_value = pk_match.group(1)
+    if len(pk_value) != 44 or not pk_value.endswith("="):
+        return jsonify({"ok": False, "error": f"PrivateKey doesn't look valid (expected 44-char base64 string ending with '='). Got: {pk_value[:8]}..."})
+
     fixes = []
     lines = content.splitlines()
     new_lines = []
