@@ -372,6 +372,7 @@
     .btn-row { flex-direction: column; }
     .btn-row button { width: 100%; }
     .diag-grid { grid-template-columns: 1fr !important; }
+    .svc-controls { grid-template-columns: 1fr !important; }
   }
 </style>
 </head>
@@ -405,20 +406,12 @@
   <!-- ==================== TAB: MAIN ==================== -->
   <div class="tab-content active" id="tab-main" style="display:grid;grid-template-columns:1fr;gap:20px;">
 
-  <!-- Controls -->
-  <div class="card">
-    <h2>Controls</h2>
-    <p style="font-size:12px;color:#999;margin-bottom:8px;">Gatecrash</p>
-    <div class="btn-row">
-      <button class="btn-green" onclick="startGC()">&#9654; Start Gatecrash</button>
-      <button class="btn-red"   onclick="stopGC()">&#9632; Stop Gatecrash</button>
-    </div>
-    <p style="font-size:12px;color:#999;margin:14px 0 8px;">WireGuard</p>
-    <div class="btn-row">
-      <button class="btn-green" onclick="startWG()">&#9654; Start WireGuard</button>
-      <button class="btn-red"   onclick="stopWG()">&#9632; Stop WireGuard</button>
-    </div>
-    <div class="output-box hidden" id="ctrl-output"></div>
+  <!-- Master toggle -->
+  <div class="card" style="text-align:center;">
+    <button id="btn-master" onclick="toggleMaster()" class="btn-green" style="width:100%;padding:16px 24px;font-size:16px;border-radius:10px;">
+      &#9654; Start Gatecrash
+    </button>
+    <div class="output-box hidden" id="ctrl-output" style="text-align:left;"></div>
   </div>
 
   <!-- Saved Devices -->
@@ -517,6 +510,19 @@
 
   <!-- ==================== TAB: DIAGNOSTICS ==================== -->
   <div class="tab-content" id="tab-diagnostics" style="grid-template-columns:1fr 1fr;gap:20px;">
+
+  <!-- Service Controls -->
+  <div class="card full-width">
+    <h2>Service Controls</h2>
+    <div class="svc-controls" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <button id="btn-toggle-gc" onclick="toggleGC()" class="btn-green" style="padding:14px;font-size:14px;border-radius:8px;">
+        &#9654; Start Gatecrash (selective device redirect)
+      </button>
+      <button id="btn-toggle-wg" onclick="toggleWG()" class="btn-green" style="padding:14px;font-size:14px;border-radius:8px;">
+        &#9654; Start WireGuard (VPN)
+      </button>
+    </div>
+  </div>
 
   <!-- VPN Test -->
   <div class="card">
@@ -672,6 +678,11 @@ async function fetchStatus() {
     dotWG.className = 'dot ' + (d.wg_up ? 'green' : 'red');
     lblWG.textContent = 'WireGuard ' + (d.wg_up ? 'up' : 'down');
 
+    // Track state for toggle buttons
+    _gcRunning = d.gatecrash_running;
+    _wgRunning = d.wg_up;
+    updateToggleButtons();
+
     // arpspoof count
     document.getElementById('lbl-arps').textContent =
       d.arp_processes > 0 ? `${d.arp_processes} arpspoof` : '';
@@ -714,41 +725,111 @@ fetchDNS();
 // Controls
 // ---------------------------------------------------------------------------
 
+let _gcRunning = false;
+let _wgRunning = false;
+
 function showOutput(text) {
   const el = document.getElementById('ctrl-output');
   el.classList.remove('hidden');
   el.textContent = text || '(no output)';
 }
 
-async function startGC() {
-  showOutput('Starting...');
-  const r = await fetch('/api/start', {method: 'POST'});
-  const d = await r.json();
-  showOutput(d.output || (d.ok ? 'Started.' : 'Failed.'));
-  fetchStatus();
+function updateToggleButtons() {
+  // Master button
+  const master = document.getElementById('btn-master');
+  const anyRunning = _gcRunning || _wgRunning;
+  master.className = anyRunning ? 'btn-red' : 'btn-green';
+  master.innerHTML = anyRunning
+    ? '&#9632; Stop Gatecrash'
+    : '&#9654; Start Gatecrash';
+
+  // Individual buttons
+  const gcBtn = document.getElementById('btn-toggle-gc');
+  if (gcBtn) {
+    gcBtn.className = _gcRunning ? 'btn-red' : 'btn-green';
+    gcBtn.innerHTML = _gcRunning
+      ? '&#9632; Stop Gatecrash (selective device redirect)'
+      : '&#9654; Start Gatecrash (selective device redirect)';
+  }
+  const wgBtn = document.getElementById('btn-toggle-wg');
+  if (wgBtn) {
+    wgBtn.className = _wgRunning ? 'btn-red' : 'btn-green';
+    wgBtn.innerHTML = _wgRunning
+      ? '&#9632; Stop WireGuard (VPN)'
+      : '&#9654; Start WireGuard (VPN)';
+  }
 }
 
-async function stopGC() {
-  showOutput('Stopping...');
-  const r = await fetch('/api/stop', {method: 'POST'});
-  const d = await r.json();
-  showOutput(d.output || (d.ok ? 'Stopped.' : 'Failed.'));
+async function toggleMaster() {
+  const anyRunning = _gcRunning || _wgRunning;
+  const btn = document.getElementById('btn-master');
+  btn.disabled = true;
+  if (anyRunning) {
+    showOutput('Stopping...');
+    if (_gcRunning) {
+      const r = await fetch('/api/stop', {method: 'POST'});
+      const d = await r.json();
+      showOutput(d.output || (d.ok ? 'Gatecrash stopped.' : 'Failed to stop Gatecrash.'));
+    }
+    if (_wgRunning) {
+      const r = await fetch('/api/wg/stop', {method: 'POST'});
+      const d = await r.json();
+      showOutput(d.output || (d.ok ? 'Stopped.' : 'Failed to stop WireGuard.'));
+    }
+  } else {
+    showOutput('Starting WireGuard...');
+    const r1 = await fetch('/api/wg/start', {method: 'POST'});
+    const d1 = await r1.json();
+    if (!d1.ok) {
+      showOutput('Failed to start WireGuard: ' + (d1.output || 'unknown error'));
+      btn.disabled = false;
+      fetchStatus();
+      return;
+    }
+    showOutput('WireGuard started. Starting Gatecrash...');
+    const r2 = await fetch('/api/start', {method: 'POST'});
+    const d2 = await r2.json();
+    showOutput(d2.ok ? 'Started.' : 'Gatecrash failed: ' + (d2.output || 'unknown error'));
+  }
+  btn.disabled = false;
   fetchStatus();
+  setTimeout(loadDiagnostics, 3000);
 }
 
-async function startWG() {
-  showOutput('Starting WireGuard...');
-  const r = await fetch('/api/wg/start', {method: 'POST'});
-  const d = await r.json();
-  showOutput(d.output || (d.ok ? 'WireGuard started.' : 'Failed.'));
+async function toggleGC() {
+  const btn = document.getElementById('btn-toggle-gc');
+  btn.disabled = true;
+  if (_gcRunning) {
+    showOutput('Stopping Gatecrash...');
+    const r = await fetch('/api/stop', {method: 'POST'});
+    const d = await r.json();
+    showOutput(d.output || (d.ok ? 'Gatecrash stopped.' : 'Failed.'));
+  } else {
+    showOutput('Starting Gatecrash...');
+    const r = await fetch('/api/start', {method: 'POST'});
+    const d = await r.json();
+    showOutput(d.output || (d.ok ? 'Gatecrash started.' : 'Failed.'));
+  }
+  btn.disabled = false;
   fetchStatus();
+  setTimeout(loadDiagnostics, 3000);
 }
 
-async function stopWG() {
-  showOutput('Stopping WireGuard...');
-  const r = await fetch('/api/wg/stop', {method: 'POST'});
-  const d = await r.json();
-  showOutput(d.output || (d.ok ? 'WireGuard stopped.' : 'Failed.'));
+async function toggleWG() {
+  const btn = document.getElementById('btn-toggle-wg');
+  btn.disabled = true;
+  if (_wgRunning) {
+    showOutput('Stopping WireGuard...');
+    const r = await fetch('/api/wg/stop', {method: 'POST'});
+    const d = await r.json();
+    showOutput(d.output || (d.ok ? 'WireGuard stopped.' : 'Failed.'));
+  } else {
+    showOutput('Starting WireGuard...');
+    const r = await fetch('/api/wg/start', {method: 'POST'});
+    const d = await r.json();
+    showOutput(d.output || (d.ok ? 'WireGuard started.' : 'Failed.'));
+  }
+  btn.disabled = false;
   fetchStatus();
 }
 
