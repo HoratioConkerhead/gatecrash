@@ -97,6 +97,9 @@ def capture_dns():
     global dns_thread_started
     conf = read_conf()
     lan_if = conf.get("LAN_IF", "eth0")
+    # Get our own LAN IP so we can exclude Gatecrash's own DNS queries
+    own_ip_out, _ = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")
+    own_ip = own_ip_out.strip()
     try:
         proc = subprocess.Popen(
             ["tcpdump", "-i", lan_if, "-n", "-l", "udp dst port 53"],
@@ -117,7 +120,7 @@ def capture_dns():
                 r"(\d+:\d+:\d+)\.\d+\s+IP\s+(\d+\.\d+\.\d+\.\d+)\.\d+\s+>.*?\s+[A-Za-z]+\?\s+(\S+?)\.?\s+\(",
                 line,
             )
-            if m:
+            if m and m.group(2) != own_ip:
                 dns_log.appendleft({
                     "time":  m.group(1),
                     "src":   m.group(2),
