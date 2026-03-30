@@ -440,6 +440,7 @@
     .diag-grid { grid-template-columns: 1fr !important; }
     .diag-top-grid { grid-template-columns: 1fr !important; }
     .svc-controls { grid-template-columns: 1fr !important; }
+    .diag-grid div > div[id^="diag-"] { font-size: 10px !important; overflow-wrap: break-word; word-break: break-all; }
   }
 </style>
 </head>
@@ -624,10 +625,10 @@
 
   <!-- Diagnostics -->
   <div class="card full-width">
-    <h2 style="display:flex;align-items:center;justify-content:space-between;">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
       Diagnostics
-      <div style="display:flex;gap:8px;">
-        <a href="/api/diagnostics/dump" class="btn-blue" style="padding:5px 14px;font-size:12px;text-decoration:none;border-radius:6px;">&#128190; Download full dump</a>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="/api/diagnostics/dump" class="btn-blue" style="padding:5px 14px;font-size:12px;text-decoration:none;border-radius:6px;">&#128190; Download dump</a>
         <button class="btn-grey" onclick="loadDiagnostics()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
       </div>
     </h2>
@@ -672,8 +673,8 @@
 
   <!-- DNS Log -->
   <div class="card full-width">
-    <h2 style="display:flex;align-items:center;justify-content:space-between;">
-      DNS Queries <span style="font-weight:400;font-size:12px;color:#aaa;margin-left:6px;">(live — UDP port 53 only)</span>
+    <h2 style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      DNS Queries <span style="font-weight:400;font-size:12px;color:#aaa;margin-left:6px;">(UDP 53)</span>
       <button class="btn-grey" onclick="testDnsCapture()" id="btn-dns-test" style="padding:5px 14px;font-size:12px;">&#128270; Test capture (5s)</button>
     </h2>
     <div style="font-size:12px;color:#999;margin-bottom:10px;line-height:1.5;">
