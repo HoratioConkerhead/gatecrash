@@ -559,7 +559,6 @@ sudo systemctl enable gatecrash
 
 - **Update refresh screen**
   - Doesn't refresh screen on upgrade.  Need to refresh webpage, but 'app' needs quiting and reloading.
-   - testing
   
 
 ## Future Ideas
