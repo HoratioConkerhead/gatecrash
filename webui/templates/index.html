@@ -1834,15 +1834,28 @@ async function applyUpdate() {
       if (!upgradeComplete) appendLogLine('Upgrade complete.', '#4caf50');
       reloadBtn.style.display = '';
       closeBtn.style.display = '';
-      setTimeout(() => {
-        // Clear the SW cache for '/' so the PWA loads fresh content, not a stale cached page
-        const doReload = () => { window.location.href = '/?upgraded=' + Date.now(); };
+
+      // Countdown then hard-reload, clearing SW cache so PWA gets fresh content
+      const doReload = () => {
+        const go = () => { window.location.href = '/?upgraded=' + Date.now(); };
         if (window.caches) {
-          caches.open('gatecrash-v1').then(c => c.delete('/')).finally(doReload);
+          caches.open('gatecrash-v1').then(c => c.delete('/')).finally(go);
         } else {
-          doReload();
+          go();
         }
-      }, 3000);
+      };
+      let secs = 3;
+      appendLogLine(`Reloading in ${secs}...`, '#888');
+      const tick = setInterval(() => {
+        secs--;
+        if (secs <= 0) {
+          clearInterval(tick);
+          appendLogLine('Reloading now.', '#4caf50');
+          doReload();
+        } else {
+          appendLogLine(`Reloading in ${secs}...`, '#888');
+        }
+      }, 1000);
       return;
     }
 
