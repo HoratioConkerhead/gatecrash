@@ -458,9 +458,7 @@ def api_sync_devices():
     """Sync enabled saved devices → TARGET_IPS in config, then restart Gatecrash."""
     active_ips = sync_targets_from_devices()
     # Restart Gatecrash to apply new targets
-    run("systemctl stop gatecrash 2>&1", timeout=30)
-    import time; time.sleep(1)
-    out, rc = run("systemctl start gatecrash 2>&1", timeout=30)
+    out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
     return jsonify({"ok": rc == 0, "active_ips": active_ips, "output": out})
 
 

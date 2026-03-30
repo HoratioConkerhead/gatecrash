@@ -438,6 +438,7 @@
     .btn-row { flex-direction: column; }
     .btn-row button { width: 100%; }
     .diag-grid { grid-template-columns: 1fr !important; }
+    .diag-top-grid { grid-template-columns: 1fr !important; }
     .svc-controls { grid-template-columns: 1fr !important; }
   }
 </style>
@@ -458,13 +459,19 @@
   </div>
 </header>
 
-<!-- Upgrade log panel (hidden until upgrade starts) -->
-<div id="upgrade-panel" style="display:none;background:#1a1a2e;color:#a8e6cf;font-family:monospace;font-size:13px;padding:16px 24px;max-height:300px;overflow-y:auto;border-bottom:3px solid #4caf50;">
-  <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;">
-    <span style="color:#4caf50;font-weight:700;">&#9654; Upgrading Gatecrash — do not close this page</span>
-    <a href="/" style="color:#888;font-size:12px;text-decoration:underline;cursor:pointer;">Reload manually if stuck</a>
+<!-- Upgrade modal -->
+<div class="modal-backdrop" id="upgrade-modal">
+  <div class="modal" style="width:600px;">
+    <div class="modal-header">
+      <h3>&#8593; Upgrading Gatecrash</h3>
+      <span id="upgrade-modal-status" style="color:#aaa;font-size:12px;font-family:monospace;"></span>
+    </div>
+    <div class="modal-body" id="upgrade-log-lines" style="min-height:150px;max-height:50vh;"></div>
+    <div class="modal-footer" style="gap:10px;">
+      <button class="btn-green" id="btn-upgrade-reload" onclick="window.location.href='/'" style="display:none;padding:8px 20px;">&#8635; Reload interface</button>
+      <button class="btn-grey" id="btn-upgrade-close" onclick="document.getElementById('upgrade-modal').classList.remove('open')" style="display:none;font-size:13px;padding:7px 18px;">Close</button>
+    </div>
   </div>
-  <div id="upgrade-log-lines"></div>
 </div>
 
 <main>
@@ -586,7 +593,7 @@
     <h2>Service Controls</h2>
     <div class="svc-controls" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <button id="btn-toggle-gc" onclick="toggleGC()" class="btn-green" style="padding:14px;font-size:14px;border-radius:8px;">
-        &#9654; Start Gatecrash (selective device redirect)
+        &#9654; Start Gatecrash (device redirect)
       </button>
       <button id="btn-toggle-wg" onclick="toggleWG()" class="btn-green" style="padding:14px;font-size:14px;border-radius:8px;">
         &#9654; Start WireGuard (VPN)
@@ -626,7 +633,7 @@
     </h2>
 
     <!-- MAC address + ARP check hint -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="diag-top-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
       <div style="background:#f7f8fa;border-radius:8px;padding:14px;">
         <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">GATECRASH LAN INTERFACE</div>
         <div style="font-family:monospace;font-size:14px;">
@@ -813,8 +820,8 @@ function updateToggleButtons() {
   if (gcBtn) {
     gcBtn.className = _gcRunning ? 'btn-red' : 'btn-green';
     gcBtn.innerHTML = _gcRunning
-      ? '&#9632; Stop Gatecrash (selective device redirect)'
-      : '&#9654; Start Gatecrash (selective device redirect)';
+      ? '&#9632; Stop Gatecrash (device redirect)'
+      : '&#9654; Start Gatecrash (device redirect)';
   }
   const wgBtn = document.getElementById('btn-toggle-wg');
   if (wgBtn) {
@@ -1413,30 +1420,36 @@ async function checkUpdate() {
 }
 
 function appendLogLine(text, color) {
-  const panel    = document.getElementById('upgrade-panel');
   const logLines = document.getElementById('upgrade-log-lines');
   const line = document.createElement('div');
   line.textContent = text;
   if (color) line.style.color = color;
   logLines.appendChild(line);
-  panel.scrollTop = panel.scrollHeight;
+  logLines.scrollTop = logLines.scrollHeight;
 }
 
 async function applyUpdate() {
+  if (!confirm('Upgrade Gatecrash to the latest version?')) return;
+
   const applyBtn = document.getElementById('btn-apply-update');
   const checkBtn = document.getElementById('btn-check-update');
-  const panel    = document.getElementById('upgrade-panel');
+  const modal    = document.getElementById('upgrade-modal');
   const logLines = document.getElementById('upgrade-log-lines');
+  const status   = document.getElementById('upgrade-modal-status');
+  const reloadBtn = document.getElementById('btn-upgrade-reload');
+  const closeBtn  = document.getElementById('btn-upgrade-close');
 
   applyBtn.style.display = 'none';
   checkBtn.style.display = 'none';
-  panel.style.display = '';
   logLines.textContent = '';
+  status.textContent = 'upgrading...';
+  reloadBtn.style.display = 'none';
+  closeBtn.style.display = 'none';
+  modal.classList.add('open');
 
   await fetch('/api/update/apply', {method: 'POST'});
 
   // Poll the log file and upgrading flag every second.
-  // Simple polling is more reliable than SSE across a service restart.
   let lastLineCount = 0;
   let restarting = false;
 
@@ -1474,11 +1487,15 @@ async function applyUpdate() {
       }
     } catch(e) { /* log temporarily unavailable — ignore */ }
 
-    // 3. Reload when done
+    // 3. Done — show reload button
     if (!upgrading) {
       clearInterval(poll);
-      appendLogLine('Setup complete. Reloading...', '#4caf50');
-      setTimeout(() => { window.location.href = '/'; }, 1500);
+      status.textContent = 'complete';
+      appendLogLine('Upgrade complete.', '#4caf50');
+      reloadBtn.style.display = '';
+      closeBtn.style.display = '';
+      // Also try auto-reload after a short delay
+      setTimeout(() => { window.location.href = '/'; }, 3000);
     }
   }, 1000);
 }
