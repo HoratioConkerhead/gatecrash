@@ -1828,7 +1828,7 @@ async function applyUpdate() {
           appendLogLine(allLines[i]);
           // setup.sh prints this just before restarting the web UI service — reload after it comes back up
           if (allLines[i].includes('Restarting web UI service')) {
-            scheduleReload(8);
+            scheduleReload(3);
           }
           // Fallback: explicit completion marker
           if (allLines[i].includes('=== Upgrade complete ===') || allLines[i].includes('=== Setup complete ===')) {
