@@ -304,6 +304,72 @@
   .device-add.added { background: #e8f5e9; color: #2e7d32; }
   .device-add:hover { opacity: 0.8; }
 
+  /* Toggle switch */
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 26px;
+    flex-shrink: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .toggle input { display: none; }
+  .toggle .track {
+    position: absolute;
+    inset: 0;
+    background: #ccc;
+    border-radius: 13px;
+    transition: background 0.2s;
+  }
+  .toggle input:checked + .track { background: #4caf50; }
+  .toggle .knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+  }
+  .toggle input:checked ~ .knob { transform: translateX(18px); }
+
+  .device-row.disabled { opacity: 0.45; }
+
+  /* Restart overlay */
+  .restart-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(255,255,255,0.85);
+    border-radius: 10px;
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .restart-overlay.active { display: flex; }
+  .restart-overlay .spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #ddd;
+    border-top-color: #4caf50;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* No-devices hint */
+  .no-devices-hint {
+    font-size: 13px;
+    color: #f44336;
+    text-align: center;
+    margin-top: 8px;
+  }
+  .no-devices-hint.hidden { display: none; }
+
   /* VPN test result */
   #vpn-result {
     margin-top: 12px;
@@ -411,21 +477,25 @@
     <button id="btn-master" onclick="toggleMaster()" class="btn-green" style="width:100%;padding:16px 24px;font-size:16px;border-radius:10px;">
       &#9654; Start Gatecrash
     </button>
+    <div class="no-devices-hint hidden" id="no-devices-hint">No devices enabled — enable at least one device below to start</div>
     <div class="output-box hidden" id="ctrl-output" style="text-align:left;"></div>
   </div>
 
   <!-- Saved Devices -->
-  <div class="card full-width">
+  <div class="card full-width" style="position:relative;">
+    <div class="restart-overlay" id="restart-overlay">
+      <div class="spinner"></div>
+      <div style="font-size:13px;font-weight:600;color:#555;">Restarting Gatecrash...</div>
+    </div>
     <h2>Devices</h2>
     <div style="font-size:12px;color:#999;margin-bottom:12px;line-height:1.5;">
-      Toggle devices on/off, then tap <strong>Apply &amp; Restart</strong>.
+      Toggle devices to route their traffic through the VPN. Changes apply automatically.
     </div>
     <div id="saved-devices-list" style="margin-bottom:12px;">
       <div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">Loading saved devices...</div>
     </div>
     <div class="save-status" id="devices-status"></div>
     <div style="display:flex;gap:10px;margin-top:12px;">
-      <button class="btn-green" onclick="syncAndRestart()" id="btn-sync" style="flex:1;">&#9654; Apply &amp; Restart</button>
       <button class="btn-grey" onclick="scanDevices()" id="btn-scan" style="flex:1;">&#128269; Scan network</button>
     </div>
   </div>
@@ -735,13 +805,8 @@ function showOutput(text) {
 }
 
 function updateToggleButtons() {
-  // Master button
-  const master = document.getElementById('btn-master');
-  const anyRunning = _gcRunning || _wgRunning;
-  master.className = anyRunning ? 'btn-red' : 'btn-green';
-  master.innerHTML = anyRunning
-    ? '&#9632; Stop Gatecrash'
-    : '&#9654; Start Gatecrash';
+  // Master button (uses device-aware logic)
+  updateMasterButton();
 
   // Individual buttons
   const gcBtn = document.getElementById('btn-toggle-gc');
@@ -961,15 +1026,19 @@ function renderSavedDevices() {
   const list = document.getElementById('saved-devices-list');
   if (!_savedDevices.length) {
     list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No saved devices. Use <strong>Scan network</strong> to find and add devices.</div>';
+    updateMasterButton();
     return;
   }
   list.innerHTML = _savedDevices.map((dev, i) => {
-    const name = dev.nickname || dev.mac;
     const checked = dev.enabled ? 'checked' : '';
+    const dimClass = dev.enabled ? '' : ' disabled';
     return `
-      <div class="device-row" style="gap:12px;">
-        <input type="checkbox" ${checked} onchange="toggleDevice('${dev.mac}', this.checked)"
-               style="width:16px;height:16px;cursor:pointer;">
+      <div class="device-row${dimClass}" style="gap:12px;" id="devrow-${i}">
+        <label class="toggle">
+          <input type="checkbox" ${checked} onchange="toggleDevice('${dev.mac}', this.checked, ${i})">
+          <div class="track"></div>
+          <div class="knob"></div>
+        </label>
         <div class="device-name" style="flex:1;">
           <span class="dev-nick" id="nick-${i}">${dev.nickname || '<span style=color:#aaa>no nickname</span>'}</span>
           <div style="font-weight:400;color:#999;font-size:11px;">${dev.ip || 'IP unknown'}</div>
@@ -980,10 +1049,14 @@ function renderSavedDevices() {
                 onclick="removeDevice('${dev.mac}')">Remove</button>
       </div>`;
   }).join('');
+  updateMasterButton();
 }
 
-async function toggleDevice(mac, enabled) {
-  const el = document.getElementById('devices-status');
+async function toggleDevice(mac, enabled, idx) {
+  // Dim/undim the row immediately for feedback
+  const row = document.getElementById('devrow-' + idx);
+  if (row) row.classList.toggle('disabled', !enabled);
+
   const r = await fetch('/api/saved-devices', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -991,8 +1064,8 @@ async function toggleDevice(mac, enabled) {
   });
   const d = await r.json();
   if (d.ok) _savedDevices = d.devices;
-  el.textContent = enabled ? 'Enabled — click Apply & Restart to take effect' : 'Disabled — click Apply & Restart';
-  setTimeout(() => { el.textContent = ''; }, 4000);
+  updateMasterButton();
+  autoRestart();
 }
 
 async function renameDevice(mac, idx) {
@@ -1022,33 +1095,69 @@ async function removeDevice(mac) {
   if (d.ok) {
     _savedDevices = d.devices;
     renderSavedDevices();
+    autoRestart();
   }
 }
 
-async function syncAndRestart() {
-  const el  = document.getElementById('devices-status');
-  const btn = document.getElementById('btn-sync');
-  btn.disabled = true;
-  el.className = 'save-status';
-  el.textContent = 'Syncing devices and restarting Gatecrash...';
-  try {
-    const r = await fetch('/api/saved-devices/sync', {method: 'POST'});
-    const d = await r.json();
-    el.className = 'save-status ' + (d.ok ? '' : 'error');
-    el.textContent = d.ok
-      ? `Applied ${d.active_ips.length} device(s): ${d.active_ips.join(', ') || 'none'}`
-      : 'Failed: ' + d.output;
-    // Refresh config panel to show updated TARGET_IPS
-    loadConfig();
-    fetchStatus();
-    // Delay diagnostics refresh to let arpspoof processes start
-    setTimeout(loadDiagnostics, 3000);
-  } catch(e) {
-    el.className = 'save-status error';
-    el.textContent = 'Request failed: ' + e;
+// ---------------------------------------------------------------------------
+// Master button + auto-restart
+// ---------------------------------------------------------------------------
+
+function hasEnabledDevices() {
+  return _savedDevices.some(d => d.enabled);
+}
+
+function updateMasterButton() {
+  const btn = document.getElementById('btn-master');
+  const hint = document.getElementById('no-devices-hint');
+  const anyRunning = _gcRunning || _wgRunning;
+  const hasDevices = hasEnabledDevices();
+
+  if (anyRunning) {
+    // Always allow stopping
+    btn.disabled = false;
+    btn.className = 'btn-red';
+    btn.innerHTML = '&#9632; Stop Gatecrash';
+    hint.classList.add('hidden');
+  } else if (!hasDevices) {
+    btn.disabled = true;
+    btn.className = 'btn-grey';
+    btn.innerHTML = '&#9654; Start Gatecrash';
+    hint.classList.remove('hidden');
+  } else {
+    btn.disabled = false;
+    btn.className = 'btn-green';
+    btn.innerHTML = '&#9654; Start Gatecrash';
+    hint.classList.add('hidden');
   }
-  btn.disabled = false;
-  setTimeout(() => { el.textContent = ''; }, 6000);
+}
+
+let _restartTimer = null;
+
+async function autoRestart() {
+  // Only auto-restart if Gatecrash is currently running
+  if (!_gcRunning) {
+    updateMasterButton();
+    return;
+  }
+
+  // Debounce: if user toggles several devices quickly, only restart once
+  clearTimeout(_restartTimer);
+  _restartTimer = setTimeout(async () => {
+    const overlay = document.getElementById('restart-overlay');
+    overlay.classList.add('active');
+
+    try {
+      const r = await fetch('/api/saved-devices/sync', {method: 'POST'});
+      const d = await r.json();
+      loadConfig();
+      fetchStatus();
+      setTimeout(loadDiagnostics, 3000);
+    } catch(e) { /* ignore */ }
+
+    // Brief delay so the user sees the overlay
+    setTimeout(() => { overlay.classList.remove('active'); }, 800);
+  }, 600);
 }
 
 // ---------------------------------------------------------------------------
@@ -1135,6 +1244,7 @@ async function saveScannedDevice(mac, ip, hostname, btn) {
     btn.textContent = 'Saved';
     btn.classList.add('added');
     btn.disabled = true;
+    autoRestart();
   }
 }
 
