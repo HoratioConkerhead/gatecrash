@@ -303,6 +303,26 @@ def api_autostart():
 
 
 
+@app.route("/api/devices/arp")
+def api_devices_arp():
+    """Return devices from the ARP table instantly."""
+    import re
+    out, _ = run("ip neigh show")
+    devices = []
+    seen_macs = set()
+    for line in out.splitlines():
+        m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(\w+)", line)
+        if not m:
+            continue
+        ip, mac, state = m.group(1), m.group(2).lower(), m.group(3)
+        if state == "FAILED" or mac in seen_macs:
+            continue
+        seen_macs.add(mac)
+        devices.append({"ip": ip, "mac": mac, "hostname": "", "vendor": ""})
+    devices.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
+    return jsonify({"ok": True, "devices": devices})
+
+
 def parse_nmap_devices(output):
     """Parse nmap -sn output into a list of device dicts."""
     import re
