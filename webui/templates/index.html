@@ -834,7 +834,11 @@
       <span id="scan-modal-status" style="color:#aaa;font-size:12px;font-family:monospace;"></span>
       <button class="modal-close" onclick="closeScanModalNow()">&#x2715;</button>
     </div>
-    <div id="scan-device-list" style="padding:0 18px;min-height:80px;max-height:420px;overflow-y:auto;"></div>
+    <div style="padding:10px 18px 4px;">
+      <input type="text" id="scan-filter" placeholder="Filter devices..." oninput="filterScannedDevices()"
+             style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+    </div>
+    <div id="scan-device-list" style="padding:0 18px;min-height:80px;max-height:380px;overflow-y:auto;"></div>
     <div class="modal-footer">
       <button class="btn-grey" onclick="closeScanModalNow()" id="scan-modal-close-btn" style="font-size:13px;padding:7px 18px;">Close</button>
     </div>
@@ -1322,7 +1326,8 @@ function scanDevices() {
   const list        = document.getElementById('scan-device-list');
 
   document.getElementById('scan-modal').classList.add('open');
-  list.innerHTML = '<div style="padding:20px;color:#aaa;font-size:13px;text-align:center;">Scanning...</div>';
+  document.getElementById('scan-filter').value = '';
+  list.innerHTML = '<div style="padding:20px;display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;"><div class="spinner" style="border-top-color:#aaa;"></div> Scanning...</div>';
   modalStatus.textContent = 'scanning...';
   btn.disabled = true;
 
@@ -1348,36 +1353,40 @@ function scanDevices() {
   };
 }
 
-const TV_KEYWORDS = ['samsung', 'lg electron', 'tcl', 'hisense', 'roku', 'vizio', 'philips', 'sony', 'toshiba', 'apple tv', 'fire tv', 'chromecast', 'shield', 'nvidia', 'sky', 'amazon'];
-
-function looksLikeTV(dev) {
-  const hay = ((dev.vendor || '') + ' ' + (dev.hostname || '')).toLowerCase();
-  return TV_KEYWORDS.some(k => hay.includes(k));
-}
-
 function renderScannedDevices() {
+  const filterVal = (document.getElementById('scan-filter')?.value || '').toLowerCase();
   const list = document.getElementById('scan-device-list');
   if (!list) return;
 
-  // Filter out already-saved devices
-  const unsaved = _scannedDevices.filter(d => !d.mac || !_savedDevices.find(s => s.mac === d.mac));
+  // Filter out already-saved devices, then apply live filter
+  let unsaved = _scannedDevices.filter(d => !d.mac || !_savedDevices.find(s => s.mac === d.mac));
+  if (filterVal) {
+    unsaved = unsaved.filter(d =>
+      (d.hostname || '').toLowerCase().includes(filterVal) ||
+      (d.vendor || '').toLowerCase().includes(filterVal) ||
+      (d.ip || '').includes(filterVal)
+    );
+  }
 
   if (!unsaved.length) {
-    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No new devices found</div>';
+    list.innerHTML = `<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">${filterVal ? 'No matches' : 'No new devices found'}</div>`;
     return;
   }
 
-  // TVs first, then rest
-  const sorted = [...unsaved].sort((a, b) => looksLikeTV(b) - looksLikeTV(a));
+  // Sort by name
+  const sorted = [...unsaved].sort((a, b) => {
+    const na = (a.hostname || a.vendor || a.ip || '').toLowerCase();
+    const nb = (b.hostname || b.vendor || b.ip || '').toLowerCase();
+    return na.localeCompare(nb);
+  });
 
   list.innerHTML = sorted.map(dev => {
     const label = dev.hostname || dev.vendor || dev.ip;
     const sub   = dev.hostname ? `${dev.ip}${dev.vendor ? ' · ' + dev.vendor : ''}` : (dev.vendor ? dev.ip : '');
-    const tvBadge = looksLikeTV(dev) ? '<span style="font-size:10px;background:#e3f2fd;color:#1565c0;border-radius:4px;padding:1px 5px;margin-left:6px;">TV</span>' : '';
     return `
       <div class="device-row">
         <div class="device-name">
-          ${label}${tvBadge}
+          ${label}
           <div style="font-weight:400;color:#999;font-size:11px;">${sub}</div>
         </div>
         <div class="device-mac">${dev.mac || '<span style=color:#ccc>no MAC</span>'}</div>
@@ -1387,6 +1396,8 @@ function renderScannedDevices() {
       </div>`;
   }).join('');
 }
+
+function filterScannedDevices() { renderScannedDevices(); }
 
 async function saveScannedDevice(mac, ip, hostname, btn) {
   const r = await fetch('/api/saved-devices', {
