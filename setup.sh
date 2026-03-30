@@ -131,10 +131,11 @@ fi
 
 echo "Installing web UI..."
 WEBUI_DIR="$INSTALL_DIR/webui"
-mkdir -p "$WEBUI_DIR/templates"
+mkdir -p "$WEBUI_DIR/templates" "$WEBUI_DIR/static"
 
 cp "$SCRIPT_DIR/webui/app.py" "$WEBUI_DIR/app.py"
 cp "$SCRIPT_DIR/webui/templates/index.html" "$WEBUI_DIR/templates/index.html"
+cp "$SCRIPT_DIR/webui/static/"* "$WEBUI_DIR/static/" 2>/dev/null || true
 
 if [[ ! -d "$WEBUI_DIR/venv" ]]; then
     echo "  Creating Python virtual environment..."
