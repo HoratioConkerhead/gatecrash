@@ -162,9 +162,6 @@ echo "  [OK] Repo path saved."
 git config --global --add safe.directory "$SCRIPT_DIR"
 echo "  [OK] Git safe.directory configured."
 
-# Signal that upgrade is complete
-rm -f /tmp/gatecrash-upgrading
-
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------

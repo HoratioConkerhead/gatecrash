@@ -525,7 +525,6 @@
     <div class="modal-body" id="upgrade-log-lines" style="min-height:150px;max-height:50vh;"></div>
     <div class="modal-footer" style="gap:10px;justify-content:space-between;align-items:center;">
       <button class="btn-green" id="btn-upgrade-reload" onclick="hardReload()" style="display:none;padding:8px 20px;">&#8635; Reload interface</button>
-      <button class="btn-grey" id="btn-upgrade-close" onclick="document.getElementById('upgrade-modal').classList.remove('open')" style="display:none;font-size:13px;padding:7px 18px;">Close</button>
       <button class="btn-grey" onclick="hardReload()" style="margin-left:auto;font-size:12px;padding:6px 14px;">&#8635; Reload page</button>
     </div>
   </div>
@@ -1237,6 +1236,7 @@ async function renameDevice(mac, idx) {
 
 async function removeDevice(mac) {
   if (!confirm('Remove this device?')) return;
+  const wasEnabled = (_savedDevices.find(d => d.mac === mac) || {}).enabled;
   const r = await fetch('/api/saved-devices/delete', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -1246,7 +1246,7 @@ async function removeDevice(mac) {
   if (d.ok) {
     _savedDevices = d.devices;
     renderSavedDevices();
-    autoRestart();
+    if (wasEnabled) autoRestart();
   }
 }
 
@@ -1386,7 +1386,7 @@ async function saveScannedDevice(mac, ip, hostname, btn) {
   const r = await fetch('/api/saved-devices', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({mac, ip, nickname: hostname, hostname, enabled: true}),
+    body: JSON.stringify({mac, ip, nickname: hostname, hostname, enabled: false}),
   });
   const d = await r.json();
   if (d.ok) {
@@ -1395,7 +1395,7 @@ async function saveScannedDevice(mac, ip, hostname, btn) {
     btn.textContent = 'Saved';
     btn.classList.add('added');
     btn.disabled = true;
-    autoRestart();
+    // Added as disabled — no restart needed
   }
 }
 
@@ -1777,7 +1777,6 @@ async function applyUpdate() {
   const logLines = document.getElementById('upgrade-log-lines');
   const status   = document.getElementById('upgrade-modal-status');
   const reloadBtn = document.getElementById('btn-upgrade-reload');
-  const closeBtn  = document.getElementById('btn-upgrade-close');
 
   applyBtn.style.display = 'none';
   checkBtn.style.display = 'none';

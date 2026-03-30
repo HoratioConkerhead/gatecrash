@@ -301,40 +301,6 @@ def api_autostart():
     return jsonify({"ok": True, "results": results})
 
 
-@app.route("/api/upgrading")
-def api_upgrading():
-    return jsonify({"upgrading": os.path.exists("/tmp/gatecrash-upgrading")})
-
-
-@app.route("/api/upgrade-log")
-def api_upgrade_log():
-    """SSE stream of the upgrade log file."""
-    def generate():
-        log_path = "/var/log/gatecrash-upgrade.log"
-        # Wait for the log file to appear
-        for _ in range(20):
-            if os.path.exists(log_path):
-                break
-            import time; time.sleep(0.5)
-
-        try:
-            with open(log_path) as f:
-                while True:
-                    line = f.readline()
-                    if line:
-                        yield f"data: {line.rstrip()}\n\n"
-                    elif not os.path.exists("/tmp/gatecrash-upgrading"):
-                        yield "data: \n\n"
-                        yield "event: done\ndata: done\n\n"
-                        break
-                    else:
-                        import time; time.sleep(0.3)
-        except Exception as e:
-            yield f"data: Error reading log: {e}\n\n"
-
-    return Response(stream_with_context(generate()),
-                    mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 def parse_nmap_devices(output):
@@ -772,14 +738,12 @@ def api_update_apply():
     # Write a small upgrade script and run it detached.
     # setup.sh restarts this service, so we must not wait for it.
     upgrade_script = f"""#!/bin/bash
-touch /tmp/gatecrash-upgrading
 > /var/log/gatecrash-upgrade.log
 sleep 1
 cd {repo}
 git -c safe.directory={repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
 bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
 echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
-rm -f /tmp/gatecrash-upgrading
 """
     script_path = "/tmp/gatecrash-upgrade.sh"
     with open(script_path, "w") as f:

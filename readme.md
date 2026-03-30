@@ -548,6 +548,7 @@ sudo systemctl enable gatecrash
   - ignore the ones already added
   - tv's at the top?
   - remove existing results when scanning again
+  - NMAP scan doesn't need details.  just to say it's scanning  maybe diag logs can have this details if needed.
 
 - **diagnostics**
   - remove dns for the gatecrash device, as it's just cluttering it up
@@ -556,11 +557,11 @@ sudo systemctl enable gatecrash
   - **Search/filter** the device list when adding devices
   - **Device list from ARP table and DHCP leases** — richer source of truth than nmap-only
   - **no refresh on remove** - if a device that's not selected is removed from favourites, no need to stop/start Gatecrash
+  - **add disabled** when adding, add disabled, user needs to enable
 
-- **Update refresh screen**
-  - Doesn't refresh screen on upgrade.  Need to refresh webpage, but 'app' needs quiting and reloading.
+- **General GUI fixes**
+  - **refresh** when reopening page or app, refresh to get new data.  periodically in case anything changes?
   
-
 ## Future Ideas
 
 ### Web App Improvements
