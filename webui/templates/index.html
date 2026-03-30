@@ -1789,7 +1789,6 @@ async function applyUpdate() {
   logLines.textContent = '';
   status.textContent = 'upgrading...';
   reloadBtn.style.display = 'none';
-  closeBtn.style.display = 'none';
   modal.classList.add('open');
 
   await fetch('/api/update/apply', {method: 'POST'});
