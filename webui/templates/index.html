@@ -642,15 +642,15 @@
   <!-- System -->
   <div class="card">
     <h2>System</h2>
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+    <div style="display:flex;flex-direction:column;">
+      <div class="device-row" style="justify-content:space-between;">
         <span style="font-size:14px;font-weight:600;">WireGuard start on boot</span>
         <div class="pill-toggle" id="pill-wg" onclick="toggleBootPill('wg')">
           <div class="pill-dot"></div>
           <span>Off</span>
         </div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+      <div class="device-row" style="justify-content:space-between;">
         <span style="font-size:14px;font-weight:600;">Gatecrash start on boot</span>
         <div class="pill-toggle" id="pill-gc" onclick="toggleBootPill('gatecrash')">
           <div class="pill-dot"></div>
@@ -658,7 +658,7 @@
         </div>
       </div>
       <div class="save-status" id="as-status"></div>
-      <div style="border-top:1px solid #eee;padding-top:12px;display:flex;gap:10px;">
+      <div style="padding-top:12px;display:flex;gap:10px;">
         <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
         <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
       </div>
