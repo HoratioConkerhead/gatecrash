@@ -851,10 +851,10 @@ async function toggleMaster() {
       fetchStatus();
       return;
     }
-    showOutput('WireGuard started. Starting Gatecrash...');
-    const r2 = await fetch('/api/start', {method: 'POST'});
+    showOutput('WireGuard started. Syncing devices and starting Gatecrash...');
+    const r2 = await fetch('/api/saved-devices/sync', {method: 'POST'});
     const d2 = await r2.json();
-    showOutput(d2.ok ? 'Started.' : 'Gatecrash failed: ' + (d2.output || 'unknown error'));
+    showOutput(d2.ok ? `Started with ${d2.active_ips.length} device(s).` : 'Gatecrash failed: ' + (d2.output || 'unknown error'));
   }
   btn.disabled = false;
   fetchStatus();
@@ -870,10 +870,10 @@ async function toggleGC() {
     const d = await r.json();
     showOutput(d.output || (d.ok ? 'Gatecrash stopped.' : 'Failed.'));
   } else {
-    showOutput('Starting Gatecrash...');
-    const r = await fetch('/api/start', {method: 'POST'});
+    showOutput('Syncing devices and starting Gatecrash...');
+    const r = await fetch('/api/saved-devices/sync', {method: 'POST'});
     const d = await r.json();
-    showOutput(d.output || (d.ok ? 'Gatecrash started.' : 'Failed.'));
+    showOutput(d.ok ? `Started with ${d.active_ips.length} device(s).` : 'Failed: ' + (d.output || 'unknown error'));
   }
   btn.disabled = false;
   fetchStatus();
