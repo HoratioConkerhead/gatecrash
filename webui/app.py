@@ -224,6 +224,11 @@ def index():
     return render_template("index.html", version=get_version())
 
 
+@app.route("/api/version")
+def api_version():
+    return jsonify({"version": get_version()})
+
+
 @app.route("/api/status")
 def api_status():
     ensure_dns_thread()  # auto-recover if thread died
