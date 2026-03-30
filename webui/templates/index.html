@@ -288,9 +288,32 @@
   .modal .device-name { color: #e0e0e0; }
   .modal .device-name div { color: #888 !important; }
   .modal .device-mac { color: #7a7a9a; }
-  .device-name { flex: 1; font-weight: 600; }
+  .device-name { flex: 1; font-weight: 600; min-width: 0; }
   .device-ip { font-family: monospace; color: #555; }
   .device-mac { font-family: monospace; color: #aaa; font-size: 11px; }
+
+  /* Icon buttons for device rows */
+  .dev-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .icon-btn:active { transform: scale(0.9); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .icon-btn.info { background: #e3f2fd; }
+  .icon-btn.info svg { fill: #1976d2; }
+  .icon-btn.rename { background: #f3f0ff; }
+  .icon-btn.rename svg { fill: #7c4dff; }
+  .icon-btn.remove { background: #ffebee; }
+  .icon-btn.remove svg { fill: #c62828; }
   .device-add {
     padding: 3px 10px;
     font-size: 12px;
@@ -718,6 +741,27 @@
   </div>
 </div>
 
+<!-- Device info modal -->
+<div class="modal-backdrop" id="device-info-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="width:380px;">
+    <div class="modal-header">
+      <h3 id="device-info-title">Device Info</h3>
+      <button class="modal-close" onclick="document.getElementById('device-info-modal').classList.remove('open')">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="font-family:inherit;color:#e0e0e0;padding:18px;white-space:normal;">
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:14px;">
+        <span style="color:#888;">Nickname</span><span id="di-nick" style="font-weight:600;">—</span>
+        <span style="color:#888;">Hostname</span><span id="di-hostname">—</span>
+        <span style="color:#888;">IP Address</span><span id="di-ip" style="font-family:monospace;">—</span>
+        <span style="color:#888;">MAC Address</span><span id="di-mac" style="font-family:monospace;">—</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-grey" onclick="document.getElementById('device-info-modal').classList.remove('open')" style="font-size:13px;padding:7px 18px;">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ---------------------------------------------------------------------------
 // Tab switching
@@ -1040,24 +1084,42 @@ function renderSavedDevices() {
   list.innerHTML = _savedDevices.map((dev, i) => {
     const checked = dev.enabled ? 'checked' : '';
     const dimClass = dev.enabled ? '' : ' disabled';
+    const esc = s => (s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     return `
-      <div class="device-row${dimClass}" style="gap:12px;" id="devrow-${i}">
+      <div class="device-row${dimClass}" style="gap:10px;" id="devrow-${i}">
         <label class="toggle">
           <input type="checkbox" ${checked} onchange="toggleDevice('${dev.mac}', this.checked, ${i})">
           <div class="track"></div>
           <div class="knob"></div>
         </label>
         <div class="device-name" style="flex:1;">
-          <span class="dev-nick" id="nick-${i}">${dev.nickname || '<span style=color:#aaa>no nickname</span>'}</span>
-          <div style="font-weight:400;color:#999;font-size:11px;">${dev.ip || 'IP unknown'}</div>
+          <span class="dev-nick" id="nick-${i}">${dev.nickname || dev.ip || '<span style=color:#aaa>unnamed</span>'}</span>
         </div>
-        <div class="device-mac">${dev.mac}</div>
-        <button class="btn-grey" onclick="renameDevice('${dev.mac}', ${i})" style="padding:3px 10px;font-size:12px;">Rename</button>
-        <button style="padding:3px 10px;font-size:12px;background:#ffebee;color:#c62828;border:none;border-radius:4px;cursor:pointer;"
-                onclick="removeDevice('${dev.mac}')">Remove</button>
+        <div class="dev-actions">
+          <button class="icon-btn info" title="Info" onclick="showDeviceInfo(${i})">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+          </button>
+          <button class="icon-btn rename" title="Rename" onclick="renameDevice('${dev.mac}', ${i})">
+            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+          </button>
+          <button class="icon-btn remove" title="Remove" onclick="removeDevice('${dev.mac}')">
+            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
       </div>`;
   }).join('');
   updateMasterButton();
+}
+
+function showDeviceInfo(idx) {
+  const dev = _savedDevices[idx];
+  if (!dev) return;
+  document.getElementById('device-info-title').textContent = dev.nickname || dev.ip || 'Device';
+  document.getElementById('di-nick').textContent = dev.nickname || '—';
+  document.getElementById('di-hostname').textContent = dev.hostname || dev.vendor || '—';
+  document.getElementById('di-ip').textContent = dev.ip || '—';
+  document.getElementById('di-mac').textContent = dev.mac || '—';
+  document.getElementById('device-info-modal').classList.add('open');
 }
 
 async function toggleDevice(mac, enabled, idx) {
@@ -1430,8 +1492,6 @@ function appendLogLine(text, color) {
 }
 
 async function applyUpdate() {
-  if (!confirm('Upgrade Gatecrash to the latest version?')) return;
-
   const applyBtn = document.getElementById('btn-apply-update');
   const checkBtn = document.getElementById('btn-check-update');
   const modal    = document.getElementById('upgrade-modal');
@@ -1450,15 +1510,19 @@ async function applyUpdate() {
 
   await fetch('/api/update/apply', {method: 'POST'});
 
-  // Poll the log file and upgrading flag every second.
+  // Poll the log file and upgrading flag.
+  // Use a sequential poll (not setInterval) to avoid piling up requests during restart.
   let lastLineCount = 0;
   let restarting = false;
+  let done = false;
 
-  const poll = setInterval(async () => {
+  async function pollOnce() {
+    if (done) return;
+
     // 1. Check upgrading flag
     let upgrading = true;
     try {
-      const r = await fetch('/api/upgrading');
+      const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(3000)});
       if (r.ok) {
         const d = await r.json();
         upgrading = d.upgrading;
@@ -1472,12 +1536,14 @@ async function applyUpdate() {
         restarting = true;
         appendLogLine('— web UI restarting... —', '#888');
       }
-      return; // service mid-restart, try again next tick
+      // Service is mid-restart — wait and retry
+      setTimeout(pollOnce, 2000);
+      return;
     }
 
     // 2. Show any new log lines
     try {
-      const lr = await fetch('/api/upgrade-log-content');
+      const lr = await fetch('/api/upgrade-log-content', {signal: AbortSignal.timeout(3000)});
       const ld = await lr.json();
       if (ld.ok) {
         const allLines = ld.content.split('\n').filter(l => l);
@@ -1488,17 +1554,23 @@ async function applyUpdate() {
       }
     } catch(e) { /* log temporarily unavailable — ignore */ }
 
-    // 3. Done — show reload button
+    // 3. Done?
     if (!upgrading) {
-      clearInterval(poll);
+      done = true;
       status.textContent = 'complete';
       appendLogLine('Upgrade complete.', '#4caf50');
       reloadBtn.style.display = '';
       closeBtn.style.display = '';
-      // Also try auto-reload after a short delay
       setTimeout(() => { window.location.href = '/'; }, 3000);
+      return;
     }
-  }, 1000);
+
+    // Schedule next poll
+    setTimeout(pollOnce, 1000);
+  }
+
+  // Start polling after a short delay to let the upgrade script kick off
+  setTimeout(pollOnce, 1500);
 }
 
 // Load on page open
