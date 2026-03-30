@@ -523,9 +523,10 @@
       <span id="upgrade-modal-status" style="color:#aaa;font-size:12px;font-family:monospace;"></span>
     </div>
     <div class="modal-body" id="upgrade-log-lines" style="min-height:150px;max-height:50vh;"></div>
-    <div class="modal-footer" style="gap:10px;">
-      <button class="btn-green" id="btn-upgrade-reload" onclick="(window.caches?caches.open('gatecrash-v1').then(c=>c.delete('/')):Promise.resolve()).finally(()=>{window.location.href='/?upgraded='+Date.now()})" style="display:none;padding:8px 20px;">&#8635; Reload interface</button>
+    <div class="modal-footer" style="gap:10px;justify-content:space-between;align-items:center;">
+      <button class="btn-green" id="btn-upgrade-reload" onclick="hardReload()" style="display:none;padding:8px 20px;">&#8635; Reload interface</button>
       <button class="btn-grey" id="btn-upgrade-close" onclick="document.getElementById('upgrade-modal').classList.remove('open')" style="display:none;font-size:13px;padding:7px 18px;">Close</button>
+      <button class="btn-grey" onclick="hardReload()" style="margin-left:auto;font-size:12px;padding:6px 14px;">&#8635; Reload page</button>
     </div>
   </div>
 </div>
@@ -1753,6 +1754,13 @@ async function checkUpdate() {
   }
 }
 
+function hardReload() {
+  const go = () => { window.location.href = '/?upgraded=' + Date.now(); };
+  if (window.caches) {
+    caches.open('gatecrash-v1').then(c => c.delete('/')).finally(go);
+  } else { go(); }
+}
+
 function appendLogLine(text, color) {
   const logLines = document.getElementById('upgrade-log-lines');
   const line = document.createElement('div');
@@ -1781,39 +1789,36 @@ async function applyUpdate() {
 
   await fetch('/api/update/apply', {method: 'POST'});
 
-  // Poll the log file and upgrading flag.
-  // Use a sequential poll (not setInterval) to avoid piling up requests during restart.
+  // Poll the log file. When we see the web UI restart message, we know setup.sh
+  // is done and the service is coming back up — just reload the page after a short delay.
   let lastLineCount = 0;
-  let restarting = false;
-  let done = false;
-  let upgradeComplete = false;
+  let reloadScheduled = false;
+
+  function scheduleReload(delaySecs) {
+    if (reloadScheduled) return;
+    reloadScheduled = true;
+    status.textContent = 'reloading...';
+    reloadBtn.style.display = '';
+    let secs = delaySecs;
+    appendLogLine(`Reloading in ${secs}...`, '#888');
+    const tick = setInterval(() => {
+      secs--;
+      if (secs <= 0) {
+        clearInterval(tick);
+        appendLogLine('Reloading now.', '#4caf50');
+        const go = () => { window.location.href = '/?upgraded=' + Date.now(); };
+        if (window.caches) {
+          caches.open('gatecrash-v1').then(c => c.delete('/')).finally(go);
+        } else { go(); }
+      } else {
+        appendLogLine(`Reloading in ${secs}...`, '#888');
+      }
+    }, 1000);
+  }
 
   async function pollOnce() {
-    if (done) return;
+    if (reloadScheduled) return;
 
-    // 1. Check upgrading flag
-    let upgrading = true;
-    try {
-      const r = await fetch('/api/upgrading', {signal: AbortSignal.timeout(3000)});
-      if (r.ok) {
-        const d = await r.json();
-        upgrading = d.upgrading;
-        if (restarting) {
-          restarting = false;
-          appendLogLine('— web UI back up —', '#4caf50');
-        }
-      }
-    } catch(e) {
-      if (!restarting) {
-        restarting = true;
-        appendLogLine('— web UI restarting... —', '#888');
-      }
-      // Service is mid-restart — wait and retry
-      setTimeout(pollOnce, 2000);
-      return;
-    }
-
-    // 2. Show any new log lines
     try {
       const lr = await fetch('/api/upgrade-log-content', {signal: AbortSignal.timeout(3000)});
       const ld = await lr.json();
@@ -1821,46 +1826,20 @@ async function applyUpdate() {
         const allLines = ld.content.split('\n').filter(l => l);
         for (let i = lastLineCount; i < allLines.length; i++) {
           appendLogLine(allLines[i]);
-          if (allLines[i].includes('=== Upgrade complete ===')) upgradeComplete = true;
+          // setup.sh prints this just before restarting the web UI service — reload after it comes back up
+          if (allLines[i].includes('Restarting web UI service')) {
+            scheduleReload(8);
+          }
+          // Fallback: explicit completion marker
+          if (allLines[i].includes('=== Upgrade complete ===') || allLines[i].includes('=== Setup complete ===')) {
+            scheduleReload(3);
+          }
         }
         lastLineCount = allLines.length;
       }
-    } catch(e) { /* log temporarily unavailable — ignore */ }
+    } catch(e) { /* log temporarily unavailable during restart — ignore */ }
 
-    // 3. Done?
-    if (!upgrading || upgradeComplete) {
-      done = true;
-      status.textContent = 'complete';
-      if (!upgradeComplete) appendLogLine('Upgrade complete.', '#4caf50');
-      reloadBtn.style.display = '';
-      closeBtn.style.display = '';
-
-      // Countdown then hard-reload, clearing SW cache so PWA gets fresh content
-      const doReload = () => {
-        const go = () => { window.location.href = '/?upgraded=' + Date.now(); };
-        if (window.caches) {
-          caches.open('gatecrash-v1').then(c => c.delete('/')).finally(go);
-        } else {
-          go();
-        }
-      };
-      let secs = 3;
-      appendLogLine(`Reloading in ${secs}...`, '#888');
-      const tick = setInterval(() => {
-        secs--;
-        if (secs <= 0) {
-          clearInterval(tick);
-          appendLogLine('Reloading now.', '#4caf50');
-          doReload();
-        } else {
-          appendLogLine(`Reloading in ${secs}...`, '#888');
-        }
-      }, 1000);
-      return;
-    }
-
-    // Schedule next poll
-    setTimeout(pollOnce, 1000);
+    setTimeout(pollOnce, 1500);
   }
 
   // Start polling after a short delay to let the upgrade script kick off
