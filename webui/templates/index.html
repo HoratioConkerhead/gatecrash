@@ -953,13 +953,15 @@ fetchDNS();
 const _loadedVersion = '{{ version }}';
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible') return;
+  // Always refresh data immediately on focus
+  fetchStatus();
+  loadSavedDevices();
+  // Reload the whole app if a new version has been deployed
   try {
     const r = await fetch('/api/version', {signal: AbortSignal.timeout(3000)});
     const d = await r.json();
-    if (d.version && d.version !== _loadedVersion) { hardReload(); return; }
+    if (d.version && d.version !== _loadedVersion) hardReload();
   } catch(e) { /* offline or server down — ignore */ }
-  // Version unchanged — just refresh devices list in case new ones were added
-  loadSavedDevices();
 });
 
 // ---------------------------------------------------------------------------

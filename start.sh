@@ -123,7 +123,20 @@ echo "arpspoof pids: $ARPS running"
 echo "========================="
 echo ""
 
-# Keep the process alive so systemd (Type=simple) tracks it.
-# SIGTERM from systemd will kill this and all child arpspoof processes
-# because the service uses KillMode=control-group.
-wait
+# Keep the process alive and watch for arpspoof processes that have exited
+# (e.g. target device was offline at start or rebooted). Restart them as needed.
+# SIGTERM from systemd kills this loop and all children via KillMode=control-group.
+while true; do
+    sleep 30
+    for ip in $TARGET_IPS; do
+        fwd=$(pgrep -cf "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true)
+        rev=$(pgrep -cf "arpspoof -i $LAN_IF -t $GATEWAY_IP $ip" 2>/dev/null || true)
+        if [[ "${fwd:-0}" -eq 0 ]] || [[ "${rev:-0}" -eq 0 ]]; then
+            echo "arpspoof for $ip exited — restarting"
+            pkill -f "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true
+            pkill -f "arpspoof -i $LAN_IF -t $GATEWAY_IP $ip" 2>/dev/null || true
+            arpspoof -i "$LAN_IF" -t "$ip" "$GATEWAY_IP" > /dev/null 2>&1 &
+            arpspoof -i "$LAN_IF" -t "$GATEWAY_IP" "$ip" > /dev/null 2>&1 &
+        fi
+    done
+done
