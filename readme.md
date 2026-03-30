@@ -537,33 +537,43 @@ sudo systemctl enable gatecrash
 - Surfshark WireGuard (Albania endpoint)
 - LG smart TV and Windows laptop as target devices
 
-## Known Issues / TODO
+## Known Issues
 
 - **IPv6 bypass risk** — ARP spoofing only intercepts IPv4. If a target device prefers IPv6 (most modern devices do when available), its traffic goes directly to the router via NDP, completely bypassing Gatecrash. Investigate: warn in the UI if IPv6 is active on the LAN, consider NDP spoofing, or strip AAAA records from DNS responses to force IPv4
 
-## Future Ideas
 
-### Hardware Appliance
+## Fixes
 
-- **Target platform: NanoPi Zero2 (2GB)** — 45×45mm, native Gigabit Ethernet, ~$28 with case, runs Ubuntu/Debian natively
-- **BOM** — NanoPi Zero2 2GB, microSD card, USB-C power supply, Ethernet cable — under £35 total
-- **Single RGB LED** for status: green (running), blue (VPN active), red (error), pulsing white (booting)
-- **Optional OLED display** for detailed status — future upgrade
-- **3D printed case** — custom design with Ethernet/USB-C cutouts, LED window, ventilation, logo, optional wall-mount clip; include OLED cutout even if not fitted initially; translucent filament option for LED glow-through
-- **Publish STL files and BOM** alongside the code in the repo
+- **Scan network needs tidying**
+  - ignore the ones already added
+  - tv's at the top?
+  - remove existing results when scanning again
 
-### Web UI
+- **config needs a lot of tidying up**
+  - don't need interface info?
+  - need  way of adding VPN easily
+  - start on boot options at the top.  convert to pills
+  - remove 'network reference' on config.
 
-- **Per-device VPN toggle** — enable/disable VPN routing per device from the UI
-- **Country/exit selection** per device — choose VPN exit node per device
+- **diagnostics**
+  - Reboot and shutdown on there?
+
 - **Device management improvements:**
   - **Search/filter** the device list when adding devices
-  - **Save by MAC address** so devices persist across DHCP IP changes
-  - **Favourite devices** as quick-add/remove buttons for one-click toggling
-  - **Saved nicknames** — assign friendly names ("Living Room TV", "Ian's Laptop") to find devices easily; auto-detect manufacturer from MAC OUI as a starting hint
-- **Device list from ARP table and DHCP leases** — richer source of truth than nmap-only
-- **Config backup** — export/import configuration to the cloud or as a downloadable file
-- **PWA support** — manifest and service worker so users can "Add to Home Screen" on iOS/Android; looks and feels like a native app with no app store needed
+  - **Device list from ARP table and DHCP leases** — richer source of truth than nmap-only
+  - **no refresh on remove** - if a device that's not selected is removed from favourites, no need to stop/start Gatecrash
+
+- **Update refresh screen**
+  - Doesn't refresh screen on upgrade.
+
+## Future Ideas
+
+### Web App Improvements
+
+- **Config backup** - export/import configuration to the cloud or as a downloadable file
+- **PWA Info** - popup showing how to add as an app
+
+
 
 ### Discovery and Access
 
@@ -578,7 +588,7 @@ sudo systemctl enable gatecrash
 
 ### Set and Forget
 
-- **MAC-based device tracking** — store devices by MAC address rather than IP; poll ARP table periodically — if a saved MAC appears at a new IP, automatically update iptables rules and arpspoof targets. Handles DHCP renewals without needing static reservations. iPhones and Android use per-network randomised MACs which stay consistent on the same network, so this works reliably
+- **MAC-based device tracking** — store devices by MAC address rather than IP (needs testing); poll ARP table periodically — if a saved MAC appears at a new IP, automatically update iptables rules and arpspoof targets. Handles DHCP renewals without needing static reservations. iPhones and Android use per-network randomised MACs which stay consistent on the same network, so this works reliably
 - **Automatic vpntarget route restoration** after WireGuard restart
 
 ### Auto Mode (v2)
@@ -605,8 +615,16 @@ Gatecrash has two modes of operation:
 - **Rate-limit arpspoof** — send every 2 seconds rather than as fast as possible, to reduce router stress
 - **Per-app VPN** — route only traffic to specific destinations, e.g. all YouTube traffic
 - **Auto-configure VPN** — accept the `.conf` file the VPN provider supplies, or auto-fetch config by logging in for known providers
-- **CLI wrapper** — `gatecrash add/remove/status/list`
 - **Appliance image** — a flashable SD card image (Pi-hole style) so setup is: flash → plug in → open browser. No Linux knowledge required
+
+### Hardware Appliance
+
+- **Target platform: NanoPi Zero2 (2GB)** — 45×45mm, native Gigabit Ethernet, ~$28 with case, runs Ubuntu/Debian natively
+- **BOM** — NanoPi Zero2 2GB, microSD card, USB-C power supply, Ethernet cable — under £35 total
+- **Single RGB LED** for status: green (running), blue (VPN active), red (error), pulsing white (booting)
+- **Optional OLED display** for detailed status — future upgrade
+- **3D printed case** — custom design with Ethernet/USB-C cutouts, LED window, ventilation, logo, optional wall-mount clip; include OLED cutout even if not fitted initially; translucent filament option for LED glow-through
+- **Publish STL files and BOM** alongside the code in the repo
 
 ## License
 
