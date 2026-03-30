@@ -567,22 +567,6 @@
   <!-- ==================== TAB: CONFIG ==================== -->
   <div class="tab-content" id="tab-config" style="grid-template-columns:1fr;gap:20px;">
 
-  <!-- Start on Boot -->
-  <div class="card">
-    <h2>Start on Boot</h2>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;">
-      <div class="pill-toggle" id="pill-wg" onclick="toggleBootPill('wg')">
-        <div class="pill-dot"></div>
-        <span>WireGuard</span>
-      </div>
-      <div class="pill-toggle" id="pill-gc" onclick="toggleBootPill('gatecrash')">
-        <div class="pill-dot"></div>
-        <span>Gatecrash</span>
-      </div>
-    </div>
-    <div class="save-status" id="as-status"></div>
-  </div>
-
   <!-- VPN Config -->
   <div class="card">
     <h2>VPN Config (WireGuard)</h2>
@@ -593,8 +577,7 @@
     <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;font-size:12px;color:#8d6e00;margin-bottom:14px;line-height:1.5;">
       <strong>Note:</strong> Some VPN providers give you a config file without the private key included.
       Open the <code>.conf</code> file in a text editor before uploading and make sure the <code>PrivateKey</code>
-      line has a key value (not blank or a placeholder). If you don't have a config file,
-      use <a href="#" onclick="event.preventDefault();document.getElementById('manual-wg-body').style.display='';document.getElementById('manual-wg-arrow').style.transform='rotate(180deg)'" style="color:#1565c0;font-weight:600;">Manual VPN Config</a> below.
+      line has a key value (not blank or a placeholder).
     </div>
     <div id="wg-upload-area" style="border:2px dashed #ddd;border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s;"
          onclick="document.getElementById('wg-file-input').click()"
@@ -616,6 +599,9 @@
       </div>
     </div>
     <div class="save-status" id="wg-status"></div>
+    <div style="font-size:12px;color:#999;margin-top:10px;">
+      If you don't have a config file, set the configuration manually in the <em>Manual VPN Config</em> section below.
+    </div>
   </div>
 
   <!-- Manual VPN Config -->
@@ -625,13 +611,30 @@
       <span id="manual-wg-arrow" style="font-size:12px;color:#999;transition:transform 0.2s;">&#9660;</span>
     </h2>
     <div id="manual-wg-body" style="display:none;">
-      <p style="font-size:13px;color:#666;margin-bottom:10px;">
-        Edit the WireGuard config directly. Must include <code>Table = off</code> and <code>MTU = 1280</code>. No DNS line.
+      <p style="font-size:13px;color:#666;margin-bottom:14px;">
+        Enter your WireGuard VPN details. Gatecrash will build the config file automatically.
       </p>
       <div class="field">
-        <textarea id="wg-conf" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = ...&#10;Table = off&#10;MTU = 1280&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = ...&#10;AllowedIPs = 0.0.0.0/0&#10;PersistentKeepalive = 25"></textarea>
+        <label>Private Key</label>
+        <input type="password" id="mwg-privkey" placeholder="e.g. yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=" autocomplete="off">
+        <div class="hint">From your VPN provider — a 44-character base64 string</div>
       </div>
-      <button class="btn-blue" onclick="saveWGConfigManual()">&#128190; Save WireGuard Config</button>
+      <div class="field">
+        <label>Address</label>
+        <input type="text" id="mwg-address" placeholder="e.g. 10.66.66.2/32">
+        <div class="hint">Your VPN tunnel IP address (with subnet mask)</div>
+      </div>
+      <div class="field">
+        <label>Public Key</label>
+        <input type="text" id="mwg-pubkey" placeholder="e.g. bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=">
+        <div class="hint">The VPN server's public key</div>
+      </div>
+      <div class="field">
+        <label>Endpoint</label>
+        <input type="text" id="mwg-endpoint" placeholder="e.g. vpn.example.com:51820">
+        <div class="hint">VPN server address and port</div>
+      </div>
+      <button class="btn-blue" onclick="saveManualWGConfig()">&#128190; Save VPN Config</button>
       <div class="save-status" id="wg-manual-status"></div>
     </div>
   </div>
@@ -639,9 +642,26 @@
   <!-- System -->
   <div class="card">
     <h2>System</h2>
-    <div style="display:flex;gap:10px;">
-      <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
-      <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+        <span style="font-size:14px;font-weight:600;">WireGuard start on boot</span>
+        <div class="pill-toggle" id="pill-wg" onclick="toggleBootPill('wg')">
+          <div class="pill-dot"></div>
+          <span>Off</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+        <span style="font-size:14px;font-weight:600;">Gatecrash start on boot</span>
+        <div class="pill-toggle" id="pill-gc" onclick="toggleBootPill('gatecrash')">
+          <div class="pill-dot"></div>
+          <span>Off</span>
+        </div>
+      </div>
+      <div class="save-status" id="as-status"></div>
+      <div style="border-top:1px solid #eee;padding-top:12px;display:flex;gap:10px;">
+        <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
+        <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
+      </div>
     </div>
   </div>
 
@@ -1460,17 +1480,22 @@ async function loadDiagnostics() {
   } catch(e) {}
 }
 
+function updatePillText(pill, active) {
+  pill.classList.toggle('active', active);
+  pill.querySelector('span').textContent = active ? 'On' : 'Off';
+}
+
 async function loadAutostart() {
   const r = await fetch('/api/autostart');
   const d = await r.json();
-  document.getElementById('pill-wg').classList.toggle('active', d.wg);
-  document.getElementById('pill-gc').classList.toggle('active', d.gatecrash);
+  updatePillText(document.getElementById('pill-wg'), d.wg);
+  updatePillText(document.getElementById('pill-gc'), d.gatecrash);
 }
 
 async function toggleBootPill(which) {
   const pill = document.getElementById(which === 'wg' ? 'pill-wg' : 'pill-gc');
   const newState = !pill.classList.contains('active');
-  pill.classList.toggle('active', newState);
+  updatePillText(pill, newState);
 
   const el = document.getElementById('as-status');
   const body = {};
@@ -1484,7 +1509,7 @@ async function toggleBootPill(which) {
   el.className = 'save-status ' + (d.ok ? '' : 'error');
   el.textContent = d.ok ? '✓ Saved' : '✗ Failed';
   setTimeout(() => { el.textContent = ''; }, 3000);
-  if (!d.ok) pill.classList.toggle('active', !newState); // revert on failure
+  if (!d.ok) updatePillText(pill, !newState); // revert on failure
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,33 +1608,117 @@ async function shutdown() {
   await fetch('/api/shutdown', {method: 'POST'});
 }
 
+const REDACTED_KEY = '••••••••••••••••••••••••••••••••••••••••••••';
+
 function toggleManualWG() {
   const body = document.getElementById('manual-wg-body');
   const arrow = document.getElementById('manual-wg-arrow');
   const open = body.style.display === 'none';
   body.style.display = open ? '' : 'none';
   arrow.style.transform = open ? 'rotate(180deg)' : '';
-  if (open) loadWGConfigManual();
+  if (open) loadManualWGFields();
 }
 
-async function loadWGConfigManual() {
-  const r = await fetch('/api/wg-config');
-  const d = await r.json();
-  document.getElementById('wg-conf').value = d.content || '';
+async function loadManualWGFields() {
+  try {
+    const r = await fetch('/api/wg-config');
+    const d = await r.json();
+    if (!d.ok || !d.content) return;
+    const c = d.content;
+    const pk = (c.match(/PrivateKey\s*=\s*(\S+)/i) || [])[1] || '';
+    const addr = (c.match(/Address\s*=\s*(\S+)/i) || [])[1] || '';
+    const pub = (c.match(/PublicKey\s*=\s*(\S+)/i) || [])[1] || '';
+    const ep = (c.match(/Endpoint\s*=\s*(\S+)/i) || [])[1] || '';
+    // Show redacted private key so user knows one exists
+    document.getElementById('mwg-privkey').value = pk ? REDACTED_KEY : '';
+    document.getElementById('mwg-address').value = addr;
+    document.getElementById('mwg-pubkey').value = pub;
+    document.getElementById('mwg-endpoint').value = ep;
+  } catch(e) {}
 }
 
-async function saveWGConfigManual() {
+function isValidWGKey(key) {
+  return key && key.length === 44 && key.endsWith('=') && key !== REDACTED_KEY;
+}
+
+async function saveManualWGConfig() {
   const el = document.getElementById('wg-manual-status');
+  const privkey = document.getElementById('mwg-privkey').value.trim();
+  const address = document.getElementById('mwg-address').value.trim();
+  const pubkey = document.getElementById('mwg-pubkey').value.trim();
+  const endpoint = document.getElementById('mwg-endpoint').value.trim();
+
+  // Validate required fields
+  if (!address || !pubkey || !endpoint) {
+    el.className = 'save-status error';
+    el.textContent = '✗ Address, Public Key, and Endpoint are required';
+    setTimeout(() => { el.textContent = ''; }, 4000);
+    return;
+  }
+
+  const privkeyIsRedacted = privkey === REDACTED_KEY;
+  const privkeyIsEmpty = !privkey;
+
+  // If user hasn't touched the private key (still redacted), read the real one from existing config
+  let realPrivKey = '';
+  if (privkeyIsRedacted) {
+    try {
+      const r = await fetch('/api/wg-config');
+      const d = await r.json();
+      if (d.ok && d.content) {
+        realPrivKey = (d.content.match(/PrivateKey\s*=\s*(\S+)/i) || [])[1] || '';
+      }
+    } catch(e) {}
+    if (!realPrivKey) {
+      el.className = 'save-status error';
+      el.textContent = '✗ Could not read existing private key — please re-enter it';
+      setTimeout(() => { el.textContent = ''; }, 4000);
+      return;
+    }
+  } else if (privkeyIsEmpty) {
+    el.className = 'save-status error';
+    el.textContent = '✗ Private Key is required';
+    setTimeout(() => { el.textContent = ''; }, 4000);
+    return;
+  } else if (!isValidWGKey(privkey)) {
+    el.className = 'save-status error';
+    el.textContent = '✗ Private Key doesn\'t look valid (expected 44-char base64 ending with =)';
+    setTimeout(() => { el.textContent = ''; }, 4000);
+    return;
+  } else {
+    realPrivKey = privkey;
+  }
+
+  // Build the config
+  const conf = [
+    '[Interface]',
+    `PrivateKey = ${realPrivKey}`,
+    `Address = ${address}`,
+    'Table = off',
+    'MTU = 1280',
+    '',
+    '[Peer]',
+    `PublicKey = ${pubkey}`,
+    `Endpoint = ${endpoint}`,
+    'AllowedIPs = 0.0.0.0/0',
+    'PersistentKeepalive = 25',
+    '',
+  ].join('\n');
+
   const r = await fetch('/api/wg-config', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({content: document.getElementById('wg-conf').value}),
+    body: JSON.stringify({content: conf}),
   });
   const d = await r.json();
   el.className = 'save-status ' + (d.ok ? '' : 'error');
-  el.textContent = d.ok ? '✓ Saved' : '✗ ' + d.error;
+  el.textContent = d.ok ? '✓ VPN config saved' : '✗ ' + d.error;
   setTimeout(() => { el.textContent = ''; }, 3000);
-  if (d.ok) loadWGConfigSummary();
+  if (d.ok) {
+    loadWGConfigSummary();
+    // Re-redact the private key
+    document.getElementById('mwg-privkey').value = REDACTED_KEY;
+  }
 }
 
 // ---------------------------------------------------------------------------
