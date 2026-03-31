@@ -1346,7 +1346,7 @@ function scanDevices() {
   document.getElementById('scan-modal').classList.add('open');
   document.getElementById('scan-filter').value = '';
   list.innerHTML = '<div style="padding:20px;display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;"><div class="spinner"></div> Scanning...</div>';
-  modalStatus.textContent = 'scanning...';
+  //modalStatus.textContent = 'scanning...';
   btn.disabled = true;
 
   if (_scanES) { _scanES.close(); }
@@ -1816,7 +1816,7 @@ async function applyUpdate() {
   applyBtn.style.display = 'none';
   checkBtn.style.display = 'none';
   logLines.textContent = '';
-  status.textContent = 'upgrading...';
+  //status.textContent = 'upgrading...';
   reloadBtn.style.display = 'none';
   modal.classList.add('open');
 
