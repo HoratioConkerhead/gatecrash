@@ -508,6 +508,47 @@
     background: #4caf50;
   }
 
+  /* Warning note box (e.g. VPN config upload hint) */
+  .note-warning {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #8d6e00;
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+  [data-theme="dark"] .note-warning {
+    background: #2a2100;
+    border-color: #5a4800;
+    color: #d4b060;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .note-warning {
+      background: #2a2100;
+      border-color: #5a4800;
+      color: #d4b060;
+    }
+  }
+
+  /* Diagnostic / summary sub-boxes */
+  .diag-box {
+    background: var(--bg-subtle);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .diag-mono {
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--text-primary);
+    background: var(--bg-subtle);
+    border-radius: 6px;
+    padding: 10px;
+    white-space: pre-wrap;
+    min-height: 60px;
+  }
+
   /* No-devices hint */
   .no-devices-hint {
     font-size: 14px;
@@ -678,7 +719,7 @@
       Upload a <code>.conf</code> file from your VPN provider. Gatecrash will automatically
       add the required settings (<code>Table = off</code>, <code>MTU = 1280</code>) and remove any DNS lines.
     </p>
-    <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 14px;font-size:12px;color:#8d6e00;margin-bottom:14px;line-height:1.5;">
+    <div class="note-warning">
       <strong>Note:</strong> Some VPN providers give you a config file without the private key included.
       Open the <code>.conf</code> file in a text editor before uploading and make sure the <code>PrivateKey</code>
       line has a key value (not blank or a placeholder).
@@ -689,16 +730,16 @@
          ondragleave="this.style.borderColor='#ddd';this.style.background=''"
          ondrop="event.preventDefault();this.style.borderColor='#ddd';this.style.background='';handleWGFileDrop(event)">
       <div style="font-size:28px;margin-bottom:8px;">&#128194;</div>
-      <div style="font-weight:600;font-size:14px;color:#333;">Drop .conf file here or click to browse</div>
+      <div style="font-weight:600;font-size:14px;color:var(--text-primary);">Drop .conf file here or click to browse</div>
       <div style="font-size:12px;color:#999;margin-top:4px;">Supports WireGuard config files from most VPN providers</div>
       <input type="file" id="wg-file-input" accept=".conf" style="display:none;" onchange="handleWGFileSelect(this)">
     </div>
     <div id="wg-upload-status" style="margin-top:12px;">
-      <div id="wg-config-summary" style="display:none;background:#f7f8fa;border-radius:8px;padding:14px;font-size:13px;">
+      <div id="wg-config-summary" class="diag-box" style="display:none;font-size:13px;">
         <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;">
-          <span style="color:#888;font-weight:600;">Status</span><span id="wg-cfg-status" style="font-weight:600;">—</span>
-          <span style="color:#888;">Endpoint</span><span id="wg-cfg-endpoint" style="font-family:monospace;">—</span>
-          <span style="color:#888;">Address</span><span id="wg-cfg-address" style="font-family:monospace;">—</span>
+          <span style="color:var(--text-tertiary);font-weight:600;">Status</span><span id="wg-cfg-status" style="font-weight:600;">—</span>
+          <span style="color:var(--text-tertiary);">Endpoint</span><span id="wg-cfg-endpoint" style="font-family:monospace;">—</span>
+          <span style="color:var(--text-tertiary);">Address</span><span id="wg-cfg-address" style="font-family:monospace;">—</span>
         </div>
       </div>
     </div>
@@ -876,23 +917,23 @@
 
     <!-- Network info + ARP check hint -->
     <div class="diag-top-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-      <div style="background:#f7f8fa;border-radius:8px;padding:14px;">
-        <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">GATECRASH NETWORK INFO</div>
+      <div class="diag-box">
+        <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px;font-weight:600;">GATECRASH NETWORK INFO</div>
         <div style="font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin-bottom:8px;">
-          <span style="color:#888;">Interface</span><span id="diag-lan-if" style="font-family:monospace;color:#555;"></span>
-          <span style="color:#888;">IP Address</span><span id="diag-lan-ip" style="font-family:monospace;color:#555;"></span>
-          <span style="color:#888;">MAC Address</span><span id="diag-lan-mac" style="font-family:monospace;font-weight:700;">—</span>
-          <span style="color:#888;">Hostname</span><span id="diag-hostname" style="font-family:monospace;color:#555;">—</span>
-          <span style="color:#888;">Gateway</span><span id="diag-gateway" style="font-family:monospace;color:#555;">—</span>
+          <span style="color:var(--text-tertiary);">Interface</span><span id="diag-lan-if" style="font-family:monospace;"></span>
+          <span style="color:var(--text-tertiary);">IP Address</span><span id="diag-lan-ip" style="font-family:monospace;"></span>
+          <span style="color:var(--text-tertiary);">MAC Address</span><span id="diag-lan-mac" style="font-family:monospace;font-weight:700;">—</span>
+          <span style="color:var(--text-tertiary);">Hostname</span><span id="diag-hostname" style="font-family:monospace;">—</span>
+          <span style="color:var(--text-tertiary);">Gateway</span><span id="diag-gateway" style="font-family:monospace;">—</span>
         </div>
-        <div style="font-size:12px;color:#999;line-height:1.5;">
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">
           To verify spoofing on a client: run <code>arp -a</code> (Windows) or <code>arp -n</code> (Linux/Mac) and check
           that the <strong>router's IP</strong> shows the MAC address above. If it shows the real router MAC, spoofing is not working.
         </div>
       </div>
-      <div style="background:#f7f8fa;border-radius:8px;padding:14px;">
-        <div style="font-size:12px;color:#888;margin-bottom:6px;font-weight:600;">ACTIVE ARPSPOOF PROCESSES</div>
-        <div id="diag-arps" style="font-family:monospace;font-size:12px;color:#333;white-space:pre-wrap;line-height:1.6;">—</div>
+      <div class="diag-box">
+        <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px;font-weight:600;">ACTIVE ARPSPOOF PROCESSES</div>
+        <div id="diag-arps" style="font-family:monospace;font-size:12px;color:var(--text-primary);white-space:pre-wrap;line-height:1.6;">—</div>
       </div>
     </div>
 
@@ -900,15 +941,15 @@
     <div class="diag-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
       <div>
         <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">IPTABLES MANGLE (PREROUTING)</div>
-        <div id="diag-ipt" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
+        <div id="diag-ipt" class="diag-mono">—</div>
       </div>
       <div>
         <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">IP POLICY RULES</div>
-        <div id="diag-iprules" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
+        <div id="diag-iprules" class="diag-mono">—</div>
       </div>
       <div>
         <div style="font-size:12px;color:#888;font-weight:600;margin-bottom:6px;">VPNTARGET ROUTES</div>
-        <div id="diag-vt" style="font-family:monospace;font-size:11px;color:#333;background:#f7f8fa;border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;">—</div>
+        <div id="diag-vt" class="diag-mono">—</div>
       </div>
     </div>
   </div>
@@ -919,7 +960,7 @@
       WireGuard Config
       <span style="font-weight:400;font-size:12px;color:#aaa;">(read-only)</span>
     </h2>
-    <div id="diag-wg-conf" style="font-family:monospace;font-size:12px;background:#f7f8fa;border-radius:6px;padding:12px;white-space:pre-wrap;color:#333;min-height:40px;max-height:200px;overflow-y:auto;">Loading...</div>
+    <div id="diag-wg-conf" class="diag-mono" style="font-size:12px;min-height:40px;max-height:200px;overflow-y:auto;">Loading...</div>
     <div style="font-size:12px;color:#999;margin-top:8px;">To change the VPN config, go to Config &gt; VPN Config (WireGuard) and upload a new file.</div>
   </div>
 
