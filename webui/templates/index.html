@@ -22,7 +22,7 @@
     -webkit-text-size-adjust: 100%;
   }
   body {
-    height: 100dvh;
+    height: 100dvh; /* overridden by JS with window.innerHeight on iOS */
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1889,6 +1889,12 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/static/sw.js').catch(() => {});
 }
 
+// iOS PWA: 100dvh is unreliable — use window.innerHeight for the exact viewport height.
+function fixBodyHeight() {
+  document.body.style.height = window.innerHeight + 'px';
+}
+fixBodyHeight();
+window.addEventListener('resize', fixBodyHeight);
 
 </script>
 
