@@ -142,6 +142,54 @@ def ensure_dns_thread():
 
 
 # ---------------------------------------------------------------------------
+# IP re-resolution watchdog (background thread)
+# ---------------------------------------------------------------------------
+# Runs every 60 s. Checks the ARP table against saved devices. If any
+# enabled device's IP has changed, updates the config and restarts Gatecrash
+# so iptables/arpspoof pick up the new IP immediately.
+
+ip_watch_started = False
+
+def ip_watch_loop():
+    import time
+    while True:
+        time.sleep(60)
+        try:
+            devices = load_devices()
+            if not any(d.get("enabled") for d in devices):
+                continue
+
+            arp_out, _ = run("ip neigh show 2>/dev/null")
+            changed = False
+            for dev in devices:
+                if not dev.get("enabled") or not dev.get("mac"):
+                    continue
+                for line in arp_out.splitlines():
+                    if dev["mac"] in line.lower():
+                        m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s", line)
+                        if m and m.group(1) != dev.get("ip"):
+                            dev["ip"] = m.group(1)
+                            changed = True
+                        break
+
+            if changed:
+                save_devices(devices)
+                # Rebuild TARGET_IPS and restart Gatecrash
+                sync_targets_from_devices()
+                run("systemctl restart gatecrash 2>&1", timeout=30)
+        except Exception:
+            pass
+
+
+def ensure_ip_watch():
+    global ip_watch_started
+    if not ip_watch_started:
+        ip_watch_started = True
+        t = threading.Thread(target=ip_watch_loop, daemon=True)
+        t.start()
+
+
+# ---------------------------------------------------------------------------
 # Saved devices (MAC-based persistence)
 # ---------------------------------------------------------------------------
 
@@ -221,6 +269,7 @@ def sync_targets_from_devices():
 @app.route("/")
 def index():
     ensure_dns_thread()
+    ensure_ip_watch()
     return render_template("index.html", version=get_version())
 
 
