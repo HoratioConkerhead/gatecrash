@@ -613,8 +613,8 @@
     padding-bottom: 6px;
   }
   .tab-power-btn {
-    width: 64px;
-    height: 64px;
+    width: 74px;
+    height: 74px;
     border-radius: 50%;
     background: #252535;
     border: 2.5px solid #3a3a54;
@@ -628,7 +628,7 @@
     transform: translateY(-12px);
     padding: 0;
   }
-  .tab-power-btn svg { width: 30px; height: 30px; fill: currentColor; }
+  .tab-power-btn svg { width: 34px; height: 34px; fill: currentColor; }
   .tab-power-btn:active { transform: translateY(-12px) scale(0.93); }
   .tab-power-btn.running {
     background: #1b3320;
@@ -1682,7 +1682,7 @@ function updateMasterButton() {
     btn.className = 'tab-power-btn running';
     btn.title = 'Stop Gatecrash';
   } else if (!hasDevices) {
-    btn.disabled = true;
+    btn.disabled = false;
     btn.className = 'tab-power-btn no-devices';
     btn.title = 'Enable at least one device to start';
   } else {
