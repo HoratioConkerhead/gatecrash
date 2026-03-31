@@ -543,33 +543,23 @@ sudo systemctl enable gatecrash
 
 
 ## Fixes
+- **bottom tab alignment** - on load, bottom tabs are not at the bottom.  fixes when switching tab or scrolling screen.
 
-- **Scan network needs tidying**
-  - ignore the ones already added
-  - tv's at the top?
-  - remove existing results when scanning again
-  - NMAP scan doesn't need details.  just to say it's scanning  maybe diag logs can have this details if needed.
-
-- **diagnostics**
-  - remove dns for the gatecrash device, as it's just cluttering it up
-
-- **Device management improvements:**
-  - **Search/filter** the device list when adding devices
-  - **Device list from ARP table and DHCP leases** — richer source of truth than nmap-only
-  - **no refresh on remove** - if a device that's not selected is removed from favourites, no need to stop/start Gatecrash
-  - **add disabled** when adding, add disabled, user needs to enable
-
-- **General GUI fixes**
-  - **refresh** when reopening page or app, refresh to get new data.  periodically in case anything changes?
-  
 ## Future Ideas
 
 ### Web App Improvements
 
 - **Config backup** - export/import configuration to the cloud or as a downloadable file
 - **PWA Info** - popup showing how to add as an app
+- **Button** - large start/stop button on the tabs, a bit like https://elements.envato.com/ai-custom-avatar-mobile-apps-ui-kit-FX8T6M7.  Green is running, red is stopped?  Or red is stop, green is go?
+- **Dark Mode** - Do we need a settings tab as well as config
+- **Remove Status** - don't need the gatecrash and wireguard status at the top?
+- **ungrey out buttons** - when device is disabled, don't grey-out the buttons as they are still active
 
 
+### Updates
+
+- **Git Update Method** — Do we use git creds curerntly?  how would we do this for a normal user?
 
 ### Discovery and Access
 

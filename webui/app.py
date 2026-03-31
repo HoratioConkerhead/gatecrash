@@ -190,6 +190,122 @@ def ensure_ip_watch():
 
 
 # ---------------------------------------------------------------------------
+# Update check (background thread + settings)
+# ---------------------------------------------------------------------------
+
+UPDATE_SETTINGS_FILE = "/opt/gatecrash/update_settings.json"
+
+_DEFAULT_UPDATE_SETTINGS = {
+    "check_enabled": True,
+    "interval":      "daily",   # hourly | daily | weekly
+    "auto_update":   False,
+}
+_INTERVAL_SECS = {"hourly": 3600, "daily": 86400, "weekly": 604800}
+
+update_check_state = {
+    "available":      False,
+    "remote_version": None,
+    "commit_message": None,
+    "last_checked":   None,
+    "error":          None,
+}
+update_check_thread_started = False
+
+
+def load_update_settings():
+    try:
+        with open(UPDATE_SETTINGS_FILE) as f:
+            return {**_DEFAULT_UPDATE_SETTINGS, **json.load(f)}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_DEFAULT_UPDATE_SETTINGS)
+
+
+def save_update_settings(settings):
+    with open(UPDATE_SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+
+def _trigger_upgrade(repo):
+    upgrade_script = f"""#!/bin/bash
+> /var/log/gatecrash-upgrade.log
+sleep 1
+cd {repo}
+git -c safe.directory={repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
+bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
+echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
+"""
+    script_path = "/tmp/gatecrash-upgrade.sh"
+    with open(script_path, "w") as f:
+        f.write(upgrade_script)
+    os.chmod(script_path, 0o700)
+    subprocess.Popen(["bash", script_path],
+                     stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+def run_update_check():
+    global update_check_state
+    from datetime import datetime, timezone
+    repo = get_repo_path()
+    if not repo:
+        update_check_state["error"] = "Repo path not set"
+        return
+    fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1")
+    now = datetime.now(timezone.utc).isoformat()
+    if rc != 0:
+        update_check_state = {**update_check_state, "error": fetch_out.strip(), "last_checked": now}
+        return
+    behind_out, _ = run(f"git -c safe.directory={repo} -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
+    try:
+        behind = int(behind_out.strip())
+    except ValueError:
+        behind = 0
+    commit_msg, _    = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null")
+    remote_ver, _    = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null")
+    update_check_state = {
+        "available":      behind > 0,
+        "remote_version": remote_ver.strip()   if behind > 0 else None,
+        "commit_message": commit_msg.strip()   if behind > 0 else None,
+        "last_checked":   now,
+        "error":          None,
+    }
+    if behind > 0 and load_update_settings().get("auto_update"):
+        _trigger_upgrade(repo)
+
+
+def update_check_loop():
+    import time
+    from datetime import datetime, timezone, timedelta
+    while True:
+        try:
+            settings = load_update_settings()
+            if settings.get("check_enabled"):
+                interval = _INTERVAL_SECS.get(settings.get("interval", "daily"), 86400)
+                last = update_check_state.get("last_checked")
+                should_check = last is None
+                if not should_check:
+                    try:
+                        last_dt = datetime.fromisoformat(last)
+                        should_check = datetime.now(timezone.utc) - last_dt > timedelta(seconds=interval)
+                    except (ValueError, TypeError):
+                        should_check = True
+                if should_check:
+                    run_update_check()
+        except Exception:
+            pass
+        time.sleep(300)  # re-evaluate every 5 minutes
+
+
+def ensure_update_check_thread():
+    global update_check_thread_started
+    if not update_check_thread_started:
+        update_check_thread_started = True
+        t = threading.Thread(target=update_check_loop, daemon=True)
+        t.start()
+
+
+# ---------------------------------------------------------------------------
 # Saved devices (MAC-based persistence)
 # ---------------------------------------------------------------------------
 
@@ -270,6 +386,7 @@ def sync_targets_from_devices():
 def index():
     ensure_dns_thread()
     ensure_ip_watch()
+    ensure_update_check_thread()
     return render_template("index.html", version=get_version())
 
 
@@ -305,6 +422,7 @@ def api_status():
         "wg_up": wg_up,
         "arp_processes": arp_out.strip(),
         "wg": wg_stats(),
+        "update": update_check_state,
     })
 
 
@@ -774,25 +892,32 @@ def api_dns_log():
 
 @app.route("/api/update/check")
 def api_update_check():
-    repo = get_repo_path()
-    if not repo:
-        return jsonify({"ok": False, "error": "Repo path not set — re-run setup.sh"})
-    fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1")
-    if rc != 0:
-        return jsonify({"ok": False, "error": fetch_out})
-    behind_out, _ = run(f"git -c safe.directory={repo} -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
-    try:
-        behind = int(behind_out.strip())
-    except ValueError:
-        behind = 0
-    commit_msg, _ = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null")
-    remote_version, _ = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null")
+    run_update_check()
+    s = update_check_state
     return jsonify({
-        "ok": True,
-        "behind": behind,
-        "commit_message": commit_msg.strip(),
-        "remote_version": remote_version.strip(),
+        "ok":             s.get("error") is None,
+        "available":      s.get("available", False),
+        "remote_version": s.get("remote_version") or "",
+        "commit_message": s.get("commit_message") or "",
+        "last_checked":   s.get("last_checked"),
+        "error":          s.get("error"),
     })
+
+
+@app.route("/api/update-settings")
+def api_get_update_settings():
+    return jsonify(load_update_settings())
+
+
+@app.route("/api/update-settings", methods=["POST"])
+def api_save_update_settings():
+    data = request.json or {}
+    settings = load_update_settings()
+    for key in ("check_enabled", "interval", "auto_update"):
+        if key in data:
+            settings[key] = data[key]
+    save_update_settings(settings)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/upgrade-log-content")
@@ -809,24 +934,7 @@ def api_update_apply():
     repo = get_repo_path()
     if not repo:
         return jsonify({"ok": False, "error": "Repo path not set — re-run setup.sh"})
-    # Write a small upgrade script and run it detached.
-    # setup.sh restarts this service, so we must not wait for it.
-    upgrade_script = f"""#!/bin/bash
-> /var/log/gatecrash-upgrade.log
-sleep 1
-cd {repo}
-git -c safe.directory={repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
-bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
-echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
-"""
-    script_path = "/tmp/gatecrash-upgrade.sh"
-    with open(script_path, "w") as f:
-        f.write(upgrade_script)
-    os.chmod(script_path, 0o700)
-    subprocess.Popen(["bash", script_path],
-                     stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    _trigger_upgrade(repo)
     return jsonify({"ok": True})
 
 

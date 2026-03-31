@@ -616,8 +616,7 @@
     header h1 { font-size: 16px; }
     .header-badges { order: 2; width: 100%; gap: 6px; }
     .header-actions { order: 1; }
-    .header-actions #btn-check-update,
-    .header-actions #btn-apply-update { font-size: 11px !important; padding: 4px 10px !important; }
+    .header-actions #btn-update-notify { font-size: 11px !important; padding: 4px 10px !important; }
     .badge { font-size: 11px; padding: 3px 8px; }
     .card { padding: 16px; }
     .card h2 { flex-direction: column; align-items: flex-start !important; gap: 8px; }
@@ -653,12 +652,28 @@
     <div class="badge" style="font-size:12px;color:#aaa;" id="lbl-arps"></div>
   </div>
   <div class="header-actions">
-    <span id="update-status" style="font-size:12px;color:#aaa;"></span>
-    <button class="btn-grey" id="btn-check-update" onclick="checkUpdate()" style="padding:5px 12px;font-size:12px;">Updates</button>
-    <button class="btn-blue" id="btn-apply-update" onclick="applyUpdate()" style="padding:5px 12px;font-size:12px;display:none;">&#8593; Upgrade</button>
+    <button class="btn-green" id="btn-update-notify" onclick="showUpdateInfo()" style="display:none;padding:5px 12px;font-size:12px;"></button>
     <button class="btn-grey" onclick="hardReload()" title="Reload app" style="padding:5px 10px;font-size:14px;">&#8635;</button>
   </div>
 </header>
+
+<!-- Update info / confirmation modal -->
+<div class="modal-backdrop" id="update-info-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>&#8593; Update Available</h3>
+      <button class="modal-close" onclick="document.getElementById('update-info-modal').classList.remove('open')">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="font-family:inherit;color:#e0e0e0;padding:18px;white-space:normal;">
+      <div style="font-size:18px;font-weight:700;color:#4caf50;margin-bottom:10px;" id="update-info-version"></div>
+      <div style="font-size:13px;color:#aaa;" id="update-info-message"></div>
+    </div>
+    <div class="modal-footer" style="gap:8px;">
+      <button class="btn-grey" onclick="document.getElementById('update-info-modal').classList.remove('open')" style="font-size:13px;padding:7px 16px;">Cancel</button>
+      <button class="btn-green" onclick="document.getElementById('update-info-modal').classList.remove('open');applyUpdate()" style="font-size:13px;padding:7px 16px;">&#8593; Update Now</button>
+    </div>
+  </div>
+</div>
 
 <!-- Upgrade modal -->
 <div class="modal-backdrop" id="upgrade-modal">
@@ -784,29 +799,43 @@
     </div>
   </div>
 
-  <!-- System -->
+  <!-- Updates -->
   <div class="card">
-    <h2>System</h2>
-    <div style="display:flex;flex-direction:column;">
-      <div class="device-row" style="justify-content:space-between;">
-        <span style="font-size:14px;font-weight:600;">WireGuard start on boot</span>
+    <h2>Updates</h2>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Check for updates periodically
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Fetches latest version info from GitHub</div>
+        </div>
         <label class="toggle">
-          <input type="checkbox" id="pill-wg" onchange="toggleBootPill('wg')">
+          <input type="checkbox" id="upd-check-enabled" onchange="saveUpdateSettings()">
           <div class="track"></div><div class="knob"></div>
         </label>
       </div>
-      <div class="device-row" style="justify-content:space-between;">
-        <span style="font-size:14px;font-weight:600;">Gatecrash start on boot</span>
+      <div class="device-row" id="upd-interval-row" style="border:none;padding:0;">
+        <div class="device-name">Check interval</div>
+        <select id="upd-interval" onchange="saveUpdateSettings()" style="border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;background:var(--input-bg);color:var(--text-primary);font-size:14px;cursor:pointer;">
+          <option value="hourly">Hourly</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </div>
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Auto-update to latest version
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Updates automatically in the background — app will reload after</div>
+        </div>
         <label class="toggle">
-          <input type="checkbox" id="pill-gc" onchange="toggleBootPill('gatecrash')">
+          <input type="checkbox" id="upd-auto" onchange="saveUpdateSettings()">
           <div class="track"></div><div class="knob"></div>
         </label>
       </div>
-      <div class="save-status" id="as-status"></div>
-      <div style="padding-top:12px;display:flex;gap:10px;">
-        <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
-        <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
+      <div style="display:flex;align-items:center;gap:12px;padding-top:2px;">
+        <button class="btn-grey" onclick="checkUpdateNow()" id="btn-check-now" style="font-size:13px;padding:7px 16px;">&#8635; Check now</button>
+        <span id="upd-last-checked" style="font-size:12px;color:var(--text-muted);"></span>
       </div>
+      <div class="save-status" id="upd-status"></div>
     </div>
   </div>
 
@@ -830,6 +859,32 @@
           <input type="checkbox" id="theme-dark" onchange="updateThemeSetting()">
           <div class="track"></div><div class="knob"></div>
         </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- System -->
+  <div class="card">
+    <h2>System</h2>
+    <div style="display:flex;flex-direction:column;">
+      <div class="device-row" style="justify-content:space-between;">
+        <span style="font-size:14px;font-weight:600;">WireGuard start on boot</span>
+        <label class="toggle">
+          <input type="checkbox" id="pill-wg" onchange="toggleBootPill('wg')">
+          <div class="track"></div><div class="knob"></div>
+        </label>
+      </div>
+      <div class="device-row" style="justify-content:space-between;">
+        <span style="font-size:14px;font-weight:600;">Gatecrash start on boot</span>
+        <label class="toggle">
+          <input type="checkbox" id="pill-gc" onchange="toggleBootPill('gatecrash')">
+          <div class="track"></div><div class="knob"></div>
+        </label>
+      </div>
+      <div class="save-status" id="as-status"></div>
+      <div style="padding-top:12px;display:flex;gap:10px;">
+        <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
+        <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
       </div>
     </div>
   </div>
@@ -1091,6 +1146,15 @@ async function fetchStatus() {
       document.getElementById('wg-endpoint').textContent  = '—';
       document.getElementById('wg-handshake').textContent = '—';
       document.getElementById('wg-transfer').textContent  = '—';
+    }
+
+    // Update notification
+    if (d.update) {
+      setUpdateNotify(d.update);
+      const last = document.getElementById('upd-last-checked');
+      if (last && d.update.last_checked) {
+        last.textContent = 'Last checked: ' + new Date(d.update.last_checked).toLocaleString();
+      }
     }
   } catch(e) { /* ignore */ }
 }
@@ -1953,32 +2017,85 @@ async function saveManualWGConfig() {
 // Updates
 // ---------------------------------------------------------------------------
 
-async function checkUpdate() {
-  const status   = document.getElementById('update-status');
-  const applyBtn = document.getElementById('btn-apply-update');
-  const checkBtn = document.getElementById('btn-check-update');
+function setUpdateNotify(state) {
+  // state = {available, remote_version, commit_message} from /api/status
+  const btn = document.getElementById('btn-update-notify');
+  if (state && state.available) {
+    const ver = state.remote_version ? `v${state.remote_version}` : 'new version';
+    btn.textContent = `↑ ${ver} available`;
+    btn.style.display = '';
+    // Store for the info modal
+    btn._updateState = state;
+  } else {
+    btn.style.display = 'none';
+    btn._updateState = null;
+  }
+}
+
+function showUpdateInfo() {
+  const state = document.getElementById('btn-update-notify')._updateState || {};
+  const ver = state.remote_version ? `v${state.remote_version}` : 'New version';
+  document.getElementById('update-info-version').textContent = ver;
+  document.getElementById('update-info-message').textContent =
+    state.commit_message || 'A new version of Gatecrash is available.';
+  document.getElementById('update-info-modal').classList.add('open');
+}
+
+async function checkUpdateNow() {
+  const btn    = document.getElementById('btn-check-now');
+  const status = document.getElementById('upd-status');
+  const last   = document.getElementById('upd-last-checked');
+  btn.disabled = true;
   status.textContent = 'Checking...';
-  applyBtn.style.display = 'none';
-  checkBtn.style.display = '';
+  status.className = 'save-status';
   try {
     const r = await fetch('/api/update/check');
     const d = await r.json();
     if (!d.ok) {
-      status.textContent = '✗ ' + d.error;
-    } else if (d.behind === 0) {
-      status.textContent = '✓ Up to date';
-      setTimeout(() => { status.textContent = ''; }, 5000);
+      status.className = 'save-status error';
+      status.textContent = '✗ ' + (d.error || 'Check failed');
+    } else if (!d.available) {
+      status.textContent = '✓ Already up to date';
+      setTimeout(() => { status.textContent = ''; }, 4000);
     } else {
-      const ver = d.remote_version ? `v${d.remote_version}` : `${d.behind} commit${d.behind > 1 ? 's' : ''}`;
-      const msg = d.commit_message || '';
       status.textContent = '';
-      applyBtn.textContent = `↑ Upgrade to ${ver}${msg ? ' — ' + msg : ''}`;
-      applyBtn.style.display = '';
-      checkBtn.style.display = 'none';
     }
+    setUpdateNotify(d);
+    if (d.last_checked) last.textContent = 'Last checked: ' + new Date(d.last_checked).toLocaleString();
   } catch(e) {
+    status.className = 'save-status error';
     status.textContent = '✗ Check failed';
   }
+  btn.disabled = false;
+}
+
+async function loadUpdateSettings() {
+  try {
+    const r = await fetch('/api/update-settings');
+    const d = await r.json();
+    document.getElementById('upd-check-enabled').checked = d.check_enabled !== false;
+    document.getElementById('upd-interval').value        = d.interval || 'daily';
+    document.getElementById('upd-auto').checked          = !!d.auto_update;
+  } catch(e) {}
+}
+
+async function saveUpdateSettings() {
+  const settings = {
+    check_enabled: document.getElementById('upd-check-enabled').checked,
+    interval:      document.getElementById('upd-interval').value,
+    auto_update:   document.getElementById('upd-auto').checked,
+  };
+  try {
+    await fetch('/api/update-settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(settings),
+    });
+    const el = document.getElementById('upd-status');
+    el.className = 'save-status';
+    el.textContent = '✓ Saved';
+    setTimeout(() => { el.textContent = ''; }, 3000);
+  } catch(e) {}
 }
 
 function hardReload() {
@@ -1998,17 +2115,12 @@ function appendLogLine(text, color) {
 }
 
 async function applyUpdate() {
-  const applyBtn = document.getElementById('btn-apply-update');
-  const checkBtn = document.getElementById('btn-check-update');
   const modal    = document.getElementById('upgrade-modal');
   const logLines = document.getElementById('upgrade-log-lines');
   const status   = document.getElementById('upgrade-modal-status');
   const reloadBtn = document.getElementById('btn-upgrade-reload');
 
-  applyBtn.style.display = 'none';
-  checkBtn.style.display = 'none';
   logLines.textContent = '';
-  //status.textContent = 'upgrading...';
   reloadBtn.style.display = 'none';
   modal.classList.add('open');
 
@@ -2077,6 +2189,7 @@ loadWGConfigSummary();
 loadAutostart();
 loadDiagnostics();
 loadSavedDevices();
+loadUpdateSettings();
 initThemeUI();
 
 // Service worker
