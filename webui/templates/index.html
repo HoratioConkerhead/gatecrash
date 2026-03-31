@@ -2123,27 +2123,28 @@ function showPwaInfo() {
   if (isIos) {
     html = `
       <p style="margin-bottom:14px;color:var(--text-secondary);font-size:14px;">Install Gatecrash as an app on your iPhone or iPad:</p>
-      <ol style="margin:0;padding-left:22px;color:var(--text-secondary);font-size:14px;line-height:2;">
-        <li>Tap the <strong>Share</strong> button <span style="font-size:18px;">&#9096;</span> in Safari</li>
-        <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
+      <ol style="margin:0;padding-left:22px;color:var(--text-secondary);font-size:14px;line-height:1.6;">
+        <li style="margin-bottom:8px;">Tap the <strong>...</strong> next to the address bar</li>
+        <li style="margin-bottom:8px;">Tap <strong>Share</strong></li>
+        <li style="margin-bottom:8px;">Scroll down and tap <strong>+ Add to Home Screen</strong></li>
         <li>Tap <strong>Add</strong></li>
       </ol>
       <p style="margin-top:14px;font-size:12px;color:var(--text-muted);">Must be opened in Safari — Chrome and Firefox on iOS don't support this.</p>`;
   } else if (isAndroid) {
     html = `
       <p style="margin-bottom:14px;color:var(--text-secondary);font-size:14px;">Install Gatecrash as an app on your Android device:</p>
-      <ol style="margin:0;padding-left:22px;color:var(--text-secondary);font-size:14px;line-height:2;">
-        <li>Tap the <strong>menu</strong> &#8942; in Chrome</li>
-        <li>Tap <strong>Add to Home screen</strong></li>
+      <ol style="margin:0;padding-left:22px;color:var(--text-secondary);font-size:14px;line-height:1.6;">
+        <li style="margin-bottom:8px;">Tap the <strong>menu</strong> &#8942; in Chrome</li>
+        <li style="margin-bottom:8px;">Tap <strong>Add to Home screen</strong></li>
         <li>Tap <strong>Add</strong></li>
       </ol>
       <p style="margin-top:14px;font-size:12px;color:var(--text-muted);">Works in Chrome and Edge on Android.</p>`;
   } else {
     html = `
       <p style="margin-bottom:14px;color:var(--text-secondary);font-size:14px;">Install Gatecrash as an app on your device:</p>
-      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:10px;"><strong>Chrome / Edge (desktop):</strong> Click the install icon <span style="font-size:16px;">&#43;</span> in the address bar, or open the menu and choose <strong>Install app</strong>.</p>
-      <p style="color:var(--text-secondary);font-size:14px;"><strong>iOS Safari:</strong> Tap Share &#9096; → Add to Home Screen.</p>
-      <p style="color:var(--text-secondary);font-size:14px;margin-top:10px;"><strong>Android Chrome:</strong> Tap menu &#8942; → Add to Home screen.</p>`;
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:10px;"><strong>Chrome / Edge (desktop):</strong> Click the install icon in the address bar, or open the menu and choose <strong>Install app</strong>.</p>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:10px;"><strong>iOS Safari:</strong> Tap ... → Share → Add to Home Screen.</p>
+      <p style="color:var(--text-secondary);font-size:14px;"><strong>Android Chrome:</strong> Tap menu &#8942; → Add to Home screen.</p>`;
   }
   document.getElementById('pwa-info-body').innerHTML = html;
   document.getElementById('pwa-info-modal').classList.add('open');
