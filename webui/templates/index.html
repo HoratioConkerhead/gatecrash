@@ -19,17 +19,18 @@
     background: #f0f2f5;
     color: #1a1a2e;
     font-size: 15px;
-    overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
   }
+  body {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
-  /* App shell layout: fixed header + fixed bottom tabs + scrollable middle */
+  /* App shell layout: flex-column body — header + scrollable main + tab bar */
   header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 50;
+    flex-shrink: 0;
     background: #1a1a2e;
     color: white;
     padding: 10px 16px;
@@ -62,12 +63,14 @@
   .dot.grey  { background: #888; }
 
   main {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     max-width: 1100px;
+    width: 100%;
     margin: 0 auto;
     padding: 16px;
-    padding-top: calc(60px + env(safe-area-inset-top, 0px));
-    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-    min-height: 100dvh;
   }
 
   .card {
@@ -438,17 +441,11 @@
 
   /* Bottom tab bar */
   .tab-bar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 50;
+    flex-shrink: 0;
     display: flex;
     background: #1a1a2e;
     border-top: 1px solid #2d2d44;
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
   }
   .tab-btn {
     flex: 1;
@@ -479,7 +476,7 @@
 
   /* Mobile */
   @media (max-width: 700px) {
-    main { padding: 12px 10px; padding-top: calc(90px + env(safe-area-inset-top, 0px)); padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+    main { padding: 12px 10px; }
     .tab-content.active { grid-template-columns: 1fr !important; }
     header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
     header h1 { font-size: 16px; }
@@ -1892,14 +1889,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/static/sw.js').catch(() => {});
 }
 
-// iOS standalone PWA fix: force a reflow after load so position:fixed elements
-// snap to the correct bottom position without needing a manual scroll.
-window.addEventListener('load', () => {
-  setTimeout(() => {
-    window.scrollTo(0, 1);
-    window.scrollTo(0, 0);
-  }, 50);
-});
+
 </script>
 
 <nav class="tab-bar" id="tab-bar">
