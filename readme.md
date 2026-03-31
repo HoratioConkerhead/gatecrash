@@ -310,6 +310,17 @@ The target device needs zero configuration changes. It doesn't know anything
 has changed. If Gatecrash stops, the device's ARP cache self-corrects within
 a couple of minutes and traffic flows normally again.
 
+### Device tracking
+
+Gatecrash tracks target devices by **MAC address**, not IP address. You do not
+need static DHCP reservations for your target devices — if a device gets a new
+IP from DHCP, Gatecrash detects the change via the ARP table within 60 seconds
+and updates its routing rules automatically.
+
+iPhones and Android devices use **per-network randomised MACs** (the same
+random MAC is reused consistently on the same network), so they are tracked
+reliably without any extra configuration.
+
 ## Web UI
 
 After setup, the web UI is available at **http://gatecrash.local**. It provides:
@@ -541,6 +552,11 @@ sudo systemctl enable gatecrash
 
 - **IPv6 bypass risk** — ARP spoofing only intercepts IPv4. If a target device prefers IPv6 (most modern devices do when available), its traffic goes directly to the router via NDP, completely bypassing Gatecrash. Investigate: warn in the UI if IPv6 is active on the LAN, consider NDP spoofing, or strip AAAA records from DNS responses to force IPv4
 
+
+## Documenation To Write
+
+- **User Guide** user friendly, including all methods - simple, auto, inc dns etc.  
+- **Admin Guide** how it works, 
 
 ## Fixes
 - **bottom tab alignment** - on load, bottom tabs are not at the bottom.  fixes when switching tab or scrolling screen.

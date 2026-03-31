@@ -450,7 +450,9 @@
   }
   .toggle input:checked ~ .knob { transform: translateX(18px); }
 
-  .device-row.disabled { opacity: 0.45; }
+  .device-row.disabled .device-name,
+  .device-row.disabled .device-ip,
+  .device-row.disabled .device-mac { opacity: 0.45; }
 
   /* Restart overlay */
   .restart-overlay {
