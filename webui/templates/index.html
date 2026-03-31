@@ -1129,10 +1129,18 @@ function switchTab(name, btn) {
 // Status polling
 // ---------------------------------------------------------------------------
 
+const PAGE_VERSION = '{{ version }}';
+
 async function fetchStatus() {
   try {
     const r = await fetch('/api/status');
     const d = await r.json();
+
+    // If the server is now running a different version, the upgrade completed — reload
+    if (d.version && d.version !== PAGE_VERSION) {
+      hardReload();
+      return;
+    }
 
     // Gatecrash indicator
     const dotGC = document.getElementById('dot-gc');

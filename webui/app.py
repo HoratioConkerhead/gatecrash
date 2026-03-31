@@ -423,6 +423,7 @@ def api_status():
         "arp_processes": arp_out.strip(),
         "wg": wg_stats(),
         "update": update_check_state,
+        "version": get_version(),
     })
 
 
