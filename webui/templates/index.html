@@ -579,6 +579,7 @@
     right: 0;
     z-index: 50;
     display: flex;
+    align-items: flex-end;
     background: #1a1a2e;
     border-top: 1px solid #2d2d44;
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -603,6 +604,48 @@
   .tab-btn:hover { color: #aaa; }
   .tab-btn.active { color: #4caf50; }
 
+  /* Centre power button */
+  .tab-power-wrap {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    padding-bottom: 6px;
+  }
+  .tab-power-btn {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: #252535;
+    border: 2.5px solid #3a3a54;
+    color: #555;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.3s, border-color 0.3s, color 0.3s, box-shadow 0.3s;
+    box-shadow: 0 -3px 14px rgba(0,0,0,0.5);
+    transform: translateY(-10px);
+    padding: 0;
+  }
+  .tab-power-btn svg { width: 26px; height: 26px; fill: currentColor; }
+  .tab-power-btn:active { transform: translateY(-10px) scale(0.93); }
+  .tab-power-btn.running {
+    background: #1b3320;
+    border-color: #4caf50;
+    color: #4caf50;
+    box-shadow: 0 -3px 20px rgba(76,175,80,0.45);
+    animation: power-glow 2.2s ease-in-out infinite;
+  }
+  .tab-power-btn.no-devices {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  @keyframes power-glow {
+    0%, 100% { box-shadow: 0 -3px 14px rgba(76,175,80,0.35); }
+    50%       { box-shadow: 0 -3px 28px rgba(76,175,80,0.7); }
+  }
+
   .tab-content { display: none; }
   .tab-content.active { display: grid; }
 
@@ -612,7 +655,7 @@
 
   /* Mobile */
   @media (max-width: 700px) {
-    main { padding: 12px 10px; padding-top: calc(90px + env(safe-area-inset-top, 0px)); padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+    main { padding: 12px 10px; padding-top: calc(90px + env(safe-area-inset-top, 0px)); padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
     .tab-content.active { grid-template-columns: 1fr !important; }
     header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
     header h1 { font-size: 16px; }
@@ -709,16 +752,8 @@
 
 <main>
 
-  <!-- ==================== TAB: MAIN ==================== -->
-  <div class="tab-content active" id="tab-main" style="display:grid;grid-template-columns:1fr;gap:20px;">
-
-  <!-- Master toggle -->
-  <div class="card" style="text-align:center;">
-    <button id="btn-master" onclick="toggleMaster()" class="btn-green" style="width:100%;padding:16px 24px;font-size:16px;border-radius:10px;">
-      &#9654; Start Gatecrash
-    </button>
-    <div class="no-devices-hint hidden" id="no-devices-hint">Enable at least one device below to start</div>
-  </div>
+  <!-- ==================== TAB: DEVICES ==================== -->
+  <div class="tab-content active" id="tab-devices" style="display:grid;grid-template-columns:1fr;gap:20px;">
 
   <!-- Saved Devices -->
   <div class="card full-width" style="position:relative;">
@@ -739,7 +774,7 @@
     </div>
   </div>
 
-  </div><!-- /tab-main -->
+  </div><!-- /tab-devices -->
 
   <!-- ==================== TAB: CONFIG ==================== -->
   <div class="tab-content" id="tab-config" style="grid-template-columns:1fr;gap:20px;">
@@ -1066,6 +1101,62 @@
 
   </div><!-- /tab-diagnostics -->
 
+  <!-- ==================== TAB: HELP ==================== -->
+  <div class="tab-content" id="tab-help" style="grid-template-columns:1fr;gap:20px;">
+
+  <div class="card">
+    <h2>How Gatecrash Works</h2>
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;">
+      <p style="margin-bottom:10px;">Gatecrash sits between your devices and your router, transparently routing selected devices through a WireGuard VPN — without any configuration changes on those devices.</p>
+      <p style="margin-bottom:10px;">It uses <strong>ARP spoofing</strong> to intercept traffic: it tells your target devices that it is the router, and tells the router it is the target devices. Traffic flows through Gatecrash and is forwarded via the VPN tunnel.</p>
+      <p>Only devices you explicitly enable are affected. Everything else uses your normal internet connection.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Getting Started</h2>
+    <ol style="font-size:14px;color:var(--text-secondary);line-height:1.7;padding-left:20px;">
+      <li style="margin-bottom:8px;">Upload your WireGuard <code>.conf</code> file in <strong>Config → VPN Config</strong></li>
+      <li style="margin-bottom:8px;">Scan the network and add the devices you want to route through the VPN</li>
+      <li style="margin-bottom:8px;">Enable the devices you want active using the toggles</li>
+      <li>Press the power button to start — enabled devices will route through the VPN</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Add to Home Screen</h2>
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;margin-bottom:14px;">Install Gatecrash as an app for the best experience:</div>
+    <div style="margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">iPhone / iPad (Safari)</div>
+      <ol style="font-size:13px;color:var(--text-secondary);line-height:1.6;padding-left:18px;">
+        <li style="margin-bottom:4px;">Tap <strong>...</strong> next to the address bar</li>
+        <li style="margin-bottom:4px;">Tap <strong>Share</strong></li>
+        <li style="margin-bottom:4px;">Scroll down and tap <strong>+ Add to Home Screen</strong></li>
+        <li>Tap <strong>Add</strong></li>
+      </ol>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Requires Safari — Chrome and Firefox on iOS don't support this.</div>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:6px;">Android (Chrome)</div>
+      <ol style="font-size:13px;color:var(--text-secondary);line-height:1.6;padding-left:18px;">
+        <li style="margin-bottom:4px;">Tap the menu <strong>⋮</strong> in Chrome</li>
+        <li style="margin-bottom:4px;">Tap <strong>Add to Home screen</strong></li>
+        <li>Tap <strong>Add</strong></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Troubleshooting</h2>
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;">
+      <p style="margin-bottom:8px;"><strong>Devices not routing through VPN?</strong> Check the Diagnostics tab — confirm arpspoof processes are running and the vpntarget route is present.</p>
+      <p style="margin-bottom:8px;"><strong>ARP spoofing not working?</strong> On a client device, run <code>arp -a</code> (Windows) or <code>arp -n</code> (Mac/Linux) and check that the router's IP shows Gatecrash's MAC address.</p>
+      <p><strong>WireGuard won't start?</strong> Check your <code>.conf</code> file has a valid <code>PrivateKey</code> and <code>Endpoint</code>.</p>
+    </div>
+  </div>
+
+  </div><!-- /tab-help -->
+
 </main>
 
 <!-- nmap scan modal -->
@@ -1258,7 +1349,7 @@ function updateToggleButtons() {
 
 async function toggleMaster() {
   const anyRunning = _gcRunning || _wgRunning;
-  const btn = document.getElementById('btn-master');
+  const btn = document.getElementById('btn-power');
   btn.disabled = true;
   if (anyRunning) {
     showOutput('Stopping...');
@@ -1568,27 +1659,23 @@ function hasEnabledDevices() {
 }
 
 function updateMasterButton() {
-  const btn = document.getElementById('btn-master');
-  const hint = document.getElementById('no-devices-hint');
+  const btn = document.getElementById('btn-power');
+  if (!btn) return;
   const anyRunning = _gcRunning || _wgRunning;
   const hasDevices = hasEnabledDevices();
 
   if (anyRunning) {
-    // Always allow stopping
     btn.disabled = false;
-    btn.className = 'btn-red';
-    btn.innerHTML = '&#9632; Stop Gatecrash';
-    hint.classList.add('hidden');
+    btn.className = 'tab-power-btn running';
+    btn.title = 'Stop Gatecrash';
   } else if (!hasDevices) {
     btn.disabled = true;
-    btn.className = 'btn-grey';
-    btn.innerHTML = '&#9654; Start Gatecrash';
-    hint.classList.remove('hidden');
+    btn.className = 'tab-power-btn no-devices';
+    btn.title = 'Enable at least one device to start';
   } else {
     btn.disabled = false;
-    btn.className = 'btn-green';
-    btn.innerHTML = '&#9654; Start Gatecrash';
-    hint.classList.add('hidden');
+    btn.className = 'tab-power-btn';
+    btn.title = 'Start Gatecrash';
   }
 }
 
@@ -2272,17 +2359,26 @@ if ('serviceWorker' in navigator) {
 </script>
 
 <nav class="tab-bar" id="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('main', this)">
-    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-    Main
+  <button class="tab-btn active" id="tab-btn-devices" onclick="switchTab('devices', this)">
+    <svg viewBox="0 0 24 24"><path d="M15 11c1.66 0 2.99-1.34 2.99-3S16.66 5 15 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-9 0c1.66 0 2.99-1.34 2.99-3S7.66 5 6 5C4.34 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm9 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+    Devices
   </button>
-  <button class="tab-btn" onclick="switchTab('config', this)">
+  <button class="tab-btn" id="tab-btn-config" onclick="switchTab('config', this)">
     <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 0 0 .06-.94c0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.04 7.04 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
     Config
   </button>
-  <button class="tab-btn" onclick="switchTab('diagnostics', this)">
+  <div class="tab-power-wrap">
+    <button class="tab-power-btn no-devices" id="btn-power" onclick="toggleMaster()" title="Start / Stop Gatecrash">
+      <svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7A7 7 0 0 1 5 12c0-2.28 1.09-4.3 2.79-5.61L6.37 4.99A8.963 8.963 0 0 0 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.19-3.17-6.83z"/></svg>
+    </button>
+  </div>
+  <button class="tab-btn" id="tab-btn-diagnostics" onclick="switchTab('diagnostics', this)">
     <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H6v-2h6v2zm4-4H6v-2h10v2zm0-4H6V7h10v2z"/></svg>
     Diagnostics
+  </button>
+  <button class="tab-btn" id="tab-btn-help" onclick="switchTab('help', this)">
+    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+    Help
   </button>
 </nav>
 
