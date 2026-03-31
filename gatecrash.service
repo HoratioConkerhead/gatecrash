@@ -1,6 +1,6 @@
 [Unit]
 Description=Gatecrash — selective VPN routing via ARP spoof
-Documentation=https://github.com/YOUR_USERNAME/gatecrash
+Documentation=https://github.com/HoratioConkerhead/gatecrash
 After=network-online.target
 Wants=network-online.target
 
