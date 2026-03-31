@@ -790,22 +790,46 @@
     <div style="display:flex;flex-direction:column;">
       <div class="device-row" style="justify-content:space-between;">
         <span style="font-size:14px;font-weight:600;">WireGuard start on boot</span>
-        <div class="pill-toggle" id="pill-wg" onclick="toggleBootPill('wg')">
-          <div class="pill-dot"></div>
-          <span>Off</span>
-        </div>
+        <label class="toggle">
+          <input type="checkbox" id="pill-wg" onchange="toggleBootPill('wg')">
+          <div class="track"></div><div class="knob"></div>
+        </label>
       </div>
       <div class="device-row" style="justify-content:space-between;">
         <span style="font-size:14px;font-weight:600;">Gatecrash start on boot</span>
-        <div class="pill-toggle" id="pill-gc" onclick="toggleBootPill('gatecrash')">
-          <div class="pill-dot"></div>
-          <span>Off</span>
-        </div>
+        <label class="toggle">
+          <input type="checkbox" id="pill-gc" onchange="toggleBootPill('gatecrash')">
+          <div class="track"></div><div class="knob"></div>
+        </label>
       </div>
       <div class="save-status" id="as-status"></div>
       <div style="padding-top:12px;display:flex;gap:10px;">
         <button class="btn-grey" onclick="reboot()" style="flex:1;">&#8635; Reboot</button>
         <button class="btn-red" onclick="shutdown()" style="flex:1;">&#9210; Shutdown</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Appearance -->
+  <div class="card">
+    <h2>Appearance</h2>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Override OS dark mode setting
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);margin-top:2px;">When off, the app follows your device automatically</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="theme-override" onchange="updateThemeSetting()">
+          <div class="track"></div><div class="knob"></div>
+        </label>
+      </div>
+      <div class="device-row" id="theme-manual-row" style="border:none;padding:0;opacity:0.35;pointer-events:none;transition:opacity 0.2s;">
+        <div class="device-name">Dark mode</div>
+        <label class="toggle">
+          <input type="checkbox" id="theme-dark" onchange="updateThemeSetting()">
+          <div class="track"></div><div class="knob"></div>
+        </label>
       </div>
     </div>
   </div>
@@ -839,30 +863,6 @@
         <button class="btn-green" onclick="saveAndRestart()" id="btn-save-restart">&#128190; Save &amp; Restart Gatecrash</button>
       </div>
       <div class="save-status" id="cfg-status"></div>
-    </div>
-  </div>
-
-  <!-- Appearance -->
-  <div class="card">
-    <h2>Appearance</h2>
-    <div style="display:flex;flex-direction:column;gap:14px;">
-      <div class="device-row" style="border:none;padding:0;">
-        <div class="device-name">
-          Override OS dark mode setting
-          <div style="font-size:12px;font-weight:400;color:var(--text-muted);margin-top:2px;">When off, the app follows your device automatically</div>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="theme-override" onchange="updateThemeSetting()">
-          <div class="track"></div><div class="knob"></div>
-        </label>
-      </div>
-      <div class="device-row" id="theme-manual-row" style="border:none;padding:0;opacity:0.35;pointer-events:none;transition:opacity 0.2s;">
-        <div class="device-name">Dark mode</div>
-        <label class="toggle">
-          <input type="checkbox" id="theme-dark" onchange="updateThemeSetting()">
-          <div class="track"></div><div class="knob"></div>
-        </label>
-      </div>
     </div>
   </div>
 
@@ -1714,22 +1714,16 @@ async function loadDiagnostics() {
   } catch(e) {}
 }
 
-function updatePillText(pill, active) {
-  pill.classList.toggle('active', active);
-  pill.querySelector('span').textContent = active ? 'On' : 'Off';
-}
-
 async function loadAutostart() {
   const r = await fetch('/api/autostart');
   const d = await r.json();
-  updatePillText(document.getElementById('pill-wg'), d.wg);
-  updatePillText(document.getElementById('pill-gc'), d.gatecrash);
+  document.getElementById('pill-wg').checked = d.wg;
+  document.getElementById('pill-gc').checked = d.gatecrash;
 }
 
 async function toggleBootPill(which) {
-  const pill = document.getElementById(which === 'wg' ? 'pill-wg' : 'pill-gc');
-  const newState = !pill.classList.contains('active');
-  updatePillText(pill, newState);
+  const input = document.getElementById(which === 'wg' ? 'pill-wg' : 'pill-gc');
+  const newState = input.checked;
 
   const el = document.getElementById('as-status');
   const body = {};
@@ -1743,7 +1737,7 @@ async function toggleBootPill(which) {
   el.className = 'save-status ' + (d.ok ? '' : 'error');
   el.textContent = d.ok ? '✓ Saved' : '✗ Failed';
   setTimeout(() => { el.textContent = ''; }, 3000);
-  if (!d.ok) updatePillText(pill, !newState); // revert on failure
+  if (!d.ok) input.checked = !newState; // revert on failure
 }
 
 // ---------------------------------------------------------------------------
