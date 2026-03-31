@@ -1226,26 +1226,10 @@ async function fetchStatus() {
       return;
     }
 
-    // Gatecrash indicator
-    const dotGC = document.getElementById('dot-gc');
-    const lblGC = document.getElementById('lbl-gc');
-    dotGC.className = 'dot ' + (d.gatecrash_running ? 'green' : 'red');
-    lblGC.textContent = 'Gatecrash ' + (d.gatecrash_running ? 'running' : 'stopped');
-
-    // WireGuard indicator
-    const dotWG = document.getElementById('dot-wg');
-    const lblWG = document.getElementById('lbl-wg');
-    dotWG.className = 'dot ' + (d.wg_up ? 'green' : 'red');
-    lblWG.textContent = 'WireGuard ' + (d.wg_up ? 'up' : 'down');
-
     // Track state for toggle buttons
     _gcRunning = d.gatecrash_running;
     _wgRunning = d.wg_up;
     updateToggleButtons();
-
-    // arpspoof count
-    document.getElementById('lbl-arps').textContent =
-      d.arp_processes > 0 ? `${d.arp_processes} arpspoof` : '';
 
     // WireGuard stats
     if (d.wg) {
