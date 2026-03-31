@@ -552,81 +552,18 @@ sudo systemctl enable gatecrash
 
 - **IPv6 bypass risk** — ARP spoofing only intercepts IPv4. If a target device prefers IPv6 (most modern devices do when available), its traffic goes directly to the router via NDP, completely bypassing Gatecrash. Investigate: warn in the UI if IPv6 is active on the LAN, consider NDP spoofing, or strip AAAA records from DNS responses to force IPv4
 
-
 ## Documenation To Write
 
 - **User Guide** user friendly, including all methods - simple, auto, inc dns etc.  
 - **Admin Guide** how it works, 
 
 ## Fixes
+
 - **bottom tab alignment** - on load, bottom tabs are not at the bottom.  fixes when switching tab or scrolling screen.
 
-## Future Ideas
+## Roadmap
 
-### Web App Improvements
-
-- **Config backup** - export/import configuration to the cloud or as a downloadable file
-- **PWA Info** - popup showing how to add as an app
-- **Button** - large start/stop button on the tabs, a bit like https://elements.envato.com/ai-custom-avatar-mobile-apps-ui-kit-FX8T6M7.  Green is running, red is stopped?  Or red is stop, green is go?
-- **Dark Mode** - Do we need a settings tab as well as config
-- **Remove Status** - don't need the gatecrash and wireguard status at the top?
-- **ungrey out buttons** - when device is disabled, don't grey-out the buttons as they are still active
-
-
-### Updates
-
-- **Git Update Method** — Do we use git creds curerntly?  how would we do this for a normal user?
-
-### Discovery and Access
-
-- **Authentication** — single shared password set during first-time setup, stored as bcrypt hash, cookie-based session
-- **mDNS** already implemented (`gatecrash.local`); ensure it works on all client platforms
-
-### First-Time Setup Wizard
-
-- On first boot with no config, serve a setup wizard at `gatecrash.local`
-- User enters VPN credentials or uploads a `.conf` file, sets admin password
-- No WiFi hotspot needed — device gets a DHCP address via Ethernet and is immediately reachable via mDNS
-
-### Set and Forget
-
-- **MAC-based device tracking** — store devices by MAC address rather than IP (needs testing); poll ARP table periodically — if a saved MAC appears at a new IP, automatically update iptables rules and arpspoof targets. Handles DHCP renewals without needing static reservations. iPhones and Android use per-network randomised MACs which stay consistent on the same network, so this works reliably
-- **Automatic vpntarget route restoration** after WireGuard restart
-
-### Auto Mode (v2)
-
-Gatecrash has two modes of operation:
-
-- **Normal mode** — user manually turns on spoof + VPN routing for selected devices whenever they want. Simple, no extra setup.
-- **Auto mode** — Gatecrash watches DNS traffic and automatically activates spoof + VPN routing per device when it sees queries for configured domains (e.g. `youtube.com`, `googlevideo.com`), then drops them after a configurable idle timeout.
-
-**Auto mode requires Gatecrash to act as the DNS server for the LAN.** The recommended setup is:
-
-- Run `dnsmasq` on Gatecrash in forwarding mode — receives all DNS queries, logs them with source IP, forwards to upstream (e.g. 1.1.1.1)
-- Configure the router's DHCP to advertise **Gatecrash as primary DNS, the router itself as secondary** — this way if Gatecrash is down, clients fall back to the router and still have DNS (avoids breaking the network if Gatecrash is off)
-- The Gatecrash daemon watches the dnsmasq query log; when a trigger domain is queried by a device in auto mode, it activates ARP spoof + VPN routing for that device only — no need to spoof all devices just to observe DNS
-- After a configurable idle period with no matching queries (default 1 minute), deactivate spoof + VPN routing for that device automatically
-
-**Per-device mode selection:** always-on / auto / off — keeps non-targeted traffic (iPlayer, general browsing) on the direct connection
-
-**Note:** This is an advanced configuration. Normal mode requires no router changes and no DNS server. Auto mode requires one router setting change (primary DNS) and is only needed if the user wants hands-free activation.
-
-### Robustness
-
-- **Bulletproof cleanup on shutdown** — restore real gateway ARP entries with proper gratuitous ARPs before stopping; works even if the main process was killed ungracefully
-- **Rate-limit arpspoof** — send every 2 seconds rather than as fast as possible, to reduce router stress
-- **Per-app VPN** — route only traffic to specific destinations, e.g. all YouTube traffic
-- **Auto-configure VPN** — accept the `.conf` file the VPN provider supplies, or auto-fetch config by logging in for known providers
-- **Appliance image** — a flashable SD card image (Pi-hole style) so setup is: flash → plug in → open browser. No Linux knowledge required
-
-### Hardware Appliance
-
-- **Target platform: NanoPi Zero2 (2GB)** — 45×45mm, native Gigabit Ethernet, ~$28 with case, runs Ubuntu/Debian natively
-- **BOM** — NanoPi Zero2 2GB, microSD card, USB-C power supply, Ethernet cable — under £35 total
-- **Single RGB LED** for status: green (running), blue (VPN active), red (error), pulsing white (booting)
-- **Optional OLED display** for detailed status — future upgrade
-- **3D printed case** — custom design with Ethernet/USB-C cutouts, LED window, ventilation, logo, optional wall-mount clip; include OLED cutout even if not fitted initially; translucent filament option for LED glow-through
-- **Publish STL files and BOM** alongside the code in the repo
+See [ROADMAP.md](ROADMAP.md) for planned features and future ideas.
 
 ## License
 
