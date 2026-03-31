@@ -655,6 +655,7 @@
   </div>
   <div class="header-actions">
     <button class="btn-green" id="btn-update-notify" onclick="showUpdateInfo()" style="display:none;padding:5px 12px;font-size:12px;"></button>
+    <button class="btn-grey" id="btn-pwa-info" onclick="showPwaInfo()" title="Add to Home Screen" style="display:none;padding:5px 10px;font-size:14px;">&#8962;</button>
     <button class="btn-grey" onclick="hardReload()" title="Reload app" style="padding:5px 10px;font-size:14px;">&#8635;</button>
   </div>
 </header>
@@ -688,6 +689,20 @@
     <div class="modal-footer" style="gap:10px;justify-content:space-between;align-items:center;">
       <button class="btn-green" id="btn-upgrade-reload" onclick="hardReload()" style="display:none;padding:8px 20px;">&#8635; Reload interface</button>
       <button class="btn-grey" onclick="hardReload()" style="margin-left:auto;font-size:12px;padding:6px 14px;">&#8635; Reload page</button>
+    </div>
+  </div>
+</div>
+
+<!-- PWA install info modal -->
+<div class="modal-backdrop" id="pwa-info-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <h3>&#8962; Add to Home Screen</h3>
+      <button class="modal-close" onclick="document.getElementById('pwa-info-modal').classList.remove('open')">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="pwa-info-body" style="padding:18px;"></div>
+    <div class="modal-footer">
+      <button class="btn-grey" onclick="document.getElementById('pwa-info-modal').classList.remove('open')" style="font-size:13px;padding:7px 16px;">Close</button>
     </div>
   </div>
 </div>
@@ -2101,6 +2116,48 @@ async function saveUpdateSettings() {
   } catch(e) {}
 }
 
+function showPwaInfo() {
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isAndroid = /android/i.test(navigator.userAgent);
+  let html;
+  if (isIos) {
+    html = `
+      <p style="margin-bottom:14px;color:var(--text-secondary);font-size:14px;">Install Gatecrash as an app on your iPhone or iPad:</p>
+      <ol style="margin:0;padding-left:22px;color:var(--text-secondary);font-size:14px;line-height:2;">
+        <li>Tap the <strong>Share</strong> button <span style="font-size:18px;">&#9096;</span> in Safari</li>
+        <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
+        <li>Tap <strong>Add</strong></li>
+      </ol>
+      <p style="margin-top:14px;font-size:12px;color:var(--text-muted);">Must be opened in Safari — Chrome and Firefox on iOS don't support this.</p>`;
+  } else if (isAndroid) {
+    html = `
+      <p style="margin-bottom:14px;color:var(--text-secondary);font-size:14px;">Install Gatecrash as an app on your Android device:</p>
+      <ol style="margin:0;padding-left:22px;color:var(--text-secondary);font-size:14px;line-height:2;">
+        <li>Tap the <strong>menu</strong> &#8942; in Chrome</li>
+        <li>Tap <strong>Add to Home screen</strong></li>
+        <li>Tap <strong>Add</strong></li>
+      </ol>
+      <p style="margin-top:14px;font-size:12px;color:var(--text-muted);">Works in Chrome and Edge on Android.</p>`;
+  } else {
+    html = `
+      <p style="margin-bottom:14px;color:var(--text-secondary);font-size:14px;">Install Gatecrash as an app on your device:</p>
+      <p style="color:var(--text-secondary);font-size:14px;margin-bottom:10px;"><strong>Chrome / Edge (desktop):</strong> Click the install icon <span style="font-size:16px;">&#43;</span> in the address bar, or open the menu and choose <strong>Install app</strong>.</p>
+      <p style="color:var(--text-secondary);font-size:14px;"><strong>iOS Safari:</strong> Tap Share &#9096; → Add to Home Screen.</p>
+      <p style="color:var(--text-secondary);font-size:14px;margin-top:10px;"><strong>Android Chrome:</strong> Tap menu &#8942; → Add to Home screen.</p>`;
+  }
+  document.getElementById('pwa-info-body').innerHTML = html;
+  document.getElementById('pwa-info-modal').classList.add('open');
+}
+
+function initPwaButton() {
+  // Hide the button if already running as a PWA
+  const isStandalone = window.navigator.standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches;
+  if (!isStandalone) {
+    document.getElementById('btn-pwa-info').style.display = '';
+  }
+}
+
 function hardReload() {
   const go = () => { window.location.href = '/?upgraded=' + Date.now(); };
   if (window.caches) {
@@ -2194,6 +2251,7 @@ loadDiagnostics();
 loadSavedDevices();
 loadUpdateSettings();
 initThemeUI();
+initPwaButton();
 
 // Service worker
 if ('serviceWorker' in navigator) {
