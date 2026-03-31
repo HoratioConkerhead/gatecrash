@@ -292,6 +292,7 @@
     padding: 6px 8px;
     border-bottom: 1px solid var(--border-row);
     font-family: monospace;
+    word-break: break-all;
   }
   .dns-table tbody tr:hover { background: var(--bg-hover); }
   .dns-empty { color: #aaa; font-size: 13px; padding: 12px 0; text-align: center; }
@@ -625,11 +626,11 @@
     cursor: pointer;
     transition: background 0.3s, border-color 0.3s, color 0.3s, box-shadow 0.3s;
     box-shadow: 0 -3px 14px rgba(0,0,0,0.5);
-    transform: translateY(-12px);
+    transform: translateY(-18px);
     padding: 0;
   }
   .tab-power-btn svg { width: 34px; height: 34px; fill: currentColor; }
-  .tab-power-btn:active { transform: translateY(-12px) scale(0.93); }
+  .tab-power-btn:active { transform: translateY(-18px) scale(0.93); }
   .tab-power-btn.running {
     background: #1b3320;
     border-color: #4caf50;
@@ -652,7 +653,7 @@
 
   /* Mobile */
   @media (max-width: 700px) {
-    main { padding: 12px 10px; padding-top: calc(68px + env(safe-area-inset-top, 0px)); padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
+    main { padding: 12px 10px; padding-top: calc(62px + env(safe-area-inset-top, 0px)); padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
     .tab-content.active { grid-template-columns: 1fr !important; }
     header { padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
     header h1 { font-size: 24px; }
