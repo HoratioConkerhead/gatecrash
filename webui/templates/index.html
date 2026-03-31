@@ -648,20 +648,15 @@
   .tab-content { display: none; }
   .tab-content.active { display: grid; }
 
-  /* Desktop: header badges inline, generous spacing */
-  .header-badges { display: flex; align-items: center; gap: 8px; flex: 1; }
   .header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; white-space: nowrap; }
 
   /* Mobile */
   @media (max-width: 700px) {
     main { padding: 12px 10px; padding-top: calc(90px + env(safe-area-inset-top, 0px)); padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
     .tab-content.active { grid-template-columns: 1fr !important; }
-    header { flex-wrap: wrap; gap: 6px; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+    header { padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
     header h1 { font-size: 16px; }
-    .header-badges { order: 2; width: 100%; gap: 6px; }
-    .header-actions { order: 1; }
     .header-actions #btn-update-notify { font-size: 11px !important; padding: 4px 10px !important; }
-    .badge { font-size: 11px; padding: 3px 8px; }
     .card { padding: 16px; }
     .card h2 { flex-direction: column; align-items: flex-start !important; gap: 8px; }
     .stats-grid { grid-template-columns: 1fr; }
@@ -690,11 +685,6 @@
 
 <header>
   <h1>&#x1F6E1; Gatecrash <span style="font-size:12px;font-weight:400;color:#666;">v{{ version }}</span></h1>
-  <div class="header-badges">
-    <div class="badge"><div class="dot grey" id="dot-gc"></div><span id="lbl-gc">Gatecrash</span></div>
-    <div class="badge"><div class="dot grey" id="dot-wg"></div><span id="lbl-wg">WireGuard</span></div>
-    <div class="badge" style="font-size:12px;color:#aaa;" id="lbl-arps"></div>
-  </div>
   <div class="header-actions">
     <button class="btn-green" id="btn-update-notify" onclick="showUpdateInfo()" style="display:none;padding:5px 12px;font-size:12px;"></button>
     <button class="btn-grey" id="btn-pwa-info" onclick="showPwaInfo()" title="Add to Home Screen" style="display:none;padding:5px 10px;font-size:14px;">&#8962;</button>
