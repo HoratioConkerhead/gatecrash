@@ -122,14 +122,14 @@
     z-index: 50;
     background: #1a1a2e;
     color: white;
-    padding: 10px 16px;
-    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding: 12px 16px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 48px;
+    min-height: 60px;
   }
-  header h1 { font-size: 18px; font-weight: 700; white-space: nowrap; }
+  header h1 { font-size: 28px; font-weight: 700; white-space: nowrap; }
 
   .badge {
     display: inline-flex;
@@ -155,7 +155,7 @@
     max-width: 1100px;
     margin: 0 auto;
     padding: 16px;
-    padding-top: calc(60px + env(safe-area-inset-top, 0px));
+    padding-top: calc(72px + env(safe-area-inset-top, 0px));
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     min-height: 100dvh;
   }
@@ -655,7 +655,7 @@
     main { padding: 12px 10px; padding-top: calc(90px + env(safe-area-inset-top, 0px)); padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
     .tab-content.active { grid-template-columns: 1fr !important; }
     header { padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
-    header h1 { font-size: 16px; }
+    header h1 { font-size: 24px; }
     .header-actions #btn-update-notify { font-size: 11px !important; padding: 4px 10px !important; }
     .card { padding: 16px; }
     .card h2 { flex-direction: column; align-items: flex-start !important; gap: 8px; }
@@ -684,7 +684,7 @@
 <body>
 
 <header>
-  <h1>&#x1F6E1; Gatecrash <span style="font-size:12px;font-weight:400;color:#666;">v{{ version }}</span></h1>
+  <h1>&#x1F6E1; Gatecrash <span style="font-size:14px;font-weight:400;color:#666;">v{{ version }}</span></h1>
   <div class="header-actions">
     <button class="btn-green" id="btn-update-notify" onclick="showUpdateInfo()" style="display:none;padding:5px 12px;font-size:12px;"></button>
     <button class="btn-grey" id="btn-pwa-info" onclick="showPwaInfo()" title="Add to Home Screen" style="display:none;padding:5px 10px;font-size:14px;">&#8962;</button>
