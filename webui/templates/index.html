@@ -1891,6 +1891,15 @@ loadSavedDevices();
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/static/sw.js').catch(() => {});
 }
+
+// iOS standalone PWA fix: force a reflow after load so position:fixed elements
+// snap to the correct bottom position without needing a manual scroll.
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    window.scrollTo(0, 1);
+    window.scrollTo(0, 0);
+  }, 50);
+});
 </script>
 
 <nav class="tab-bar" id="tab-bar">
