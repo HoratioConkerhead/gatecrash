@@ -200,7 +200,7 @@ _DEFAULT_UPDATE_SETTINGS = {
     "interval":      "daily",   # hourly | daily | weekly
     "auto_update":   False,
 }
-_INTERVAL_SECS = {"hourly": 3600, "daily": 86400, "weekly": 604800}
+_INTERVAL_SECS = {"5min": 300, "hourly": 3600, "daily": 86400, "weekly": 604800}
 
 update_check_state = {
     "available":      False,
