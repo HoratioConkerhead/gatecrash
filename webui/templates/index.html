@@ -892,6 +892,13 @@ document.getElementById('login-pw').focus();
   </div>
 </div>
 
+<!-- Factory reset rebooting overlay — not dismissible -->
+<div id="rebooting-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;padding:32px;">
+  <div class="spinner" style="width:36px;height:36px;border-width:4px;"></div>
+  <div style="color:#fff;font-size:18px;font-weight:700;">Device is rebooting&hellip;</div>
+  <div style="color:#aaa;font-size:14px;max-width:300px;line-height:1.6;">All settings have been cleared.<br>Refresh this page (or reload the app) once the device comes back online.</div>
+</div>
+
 <!-- Upgrade modal -->
 <div class="modal-backdrop" id="upgrade-modal">
   <div class="modal" style="width:600px;">
@@ -1379,7 +1386,7 @@ document.getElementById('login-pw').focus();
       <input type="text" id="scan-filter" placeholder="Filter devices..." oninput="filterScannedDevices()"
              style="width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
     </div>
-    <div id="scan-device-list" style="padding:0 18px;min-height:80px;max-height:380px;overflow-y:auto;"></div>
+    <div id="scan-device-list" style="padding:0 18px;min-height:80px;max-height:380px;overflow-y:auto;overscroll-behavior:contain;"></div>
     <div class="modal-footer">
       <button class="btn-grey" onclick="closeScanModalNow()" style="font-size:13px;padding:7px 18px;">Close</button>
     </div>
@@ -1474,8 +1481,9 @@ async function doFactoryReset() {
   if (d.ok) {
     localStorage.removeItem('themeOverride');
     localStorage.removeItem('themeDark');
-    btn.textContent = 'Rebooting…';
     closeFactoryResetModal();
+    const overlay = document.getElementById('rebooting-overlay');
+    overlay.style.display = 'flex';
   } else {
     err.textContent = d.error || 'Reset failed.';
     err.style.display = '';
@@ -2066,7 +2074,7 @@ function renderScannedDevices() {
       : (dev.vendor ? h(dev.ip) : '');
     const macDisplay = dev.mac ? h(dev.mac) : '<span style=color:#ccc>no MAC</span>';
     const saveBtn = dev.mac
-      ? `<button class="device-add" onclick="promptSaveDevice('${h(dev.mac)}','${h(dev.ip)}','${h(dev.hostname || dev.vendor || '')}', this)">+ Save</button>`
+      ? `<button class="device-add" onclick="saveScannedDevice('${h(dev.mac)}','${h(dev.ip)}','${h(dev.hostname || dev.vendor || '')}', this)">+ Save</button>`
       : '<span style="font-size:11px;color:#ccc;">—</span>';
     return `
       <div class="device-row">
@@ -2082,39 +2090,21 @@ function renderScannedDevices() {
 
 function filterScannedDevices() { renderScannedDevices(); }
 
-function promptSaveDevice(mac, ip, defaultNick, btn) {
-  const safeId = 'nick-' + mac.replace(/:/g, '');
-  btn.outerHTML = `<div style="display:flex;gap:4px;align-items:center;">
-    <input id="${safeId}" type="text" value="${h(defaultNick)}" placeholder="Nickname"
-           style="width:100px;padding:4px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#2a2a3e;color:#e0e0e0;"
-           onkeydown="if(event.key==='Enter')confirmSaveDevice('${h(mac)}','${h(ip)}',this)
-                      else if(event.key==='Escape')renderScannedDevices()">
-    <button class="device-add" onclick="confirmSaveDevice('${h(mac)}','${h(ip)}',document.getElementById('${safeId}'))">&#10003;</button>
-  </div>`;
-  const input = document.getElementById(safeId);
-  input.focus();
-  input.select();
-}
-
-async function confirmSaveDevice(mac, ip, input) {
-  const nickname = input.value.trim() || ip;
+async function saveScannedDevice(mac, ip, hostname, btn) {
+  const name = prompt('Nickname for this device:', hostname || ip);
+  if (name === null) return;
   const r = await fetch('/api/saved-devices', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({mac, ip, nickname, hostname: nickname, enabled: false}),
+    body: JSON.stringify({mac, ip, nickname: name.trim() || ip, hostname, enabled: false}),
   });
   const d = await r.json();
   if (d.ok) {
     _savedDevices = d.devices;
     renderSavedDevices();
-    const wrap = input.closest('div');
-    if (wrap) {
-      const savedBtn = document.createElement('button');
-      savedBtn.className = 'device-add added';
-      savedBtn.textContent = 'Saved';
-      savedBtn.disabled = true;
-      wrap.replaceWith(savedBtn);
-    }
+    btn.textContent = 'Saved';
+    btn.classList.add('added');
+    btn.disabled = true;
   }
 }
 
