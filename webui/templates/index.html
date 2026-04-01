@@ -1506,6 +1506,19 @@ function switchTab(name, btn) {
   tab.classList.add('active');
   tab.style.display = 'grid';
   btn.classList.add('active');
+  // Refresh server data for the tab being opened
+  if (name === 'devices') {
+    loadSavedDevices();
+  } else if (name === 'config') {
+    loadConfig();
+    loadWGConfigSummary();
+    loadManualWGFields();
+    loadAutostart();
+  } else if (name === 'diagnostics') {
+    loadDiagnostics();
+  } else if (name === 'help') {
+    loadUpdateSettings();
+  }
 }
 
 // ---------------------------------------------------------------------------
