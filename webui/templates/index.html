@@ -1514,10 +1514,9 @@ function switchTab(name, btn) {
     loadWGConfigSummary();
     loadManualWGFields();
     loadAutostart();
+    loadUpdateSettings();
   } else if (name === 'diagnostics') {
     loadDiagnostics();
-  } else if (name === 'help') {
-    loadUpdateSettings();
   }
 }
 
