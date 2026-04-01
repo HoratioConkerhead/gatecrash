@@ -2607,7 +2607,8 @@ function initPwaButton() {
 function hardReload() {
   const go = () => { window.location.href = '/?upgraded=' + Date.now(); };
   if (window.caches) {
-    caches.open('gatecrash-v1').then(c => c.delete('/')).finally(go);
+    // Clear all caches so the service worker serves a fresh page
+    caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))).finally(go);
   } else { go(); }
 }
 
