@@ -615,6 +615,7 @@ def api_factory_reset():
         except FileNotFoundError:
             pass
     session.clear()
+    subprocess.Popen(["systemctl", "reboot"])
     return jsonify({"ok": True})
 
 

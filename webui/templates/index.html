@@ -1474,7 +1474,8 @@ async function doFactoryReset() {
   if (d.ok) {
     localStorage.removeItem('themeOverride');
     localStorage.removeItem('themeDark');
-    window.location.reload();
+    btn.textContent = 'Rebooting…';
+    closeFactoryResetModal();
   } else {
     err.textContent = d.error || 'Reset failed.';
     err.style.display = '';
@@ -2004,6 +2005,7 @@ function scanDevices() {
 
   document.getElementById('scan-modal').classList.add('open');
   document.getElementById('scan-filter').value = '';
+  document.getElementById('scan-modal-status').textContent = '';
   list.innerHTML = '<div style="padding:20px;display:flex;align-items:center;justify-content:center;gap:10px;color:#aaa;font-size:13px;"><div class="spinner"></div> Scanning...</div>';
   //modalStatus.textContent = 'scanning...';
   btn.disabled = true;
