@@ -561,6 +561,54 @@ def api_logout():
     return jsonify({"ok": True})
 
 
+@app.route("/api/change-password", methods=["POST"])
+def api_change_password():
+    stored = _get_stored_token()
+    if stored is None:
+        return jsonify({"ok": False, "error": "No password set"}), 400
+    data = request.json or {}
+    current  = data.get("current", "")
+    new_pw   = data.get("new", "")
+    if hashlib.sha256(current.encode()).hexdigest() != hashlib.sha256(stored.encode()).hexdigest():
+        return jsonify({"ok": False, "error": "Current password is incorrect"})
+    if len(new_pw) < 8:
+        return jsonify({"ok": False, "error": "New password must be at least 8 characters"})
+    try:
+        with open(WEBUI_TOKEN_PATH, "w") as f:
+            f.write(new_pw)
+        os.chmod(WEBUI_TOKEN_PATH, 0o600)
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False, "error": "Internal error"})
+
+
+@app.route("/api/factory-reset", methods=["POST"])
+def api_factory_reset():
+    stored = _get_stored_token()
+    if stored is not None:
+        password = (request.json or {}).get("password", "")
+        if hashlib.sha256(password.encode()).hexdigest() != hashlib.sha256(stored.encode()).hexdigest():
+            return jsonify({"ok": False, "error": "Incorrect password"})
+    # Stop running services before wiping config
+    run("systemctl stop gatecrash 2>/dev/null", timeout=10)
+    run("wg-quick down wg0 2>/dev/null", timeout=10)
+    # Delete all user data and credentials
+    for path in [
+        CONF_PATH,
+        WG_CONF_PATH,
+        DEVICES_FILE,
+        WEBUI_TOKEN_PATH,
+        SECRET_KEY_PATH,
+        UPDATE_SETTINGS_FILE,
+    ]:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+    session.clear()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/version")
 def api_version():
     return jsonify({"version": get_version()})
