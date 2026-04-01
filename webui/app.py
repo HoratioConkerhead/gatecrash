@@ -182,6 +182,11 @@ def read_conf():
                     conf[k.strip()] = v.strip().strip('"')
     except FileNotFoundError:
         pass
+    # Auto-detect LAN interface from the default route if not set
+    if not conf["LAN_IF"]:
+        detected, rc = run("ip route show default | awk '{print $5}' | head -1")
+        if rc == 0 and detected.strip():
+            conf["LAN_IF"] = detected.strip()
     return conf
 
 
