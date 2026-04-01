@@ -2064,7 +2064,7 @@ function renderScannedDevices() {
       : (dev.vendor ? h(dev.ip) : '');
     const macDisplay = dev.mac ? h(dev.mac) : '<span style=color:#ccc>no MAC</span>';
     const saveBtn = dev.mac
-      ? `<button class="device-add" onclick="saveScannedDevice('${h(dev.mac)}','${h(dev.ip)}','${h(dev.hostname || dev.vendor || '')}', this)">+ Save</button>`
+      ? `<button class="device-add" onclick="promptSaveDevice('${h(dev.mac)}','${h(dev.ip)}','${h(dev.hostname || dev.vendor || '')}', this)">+ Save</button>`
       : '<span style="font-size:11px;color:#ccc;">—</span>';
     return `
       <div class="device-row">
@@ -2080,20 +2080,39 @@ function renderScannedDevices() {
 
 function filterScannedDevices() { renderScannedDevices(); }
 
-async function saveScannedDevice(mac, ip, hostname, btn) {
+function promptSaveDevice(mac, ip, defaultNick, btn) {
+  const safeId = 'nick-' + mac.replace(/:/g, '');
+  btn.outerHTML = `<div style="display:flex;gap:4px;align-items:center;">
+    <input id="${safeId}" type="text" value="${h(defaultNick)}" placeholder="Nickname"
+           style="width:100px;padding:4px 6px;font-size:12px;border:1px solid #555;border-radius:4px;background:#2a2a3e;color:#e0e0e0;"
+           onkeydown="if(event.key==='Enter')confirmSaveDevice('${h(mac)}','${h(ip)}',this)
+                      else if(event.key==='Escape')renderScannedDevices()">
+    <button class="device-add" onclick="confirmSaveDevice('${h(mac)}','${h(ip)}',document.getElementById('${safeId}'))">&#10003;</button>
+  </div>`;
+  const input = document.getElementById(safeId);
+  input.focus();
+  input.select();
+}
+
+async function confirmSaveDevice(mac, ip, input) {
+  const nickname = input.value.trim() || ip;
   const r = await fetch('/api/saved-devices', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({mac, ip, nickname: hostname, hostname, enabled: false}),
+    body: JSON.stringify({mac, ip, nickname, hostname: nickname, enabled: false}),
   });
   const d = await r.json();
   if (d.ok) {
     _savedDevices = d.devices;
     renderSavedDevices();
-    btn.textContent = 'Saved';
-    btn.classList.add('added');
-    btn.disabled = true;
-    // Added as disabled — no restart needed
+    const wrap = input.closest('div');
+    if (wrap) {
+      const savedBtn = document.createElement('button');
+      savedBtn.className = 'device-add added';
+      savedBtn.textContent = 'Saved';
+      savedBtn.disabled = true;
+      wrap.replaceWith(savedBtn);
+    }
   }
 }
 
