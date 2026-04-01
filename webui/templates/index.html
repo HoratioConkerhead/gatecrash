@@ -684,6 +684,91 @@
 </head>
 <body>
 
+{% if setup_required %}
+<div id="setup-screen" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#0f0f1a;
+  display:flex;align-items:center;justify-content:center;
+  font-family:inherit;
+">
+  <div style="
+    background:#1a1a2e;border-radius:16px;padding:36px 32px;
+    width:360px;max-width:92vw;
+    box-shadow:0 8px 40px rgba(0,0,0,0.6);
+  ">
+    <div style="text-align:center;margin-bottom:28px;">
+      <img src="/static/icon-192.svg" style="width:52px;height:52px;margin-bottom:12px;" alt="">
+      <h1 style="color:#e0e0e0;font-size:20px;font-weight:700;margin-bottom:6px;">Set up Gatecrash</h1>
+      <p style="color:#888;font-size:13px;line-height:1.5;">
+        Create a password to protect the web UI.<br>
+        You'll be prompted for it on each login.
+      </p>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">PASSWORD</label>
+      <input id="setup-pw" type="password" placeholder="At least 8 characters" autocomplete="new-password"
+        style="
+          width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2d2d44;
+          background:#0f0f1a;color:#e0e0e0;font-size:14px;outline:none;
+        "
+        onkeydown="if(event.key==='Enter')doSetupAuth()">
+    </div>
+    <div style="margin-bottom:20px;">
+      <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">CONFIRM PASSWORD</label>
+      <input id="setup-pw2" type="password" placeholder="Repeat password" autocomplete="new-password"
+        style="
+          width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2d2d44;
+          background:#0f0f1a;color:#e0e0e0;font-size:14px;outline:none;
+        "
+        onkeydown="if(event.key==='Enter')doSetupAuth()">
+    </div>
+    <div id="setup-err" style="display:none;color:#f44336;font-size:12px;margin-bottom:12px;padding:8px 10px;background:rgba(244,67,54,0.1);border-radius:6px;"></div>
+    <button id="setup-btn" onclick="doSetupAuth()" class="btn-green"
+      style="width:100%;padding:11px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;">
+      Set Password
+    </button>
+  </div>
+</div>
+<script>
+async function doSetupAuth() {
+  const pw  = document.getElementById('setup-pw').value;
+  const pw2 = document.getElementById('setup-pw2').value;
+  const err = document.getElementById('setup-err');
+  const btn = document.getElementById('setup-btn');
+  err.style.display = 'none';
+  if (pw !== pw2) { err.textContent = 'Passwords do not match.'; err.style.display = ''; return; }
+  if (pw.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.style.display = ''; return; }
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/setup-auth', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      // Trigger Basic Auth prompt with the new credentials then reload
+      const creds = btoa('gatecrash:' + pw);
+      await fetch('/', {headers: {Authorization: 'Basic ' + creds}});
+      window.location.reload();
+    } else {
+      err.textContent = d.error || 'Failed to save password.';
+      err.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Set Password';
+    }
+  } catch(e) {
+    err.textContent = 'Network error — try again.';
+    err.style.display = '';
+    btn.disabled = false;
+    btn.textContent = 'Set Password';
+  }
+}
+document.getElementById('setup-pw').focus();
+</script>
+{% endif %}
+
 <header>
   <h1>&#x1F6E1; Gatecrash <span style="font-size:14px;font-weight:400;color:#666;">v{{ version }}</span></h1>
   <div class="header-actions">
@@ -1194,6 +1279,11 @@
 </div>
 
 <script>
+// HTML entity encoder — use for all user-supplied data inserted into innerHTML
+function h(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 // ---------------------------------------------------------------------------
 // Tab switching
 // ---------------------------------------------------------------------------
@@ -1262,9 +1352,16 @@ async function fetchDNS() {
     if (!d.entries || d.entries.length === 0) {
       tbody.innerHTML = '<tr><td colspan="3" class="dns-empty">No DNS queries seen yet</td></tr>';
     } else {
-      tbody.innerHTML = d.entries.map(e =>
-        `<tr><td>${e.time}</td><td>${e.src}</td><td>${e.query}</td></tr>`
-      ).join('');
+      tbody.replaceChildren();
+      d.entries.forEach(e => {
+        const tr = document.createElement('tr');
+        [e.time, e.src, e.query].forEach(val => {
+          const td = document.createElement('td');
+          td.textContent = val || '';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
     }
   } catch(e) { /* ignore */ }
 }
@@ -1552,25 +1649,25 @@ function renderSavedDevices() {
   list.innerHTML = _savedDevices.map((dev, i) => {
     const checked = dev.enabled ? 'checked' : '';
     const dimClass = dev.enabled ? '' : ' disabled';
-    const esc = s => (s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    const nickDisplay = dev.nickname ? h(dev.nickname) : dev.ip ? h(dev.ip) : '<span style=color:#aaa>unnamed</span>';
     return `
       <div class="device-row${dimClass}" style="gap:10px;" id="devrow-${i}">
         <label class="toggle">
-          <input type="checkbox" ${checked} onchange="toggleDevice('${dev.mac}', this.checked, ${i})">
+          <input type="checkbox" ${checked} onchange="toggleDevice('${h(dev.mac)}', this.checked, ${i})">
           <div class="track"></div>
           <div class="knob"></div>
         </label>
         <div class="device-name" style="flex:1;">
-          <span class="dev-nick" id="nick-${i}">${dev.nickname || dev.ip || '<span style=color:#aaa>unnamed</span>'}</span>
+          <span class="dev-nick" id="nick-${i}">${nickDisplay}</span>
         </div>
         <div class="dev-actions">
           <button class="icon-btn info" title="Info" onclick="showDeviceInfo(${i})">
             <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
           </button>
-          <button class="icon-btn rename" title="Rename" onclick="renameDevice('${dev.mac}', ${i})">
+          <button class="icon-btn rename" title="Rename" onclick="renameDevice('${h(dev.mac)}', ${i})">
             <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
           </button>
-          <button class="icon-btn remove" title="Remove" onclick="removeDevice('${dev.mac}')">
+          <button class="icon-btn remove" title="Remove" onclick="removeDevice('${h(dev.mac)}')">
             <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
           </button>
         </div>
@@ -1762,18 +1859,22 @@ function renderScannedDevices() {
   });
 
   list.innerHTML = sorted.map(dev => {
-    const label = dev.hostname || dev.vendor || dev.ip;
-    const sub   = dev.hostname ? `${dev.ip}${dev.vendor ? ' · ' + dev.vendor : ''}` : (dev.vendor ? dev.ip : '');
+    const label = h(dev.hostname || dev.vendor || dev.ip);
+    const sub   = dev.hostname
+      ? `${h(dev.ip)}${dev.vendor ? ' · ' + h(dev.vendor) : ''}`
+      : (dev.vendor ? h(dev.ip) : '');
+    const macDisplay = dev.mac ? h(dev.mac) : '<span style=color:#ccc>no MAC</span>';
+    const saveBtn = dev.mac
+      ? `<button class="device-add" onclick="saveScannedDevice('${h(dev.mac)}','${h(dev.ip)}','${h(dev.hostname || dev.vendor || '')}', this)">+ Save</button>`
+      : '<span style="font-size:11px;color:#ccc;">—</span>';
     return `
       <div class="device-row">
         <div class="device-name">
           ${label}
           <div style="font-weight:400;color:#999;font-size:11px;">${sub}</div>
         </div>
-        <div class="device-mac">${dev.mac || '<span style=color:#ccc>no MAC</span>'}</div>
-        ${dev.mac
-          ? `<button class="device-add" onclick="saveScannedDevice('${dev.mac}','${dev.ip}','${(dev.hostname || dev.vendor || '').replace(/'/g,"\\'")}', this)">+ Save</button>`
-          : '<span style="font-size:11px;color:#ccc;">—</span>'}
+        <div class="device-mac">${macDisplay}</div>
+        ${saveBtn}
       </div>`;
   }).join('');
 }

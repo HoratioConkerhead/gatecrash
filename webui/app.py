@@ -1,15 +1,54 @@
 #!/usr/bin/env python3
 """Gatecrash web UI — runs on port 8080, must run as root."""
 
+import base64
+import hashlib
+import ipaddress
 import os
 import re
 import json
+import tempfile
 import threading
 import subprocess
 from collections import deque
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Authentication — HTTP Basic Auth using a token stored on disk
+# ---------------------------------------------------------------------------
+
+WEBUI_TOKEN_PATH = "/opt/gatecrash/webui_token"
+
+
+def _get_stored_token():
+    """Return the stored token string, or None if no token file exists."""
+    try:
+        with open(WEBUI_TOKEN_PATH) as f:
+            return f.read().strip() or None
+    except FileNotFoundError:
+        return None
+
+
+@app.before_request
+def require_auth():
+    # Static assets carry no secrets and are needed before credentials are entered
+    if request.path.startswith("/static/"):
+        return
+    stored = _get_stored_token()
+    if stored is None:
+        # No token file = setup mode; allow access so admin can complete setup
+        return
+    auth = request.authorization
+    if auth and hashlib.sha256(auth.password.encode()).hexdigest() == hashlib.sha256(stored.encode()).hexdigest():
+        return
+    return Response(
+        "Authentication required",
+        401,
+        {"WWW-Authenticate": 'Basic realm="Gatecrash"'},
+    )
+
 
 CONF_PATH      = "/opt/gatecrash/gatecrash.conf"
 WG_CONF_PATH   = "/etc/wireguard/wg0.conf"
@@ -55,6 +94,56 @@ def run(cmd, timeout=15):
         return str(e), 1
 
 
+# ---------------------------------------------------------------------------
+# Input validators — guard against injection via config values in shell strings
+# ---------------------------------------------------------------------------
+
+# Linux IFNAMSIZ-1 = 15 chars; allow alphanumeric plus _ @ . -
+_IF_RE    = re.compile(r'^[a-zA-Z0-9_@.-]{1,15}$')
+# Route table names: alphanumeric, _ or -
+_TABLE_RE = re.compile(r'^[a-zA-Z0-9_-]{1,31}$')
+# Repo path: block newlines and common shell metacharacters
+_REPO_SAFE_RE = re.compile(r'^[^\n\r;&|`$<>\\!]{1,512}$')
+# MAC address: lowercase hex pairs separated by colons
+_MAC_RE   = re.compile(r'^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
+_NICK_MAX = 64
+
+# WireGuard hook lines that allow arbitrary code execution via wg-quick
+_WG_HOOK_RE = re.compile(
+    r'^\s*(PostUp|PostDown|PreUp|PreDown)\s*=',
+    re.IGNORECASE,
+)
+
+
+def _valid_if(name):
+    """Return name if it is a safe Linux interface name, else raise ValueError."""
+    if not _IF_RE.match(name or ""):
+        raise ValueError(f"Invalid interface name: {name!r}")
+    return name
+
+
+def _valid_table(name):
+    """Return name if it is a safe route-table identifier, else raise ValueError."""
+    if not _TABLE_RE.match(name or ""):
+        raise ValueError(f"Invalid route table name: {name!r}")
+    return name
+
+
+def _valid_repo(path):
+    """Return path if it contains no shell metacharacters, else raise ValueError."""
+    if not _REPO_SAFE_RE.match(path or ""):
+        raise ValueError("Repo path contains unsafe characters")
+    return path
+
+
+def _strip_wg_hooks(content):
+    """Remove PostUp/PostDown/PreUp/PreDown lines from a WireGuard config string."""
+    return "".join(
+        line for line in content.splitlines(keepends=True)
+        if not _WG_HOOK_RE.match(line)
+    )
+
+
 def read_conf():
     conf = {"LAN_IF": "", "VPN_IF": "wg0", "GATEWAY_IP": "", "TARGET_IPS": "", "ROUTE_TABLE": "vpntarget", "FWMARK": "0x1"}
     try:
@@ -96,7 +185,10 @@ def wg_stats():
 def capture_dns():
     global dns_thread_started
     conf = read_conf()
-    lan_if = conf.get("LAN_IF", "eth0")
+    try:
+        lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
+    except ValueError:
+        return  # unsafe interface name — exit thread safely
     # Get our own LAN IP so we can exclude Gatecrash's own DNS queries
     own_ip_out, _ = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")
     own_ip = own_ip_out.strip()
@@ -226,6 +318,10 @@ def save_update_settings(settings):
 
 
 def _trigger_upgrade(repo):
+    try:
+        repo = _valid_repo(repo)
+    except ValueError:
+        return  # refuse to run upgrade with unsafe repo path
     upgrade_script = f"""#!/bin/bash
 > /var/log/gatecrash-upgrade.log
 sleep 1
@@ -234,8 +330,8 @@ git -c safe.directory={repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
 bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
 echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
 """
-    script_path = "/tmp/gatecrash-upgrade.sh"
-    with open(script_path, "w") as f:
+    fd, script_path = tempfile.mkstemp(suffix=".sh", prefix="gatecrash-upgrade-")
+    with os.fdopen(fd, "w") as f:
         f.write(upgrade_script)
     os.chmod(script_path, 0o700)
     subprocess.Popen(["bash", script_path],
@@ -250,6 +346,11 @@ def run_update_check():
     repo = get_repo_path()
     if not repo:
         update_check_state["error"] = "Repo path not set"
+        return
+    try:
+        repo = _valid_repo(repo)
+    except ValueError:
+        update_check_state["error"] = "Repo path contains unsafe characters"
         return
     fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1")
     now = datetime.now(timezone.utc).isoformat()
@@ -384,10 +485,29 @@ def sync_targets_from_devices():
 
 @app.route("/")
 def index():
-    ensure_dns_thread()
-    ensure_ip_watch()
-    ensure_update_check_thread()
-    return render_template("index.html", version=get_version())
+    setup_required = _get_stored_token() is None
+    if not setup_required:
+        ensure_dns_thread()
+        ensure_ip_watch()
+        ensure_update_check_thread()
+    return render_template("index.html", version=get_version(), setup_required=setup_required)
+
+
+@app.route("/api/setup-auth", methods=["POST"])
+def api_setup_auth():
+    """Bootstrap authentication — only usable when no token has been set yet."""
+    if _get_stored_token() is not None:
+        return jsonify({"ok": False, "error": "Authentication is already configured"}), 403
+    password = (request.json or {}).get("password", "")
+    if len(password) < 8:
+        return jsonify({"ok": False, "error": "Password must be at least 8 characters"})
+    try:
+        with open(WEBUI_TOKEN_PATH, "w") as f:
+            f.write(password)
+        os.chmod(WEBUI_TOKEN_PATH, 0o600)
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False, "error": "Internal error"})
 
 
 @app.route("/api/version")
@@ -413,8 +533,11 @@ def api_status():
     # Auto-fix: restore VPN route if WireGuard is up but route is missing
     if vpn_route_missing:
         conf = read_conf()
-        rt = conf.get("ROUTE_TABLE", "vpntarget")
-        run(f"ip route replace default dev wg0 table {rt} metric 100")
+        try:
+            rt = _valid_table(conf.get("ROUTE_TABLE", "vpntarget"))
+            run(f"ip route replace default dev wg0 table {rt} metric 100")
+        except ValueError:
+            pass  # invalid table name — skip route restore
         vpn_route_missing = False  # fixed
 
     return jsonify({
@@ -444,8 +567,11 @@ def api_wg_start():
     out, rc = run("wg-quick up wg0 2>&1", timeout=20)
     # Restore vpntarget VPN route (wg-quick wipes it on down/up)
     conf = read_conf()
-    rt = conf.get("ROUTE_TABLE", "vpntarget")
-    run(f"ip route replace default dev wg0 table {rt} metric 100")
+    try:
+        rt = _valid_table(conf.get("ROUTE_TABLE", "vpntarget"))
+        run(f"ip route replace default dev wg0 table {rt} metric 100")
+    except ValueError:
+        pass  # invalid table name — skip route restore
     return jsonify({"ok": rc == 0, "output": out})
 
 
@@ -512,7 +638,11 @@ def parse_nmap_devices(output):
 def api_devices_scan_stream():
     """SSE stream of nmap scan output, followed by parsed device list."""
     conf = read_conf()
-    lan_if = conf.get("LAN_IF", "eth0")
+    try:
+        lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
+    except ValueError:
+        return Response("data: ERROR: Invalid interface name in config\n\nevent: done\ndata: []\n\n",
+                        mimetype="text/event-stream")
 
     def generate():
         subnet, rc = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | head -1")
@@ -579,6 +709,17 @@ def api_save_device():
     mac = data.get("mac", "").lower().strip()
     if not mac:
         return jsonify({"ok": False, "error": "MAC address required"})
+    if not _MAC_RE.match(mac):
+        return jsonify({"ok": False, "error": "Invalid MAC address format"})
+    if data.get("ip"):
+        try:
+            ipaddress.ip_address(data["ip"])
+        except ValueError:
+            return jsonify({"ok": False, "error": "Invalid IP address"})
+    if data.get("nickname"):
+        nick = str(data["nickname"])
+        if len(nick) > _NICK_MAX or re.search(r'[<>"\'&;]', nick):
+            return jsonify({"ok": False, "error": "Nickname contains invalid characters or is too long"})
 
     devices = load_devices()
 
@@ -634,15 +775,20 @@ def api_gateway():
 def api_diagnostics_dump():
     """Generate a full troubleshooting dump as a downloadable text file."""
     conf = read_conf()
-    lan_if = conf.get("LAN_IF", "eth0")
-    vpn_if = conf.get("VPN_IF", "wg0")
-    rt = conf.get("ROUTE_TABLE", "vpntarget")
+    try:
+        lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
+        vpn_if = _valid_if(conf.get("VPN_IF", "wg0"))
+        rt = _valid_table(conf.get("ROUTE_TABLE", "vpntarget"))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid config value"}), 400
 
     sections = []
 
     def section(title, cmd):
         out, _ = run(cmd, timeout=10)
-        sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd}\n\n{out or '(empty)'}\n")
+        # Redact WireGuard private keys from all output
+        redacted = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', out or '')
+        sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd}\n\n{redacted or '(empty)'}\n")
 
     sections.append(f"Gatecrash Diagnostics Dump\nGenerated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nVersion: {get_version()}\n")
 
@@ -686,7 +832,10 @@ def api_diagnostics_dump():
 def api_dns_test():
     """Run tcpdump for 5 seconds on LAN interface, return raw lines for debugging."""
     conf = read_conf()
-    lan_if = conf.get("LAN_IF", "eth0")
+    try:
+        lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid interface name in config"}), 400
     # 'timeout 5' kills tcpdump after 5s; '|| true' so non-zero exit doesn't raise
     out, _ = run(f"timeout 5 tcpdump -i {lan_if} -n udp dst port 53 2>/dev/null || true", timeout=8)
     lines = [l for l in out.splitlines() if l.strip()]
@@ -696,7 +845,10 @@ def api_dns_test():
 @app.route("/api/diagnostics")
 def api_diagnostics():
     conf = read_conf()
-    lan_if = conf.get("LAN_IF", "eth0")
+    try:
+        lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid interface name in config"}), 400
 
     # MAC address of the LAN interface
     mac_out, _ = run(f"ip link show {lan_if} 2>/dev/null")
@@ -777,14 +929,33 @@ def api_config():
         return jsonify(conf)
     try:
         data = request.json
+        # Validate fields that feed into shell commands before writing to disk
+        errors = []
+        if "LAN_IF" in data:
+            try:
+                _valid_if(data["LAN_IF"])
+            except ValueError as e:
+                errors.append(str(e))
+        if "VPN_IF" in data:
+            try:
+                _valid_if(data["VPN_IF"])
+            except ValueError as e:
+                errors.append(str(e))
+        if "ROUTE_TABLE" in data:
+            try:
+                _valid_table(data["ROUTE_TABLE"])
+            except ValueError as e:
+                errors.append(str(e))
+        if errors:
+            return jsonify({"ok": False, "error": "; ".join(errors)}), 400
         # Refresh gateway from routing table before saving
         gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
         if gw.strip():
             data["GATEWAY_IP"] = gw.strip()
         write_conf(data)
         return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+    except Exception:
+        return jsonify({"ok": False, "error": "Internal error"})
 
 
 @app.route("/api/wg-config", methods=["GET", "POST"])
@@ -793,16 +964,16 @@ def api_wg_config():
         try:
             with open(WG_CONF_PATH) as f:
                 return jsonify({"ok": True, "content": f.read()})
-        except Exception as e:
-            return jsonify({"ok": False, "content": "", "error": str(e)})
+        except Exception:
+            return jsonify({"ok": False, "content": "", "error": "Internal error"})
     try:
-        content = request.json.get("content", "")
+        content = _strip_wg_hooks(request.json.get("content", ""))
         with open(WG_CONF_PATH, "w") as f:
             f.write(content)
         os.chmod(WG_CONF_PATH, 0o600)
         return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+    except Exception:
+        return jsonify({"ok": False, "error": "Internal error"})
 
 
 @app.route("/api/wg-config/upload", methods=["POST"])
@@ -873,7 +1044,7 @@ def api_wg_config_upload():
                     fixes.append("added MTU = 1280")
         new_lines = result
 
-    final_content = "\n".join(new_lines)
+    final_content = _strip_wg_hooks("\n".join(new_lines))
     if not final_content.endswith("\n"):
         final_content += "\n"
 
@@ -882,8 +1053,8 @@ def api_wg_config_upload():
             f.write(final_content)
         os.chmod(WG_CONF_PATH, 0o600)
         return jsonify({"ok": True, "fixes": fixes})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e), "fixes": []})
+    except Exception:
+        return jsonify({"ok": False, "error": "Internal error", "fixes": []})
 
 
 @app.route("/api/dns-log")
@@ -926,8 +1097,8 @@ def api_upgrade_log_content():
     try:
         with open("/var/log/gatecrash-upgrade.log") as f:
             return jsonify({"ok": True, "content": f.read()})
-    except Exception as e:
-        return jsonify({"ok": False, "content": "", "error": str(e)})
+    except Exception:
+        return jsonify({"ok": False, "content": "", "error": "Internal error"})
 
 
 @app.route("/api/update/apply", methods=["POST"])
