@@ -111,6 +111,7 @@ def get_repo_path():
 # Rolling DNS log — last 100 queries
 dns_log = deque(maxlen=100)
 dns_thread_started = False
+_state_lock = threading.Lock()  # guards dns_log snapshot, *_thread_started, update_check_state
 
 DEVICES_FILE = "/opt/gatecrash/devices.json"
 BOOT_STATE_FILE = "/opt/gatecrash/boot_state.json"
@@ -290,15 +291,18 @@ def capture_dns():
         pass
     finally:
         # Allow thread to be restarted if it dies
-        dns_thread_started = False
+        with _state_lock:
+            dns_thread_started = False
 
 
 def ensure_dns_thread():
     global dns_thread_started
-    if not dns_thread_started:
+    with _state_lock:
+        if dns_thread_started:
+            return
         dns_thread_started = True
-        t = threading.Thread(target=capture_dns, daemon=True)
-        t.start()
+    t = threading.Thread(target=capture_dns, daemon=True)
+    t.start()
 
 
 # ---------------------------------------------------------------------------
@@ -343,10 +347,12 @@ def ip_watch_loop():
 
 def ensure_ip_watch():
     global ip_watch_started
-    if not ip_watch_started:
+    with _state_lock:
+        if ip_watch_started:
+            return
         ip_watch_started = True
-        t = threading.Thread(target=ip_watch_loop, daemon=True)
-        t.start()
+    t = threading.Thread(target=ip_watch_loop, daemon=True)
+    t.start()
 
 
 # ---------------------------------------------------------------------------
@@ -413,17 +419,20 @@ def run_update_check():
     from datetime import datetime, timezone
     repo = get_repo_path()
     if not repo:
-        update_check_state["error"] = "Repo path not set"
+        with _state_lock:
+            update_check_state["error"] = "Repo path not set"
         return
     try:
         repo = _valid_repo(repo)
     except ValueError:
-        update_check_state["error"] = "Repo path contains unsafe characters"
+        with _state_lock:
+            update_check_state["error"] = "Repo path contains unsafe characters"
         return
     fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1")
     now = datetime.now(timezone.utc).isoformat()
     if rc != 0:
-        update_check_state = {**update_check_state, "error": fetch_out.strip(), "last_checked": now}
+        with _state_lock:
+            update_check_state = {**update_check_state, "error": fetch_out.strip(), "last_checked": now}
         return
     behind_out, _ = run(f"git -c safe.directory={repo} -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
     try:
@@ -432,13 +441,14 @@ def run_update_check():
         behind = 0
     commit_msg, _    = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null")
     remote_ver, _    = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null")
-    update_check_state = {
-        "available":      behind > 0,
-        "remote_version": remote_ver.strip()   if behind > 0 else None,
-        "commit_message": commit_msg.strip()   if behind > 0 else None,
-        "last_checked":   now,
-        "error":          None,
-    }
+    with _state_lock:
+        update_check_state = {
+            "available":      behind > 0,
+            "remote_version": remote_ver.strip()   if behind > 0 else None,
+            "commit_message": commit_msg.strip()   if behind > 0 else None,
+            "last_checked":   now,
+            "error":          None,
+        }
     if behind > 0 and load_update_settings().get("auto_update"):
         _trigger_upgrade(repo)
 
@@ -451,7 +461,8 @@ def update_check_loop():
             settings = load_update_settings()
             if settings.get("check_enabled"):
                 interval = _INTERVAL_SECS.get(settings.get("interval", "daily"), 86400)
-                last = update_check_state.get("last_checked")
+                with _state_lock:
+                    last = update_check_state.get("last_checked")
                 should_check = last is None
                 if not should_check:
                     try:
@@ -468,10 +479,12 @@ def update_check_loop():
 
 def ensure_update_check_thread():
     global update_check_thread_started
-    if not update_check_thread_started:
+    with _state_lock:
+        if update_check_thread_started:
+            return
         update_check_thread_started = True
-        t = threading.Thread(target=update_check_loop, daemon=True)
-        t.start()
+    t = threading.Thread(target=update_check_loop, daemon=True)
+    t.start()
 
 
 # ---------------------------------------------------------------------------
@@ -691,7 +704,7 @@ def api_status():
         "wg_up": wg_up,
         "arp_processes": arp_out.strip(),
         "wg": wg_stats(),
-        "update": update_check_state,
+        "update": dict(update_check_state),
         "version": get_version(),
     })
 
@@ -1231,13 +1244,16 @@ def api_wg_config_upload():
 
 @app.route("/api/dns-log")
 def api_dns_log():
-    return jsonify({"entries": list(dns_log)})
+    with _state_lock:
+        entries = list(dns_log)
+    return jsonify({"entries": entries})
 
 
 @app.route("/api/update/check")
 def api_update_check():
     run_update_check()
-    s = update_check_state
+    with _state_lock:
+        s = dict(update_check_state)
     return jsonify({
         "ok":             s.get("error") is None,
         "available":      s.get("available", False),
