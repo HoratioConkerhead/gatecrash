@@ -1,4 +1,4 @@
-const CACHE = 'gatecrash-v1';
+const CACHE = 'gatecrash-v2';
 const PRECACHE = ['/', '/static/manifest.json', '/static/icon-192.svg'];
 
 self.addEventListener('install', (e) => {

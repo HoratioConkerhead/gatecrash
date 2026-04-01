@@ -56,6 +56,14 @@ app.secret_key = _get_or_create_secret()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 
+@app.after_request
+def no_cache_api(response):
+    """Prevent browser from serving stale API responses (critical for PWA)."""
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.before_request
 def require_auth():
     # Static assets and the login/setup endpoints are always public
