@@ -1602,6 +1602,7 @@ async function fetchDNS() {
 
 setInterval(fetchStatus, 3000);
 setInterval(fetchDNS, 5000);
+setInterval(function() { if (_activeTab === 'devices') loadSavedDevices(); }, 5000);
 setInterval(function() { if (_activeTab === 'diagnostics') loadDiagnostics(); }, 10000);
 fetchStatus();
 
