@@ -1506,7 +1506,10 @@ async function doFactoryReset() {
 // Tab switching
 // ---------------------------------------------------------------------------
 
+let _activeTab = 'devices';
+
 function switchTab(name, btn) {
+  _activeTab = name;
   document.querySelectorAll('.tab-content').forEach(el => {
     el.classList.remove('active');
     el.style.display = 'none';
@@ -1575,6 +1578,7 @@ async function fetchStatus() {
 }
 
 async function fetchDNS() {
+  if (_activeTab !== 'diagnostics') return;
   try {
     const r = await fetch('/api/dns-log');
     const d = await r.json();
@@ -1598,23 +1602,16 @@ async function fetchDNS() {
 
 setInterval(fetchStatus, 3000);
 setInterval(fetchDNS, 5000);
-setInterval(loadDiagnostics, 10000);
+setInterval(function() { if (_activeTab === 'diagnostics') loadDiagnostics(); }, 10000);
 fetchStatus();
-fetchDNS();
 
 // Reload if version has changed when the user switches back to the app
-const _loadedVersion = '{{ version }}';
-document.addEventListener('visibilitychange', async () => {
+document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  // Always refresh data immediately on focus
+  // fetchStatus() already checks version and triggers hardReload() if changed
   fetchStatus();
-  loadSavedDevices();
-  // Reload the whole app if a new version has been deployed
-  try {
-    const r = await fetch('/api/version', {signal: AbortSignal.timeout(3000)});
-    const d = await r.json();
-    if (d.version && d.version !== _loadedVersion) hardReload();
-  } catch(e) { /* offline or server down — ignore */ }
+  if (_activeTab === 'devices') loadSavedDevices();
+  else if (_activeTab === 'diagnostics') loadDiagnostics();
 });
 
 // ---------------------------------------------------------------------------
@@ -2695,10 +2692,7 @@ async function applyUpdate() {
 // Load on page open
 loadConfig();
 loadWGConfigSummary();
-loadAutostart();
-loadDiagnostics();
 loadSavedDevices();
-loadUpdateSettings();
 initThemeUI();
 initPwaButton();
 
