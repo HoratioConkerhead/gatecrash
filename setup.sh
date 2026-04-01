@@ -116,14 +116,21 @@ fi
 # 5. Install systemd service (not enabled, not started)
 # ---------------------------------------------------------------------------
 
-echo "Installing systemd service..."
+echo "Installing systemd services..."
 if [[ -f "$SCRIPT_DIR/gatecrash.service" ]]; then
     cp "$SCRIPT_DIR/gatecrash.service" /etc/systemd/system/gatecrash.service
-    systemctl daemon-reload
     echo "  [OK] gatecrash.service installed (not enabled)."
 else
     echo "  [WARN] gatecrash.service not found — skipping."
 fi
+if [[ -f "$SCRIPT_DIR/gatecrash-resume.service" ]]; then
+    cp "$SCRIPT_DIR/gatecrash-resume.service" /etc/systemd/system/gatecrash-resume.service
+    cp "$SCRIPT_DIR/resume-state.sh" /opt/gatecrash/resume-state.sh
+    chmod +x /opt/gatecrash/resume-state.sh
+    systemctl enable gatecrash-resume
+    echo "  [OK] gatecrash-resume.service installed and enabled."
+fi
+systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
 # 6. Install web UI

@@ -1103,13 +1103,23 @@ document.getElementById('login-pw').focus();
     <h2>System</h2>
     <div style="display:flex;flex-direction:column;">
       <div class="device-row" style="justify-content:space-between;">
+        <span style="font-size:14px;font-weight:600;">Resume last state on boot</span>
+        <label class="toggle">
+          <input type="checkbox" id="pill-resume" onchange="toggleBootMode()">
+          <div class="track"></div><div class="knob"></div>
+        </label>
+      </div>
+      <div style="font-size:11px;color:#999;padding:0 4px 4px;margin-top:-6px;">
+        Remembers whether services were running and restarts them after a reboot
+      </div>
+      <div class="device-row" id="row-wg-boot" style="justify-content:space-between;">
         <span style="font-size:14px;font-weight:600;">WireGuard start on boot</span>
         <label class="toggle">
           <input type="checkbox" id="pill-wg" onchange="toggleBootPill('wg')">
           <div class="track"></div><div class="knob"></div>
         </label>
       </div>
-      <div class="device-row" style="justify-content:space-between;">
+      <div class="device-row" id="row-gc-boot" style="justify-content:space-between;">
         <span style="font-size:14px;font-weight:600;">Gatecrash start on boot</span>
         <label class="toggle">
           <input type="checkbox" id="pill-gc" onchange="toggleBootPill('gatecrash')">
@@ -2207,6 +2217,37 @@ async function loadAutostart() {
   const d = await r.json();
   document.getElementById('pill-wg').checked = d.wg;
   document.getElementById('pill-gc').checked = d.gatecrash;
+  document.getElementById('pill-resume').checked = d.mode === 'resume';
+  _updateManualPillState(d.mode === 'resume');
+}
+
+function _updateManualPillState(resumeOn) {
+  const rows = ['row-wg-boot', 'row-gc-boot'];
+  rows.forEach(id => {
+    const row = document.getElementById(id);
+    row.style.opacity = resumeOn ? '0.4' : '1';
+    row.style.pointerEvents = resumeOn ? 'none' : '';
+  });
+}
+
+async function toggleBootMode() {
+  const resumeOn = document.getElementById('pill-resume').checked;
+  const mode = resumeOn ? 'resume' : 'manual';
+  const el = document.getElementById('as-status');
+  const r = await fetch('/api/autostart', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mode}),
+  });
+  const d = await r.json();
+  el.className = 'save-status ' + (d.ok ? '' : 'error');
+  el.textContent = d.ok ? '✓ Saved' : '✗ Failed';
+  setTimeout(() => { el.textContent = ''; }, 3000);
+  if (d.ok) {
+    _updateManualPillState(resumeOn);
+  } else {
+    document.getElementById('pill-resume').checked = !resumeOn;
+  }
 }
 
 async function toggleBootPill(which) {

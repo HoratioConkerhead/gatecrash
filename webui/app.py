@@ -113,6 +113,34 @@ dns_log = deque(maxlen=100)
 dns_thread_started = False
 
 DEVICES_FILE = "/opt/gatecrash/devices.json"
+BOOT_STATE_FILE = "/opt/gatecrash/boot_state.json"
+
+
+def _read_boot_state():
+    """Read the boot-mode config: mode ('resume'|'manual') and last-known running state."""
+    default = {"mode": "resume", "wg_running": False, "gc_running": False}
+    try:
+        with open(BOOT_STATE_FILE) as f:
+            data = json.load(f)
+        for k in default:
+            if k not in data:
+                data[k] = default[k]
+        return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+
+
+def _write_boot_state(data):
+    with open(BOOT_STATE_FILE, "w") as f:
+        json.dump(data, f)
+
+
+def _record_service_state(service, running):
+    """Record that a service was started or stopped (for resume-on-boot)."""
+    state = _read_boot_state()
+    key = "wg_running" if service == "wg" else "gc_running"
+    state[key] = running
+    _write_boot_state(state)
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +645,7 @@ def api_factory_reset():
         WEBUI_TOKEN_PATH,
         SECRET_KEY_PATH,
         UPDATE_SETTINGS_FILE,
+        BOOT_STATE_FILE,
     ]:
         try:
             os.remove(path)
@@ -670,12 +699,16 @@ def api_status():
 @app.route("/api/start", methods=["POST"])
 def api_start():
     out, rc = run("systemctl start gatecrash 2>&1", timeout=30)
+    if rc == 0:
+        _record_service_state("gatecrash", True)
     return jsonify({"ok": rc == 0, "output": out})
 
 
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     out, rc = run("systemctl stop gatecrash 2>&1", timeout=30)
+    if rc == 0:
+        _record_service_state("gatecrash", False)
     return jsonify({"ok": rc == 0, "output": out})
 
 
@@ -689,12 +722,16 @@ def api_wg_start():
         run(f"ip route replace default dev wg0 table {rt} metric 100")
     except ValueError:
         pass  # invalid table name — skip route restore
+    if rc == 0:
+        _record_service_state("wg", True)
     return jsonify({"ok": rc == 0, "output": out})
 
 
 @app.route("/api/wg/stop", methods=["POST"])
 def api_wg_stop():
     out, rc = run("wg-quick down wg0 2>&1", timeout=20)
+    if rc == 0:
+        _record_service_state("wg", False)
     return jsonify({"ok": rc == 0, "output": out})
 
 
@@ -703,12 +740,30 @@ def api_autostart():
     if request.method == "GET":
         wg_out, _ = run("systemctl is-enabled wg-quick@wg0 2>/dev/null")
         gc_out, _ = run("systemctl is-enabled gatecrash 2>/dev/null")
+        state = _read_boot_state()
         return jsonify({
+            "mode": state["mode"],
             "wg": wg_out.strip() == "enabled",
             "gatecrash": gc_out.strip() == "enabled",
         })
     data = request.json
     results = {}
+    # Handle mode change
+    if "mode" in data:
+        state = _read_boot_state()
+        new_mode = data["mode"]
+        state["mode"] = new_mode
+        if new_mode == "resume":
+            # Disable manual systemd enable — the resume service handles it
+            run("systemctl disable wg-quick@wg0 2>&1")
+            run("systemctl disable gatecrash 2>&1")
+            # Snapshot current running state
+            wg_out, _ = run("systemctl is-active wg-quick@wg0 2>/dev/null")
+            gc_out, _ = run("systemctl is-active gatecrash 2>/dev/null")
+            state["wg_running"] = wg_out.strip() == "active"
+            state["gc_running"] = gc_out.strip() == "active"
+        _write_boot_state(state)
+        results["mode"] = new_mode
     if "wg" in data:
         cmd = "enable" if data["wg"] else "disable"
         _, rc = run(f"systemctl {cmd} wg-quick@wg0 2>&1")

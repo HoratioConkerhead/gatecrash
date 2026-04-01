@@ -1,0 +1,12 @@
+[Unit]
+Description=Gatecrash — resume last service state on boot
+After=network-online.target gatecrash-webui.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/gatecrash/resume-state.sh
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
