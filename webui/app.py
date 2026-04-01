@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
 """Gatecrash web UI — runs on port 8080, must run as root."""
 
-import base64
 import hashlib
 import ipaddress
 import os
 import re
 import json
+import secrets
 import tempfile
 import threading
 import subprocess
 from collections import deque
-from flask import Flask, render_template, jsonify, request, Response, stream_with_context
+from datetime import timedelta
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context, session, redirect
 
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
-# Authentication — HTTP Basic Auth using a token stored on disk
+# Authentication — session-based login with password stored on disk
 # ---------------------------------------------------------------------------
 
-WEBUI_TOKEN_PATH = "/opt/gatecrash/webui_token"
+WEBUI_TOKEN_PATH  = "/opt/gatecrash/webui_token"
+SECRET_KEY_PATH   = "/opt/gatecrash/webui_secret"
+
+# Endpoints always accessible without a session
+_PUBLIC_PATHS = {"/", "/api/login", "/api/setup-auth"}
 
 
 def _get_stored_token():
-    """Return the stored token string, or None if no token file exists."""
+    """Return the stored password string, or None if no token file exists."""
     try:
         with open(WEBUI_TOKEN_PATH) as f:
             return f.read().strip() or None
@@ -31,23 +36,45 @@ def _get_stored_token():
         return None
 
 
+def _get_or_create_secret():
+    """Load or generate the Flask session signing key."""
+    try:
+        with open(SECRET_KEY_PATH, "rb") as f:
+            key = f.read()
+            if len(key) >= 32:
+                return key
+    except FileNotFoundError:
+        pass
+    key = secrets.token_bytes(32)
+    with open(SECRET_KEY_PATH, "wb") as f:
+        f.write(key)
+    os.chmod(SECRET_KEY_PATH, 0o600)
+    return key
+
+
+app.secret_key = _get_or_create_secret()
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+
+
 @app.before_request
 def require_auth():
-    # Static assets carry no secrets and are needed before credentials are entered
-    if request.path.startswith("/static/"):
+    # Static assets and the login/setup endpoints are always public
+    if request.path.startswith("/static/") or request.path in _PUBLIC_PATHS:
         return
     stored = _get_stored_token()
     if stored is None:
-        # No token file = setup mode; allow access so admin can complete setup
+        # Setup mode — no password set yet, let everything through
         return
-    auth = request.authorization
-    if auth and hashlib.sha256(auth.password.encode()).hexdigest() == hashlib.sha256(stored.encode()).hexdigest():
+    if session.get("authenticated"):
         return
-    return Response(
-        "Authentication required",
-        401,
-        {"WWW-Authenticate": 'Basic realm="Gatecrash"'},
-    )
+    # Unauthenticated: API calls get JSON 401, everything else redirects to /
+    if request.path.startswith("/api/"):
+        return Response(
+            json.dumps({"ok": False, "error": "Not authenticated"}),
+            401,
+            {"Content-Type": "application/json"},
+        )
+    return redirect("/")
 
 
 CONF_PATH      = "/opt/gatecrash/gatecrash.conf"
@@ -486,11 +513,13 @@ def sync_targets_from_devices():
 @app.route("/")
 def index():
     setup_required = _get_stored_token() is None
-    if not setup_required:
+    login_required = not setup_required and not session.get("authenticated")
+    if not setup_required and not login_required:
         ensure_dns_thread()
         ensure_ip_watch()
         ensure_update_check_thread()
-    return render_template("index.html", version=get_version(), setup_required=setup_required)
+    return render_template("index.html", version=get_version(),
+                           setup_required=setup_required, login_required=login_required)
 
 
 @app.route("/api/setup-auth", methods=["POST"])
@@ -505,9 +534,31 @@ def api_setup_auth():
         with open(WEBUI_TOKEN_PATH, "w") as f:
             f.write(password)
         os.chmod(WEBUI_TOKEN_PATH, 0o600)
+        # Automatically log in so the page loads immediately after setup
+        session["authenticated"] = True
+        session.permanent = True
         return jsonify({"ok": True})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    stored = _get_stored_token()
+    if stored is None:
+        return jsonify({"ok": False, "error": "Setup not complete"})
+    password = (request.json or {}).get("password", "")
+    if hashlib.sha256(password.encode()).hexdigest() == hashlib.sha256(stored.encode()).hexdigest():
+        session["authenticated"] = True
+        session.permanent = True
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Incorrect password"})
+
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/version")

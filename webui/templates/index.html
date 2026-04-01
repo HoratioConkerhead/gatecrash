@@ -748,9 +748,7 @@ async function doSetupAuth() {
     });
     const d = await r.json();
     if (d.ok) {
-      // Trigger Basic Auth prompt with the new credentials then reload
-      const creds = btoa('gatecrash:' + pw);
-      await fetch('/', {headers: {Authorization: 'Basic ' + creds}});
+      // Setup also logs us in server-side; just reload to show the app
       window.location.reload();
     } else {
       err.textContent = d.error || 'Failed to save password.';
@@ -769,12 +767,83 @@ document.getElementById('setup-pw').focus();
 </script>
 {% endif %}
 
+{% if login_required %}
+<div id="login-screen" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#0f0f1a;
+  display:flex;align-items:center;justify-content:center;
+  font-family:inherit;
+">
+  <div style="
+    background:#1a1a2e;border-radius:16px;padding:36px 32px;
+    width:360px;max-width:92vw;
+    box-shadow:0 8px 40px rgba(0,0,0,0.6);
+  ">
+    <div style="text-align:center;margin-bottom:28px;">
+      <img src="/static/icon-192.svg" style="width:52px;height:52px;margin-bottom:12px;" alt="">
+      <h1 style="color:#e0e0e0;font-size:20px;font-weight:700;margin-bottom:6px;">Gatecrash</h1>
+      <p style="color:#888;font-size:13px;">Enter your password to continue.</p>
+    </div>
+    <div style="margin-bottom:20px;">
+      <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">PASSWORD</label>
+      <input id="login-pw" type="password" placeholder="Password" autocomplete="current-password"
+        style="
+          width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2d2d44;
+          background:#0f0f1a;color:#e0e0e0;font-size:14px;outline:none;
+        "
+        onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div id="login-err" style="display:none;color:#f44336;font-size:12px;margin-bottom:12px;padding:8px 10px;background:rgba(244,67,54,0.1);border-radius:6px;"></div>
+    <button id="login-btn" onclick="doLogin()" class="btn-green"
+      style="width:100%;padding:11px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;">
+      Log In
+    </button>
+  </div>
+</div>
+<script>
+async function doLogin() {
+  const pw  = document.getElementById('login-pw').value;
+  const err = document.getElementById('login-err');
+  const btn = document.getElementById('login-btn');
+  err.style.display = 'none';
+  if (!pw) { err.textContent = 'Please enter your password.'; err.style.display = ''; return; }
+  btn.disabled = true;
+  btn.textContent = 'Logging in…';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      window.location.reload();
+    } else {
+      err.textContent = d.error || 'Login failed.';
+      err.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Log In';
+      document.getElementById('login-pw').value = '';
+      document.getElementById('login-pw').focus();
+    }
+  } catch(e) {
+    err.textContent = 'Network error — try again.';
+    err.style.display = '';
+    btn.disabled = false;
+    btn.textContent = 'Log In';
+  }
+}
+document.getElementById('login-pw').focus();
+</script>
+{% endif %}
+
 <header>
   <h1>&#x1F6E1; Gatecrash <span style="font-size:14px;font-weight:400;color:#666;">v{{ version }}</span></h1>
   <div class="header-actions">
     <button class="btn-green" id="btn-update-notify" onclick="showUpdateInfo()" style="display:none;padding:5px 12px;font-size:12px;"></button>
     <button class="btn-grey" id="btn-pwa-info" onclick="showPwaInfo()" title="Add to Home Screen" style="display:none;padding:5px 10px;font-size:14px;">&#8962;</button>
     <button class="btn-grey" onclick="hardReload()" title="Reload app" style="padding:5px 10px;font-size:14px;">&#8635;</button>
+    {% if not setup_required and not login_required %}<button class="btn-grey" onclick="doLogout()" title="Log out" style="padding:5px 10px;font-size:14px;">&#x23CF;</button>{% endif %}
   </div>
 </header>
 
@@ -1282,6 +1351,11 @@ document.getElementById('setup-pw').focus();
 // HTML entity encoder — use for all user-supplied data inserted into innerHTML
 function h(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+async function doLogout() {
+  await fetch('/api/logout', {method: 'POST'});
+  window.location.reload();
 }
 
 // ---------------------------------------------------------------------------
