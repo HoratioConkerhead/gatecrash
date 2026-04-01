@@ -454,6 +454,10 @@ def save_devices(devices):
 
 def resolve_mac(ip):
     """Look up MAC address for an IP from the ARP table."""
+    try:
+        ipaddress.ip_address(ip)  # reject anything that isn't a valid IP
+    except ValueError:
+        return ""
     out, _ = run(f"ip neigh show {ip} 2>/dev/null")
     m = re.search(r"lladdr\s+([0-9a-f:]+)", out)
     return m.group(1).lower() if m else ""
