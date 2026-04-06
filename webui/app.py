@@ -247,6 +247,11 @@ def read_conf():
 
 
 def write_conf(data):
+    # Ensure GATEWAY_IP is never written empty
+    if not data.get("GATEWAY_IP"):
+        gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
+        if gw.strip():
+            data["GATEWAY_IP"] = gw.strip()
     lines = [f'{k}="{v}"' for k, v in data.items()]
     with open(CONF_PATH, "w") as f:
         f.write("\n".join(lines) + "\n")

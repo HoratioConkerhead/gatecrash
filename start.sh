@@ -49,6 +49,12 @@ fi
 # When wg0 goes down, Linux removes its route automatically → traffic falls
 # back to the real gateway. When wg0 comes back, it wins again.
 
+# Auto-detect gateway if not set in config
+if [[ -z "${GATEWAY_IP:-}" ]]; then
+    GATEWAY_IP=$(ip route show default | awk '/default/ {print $3}' | head -1)
+    log INFO "SERVICE  GATEWAY_IP was empty — detected $GATEWAY_IP"
+fi
+
 log INFO "SERVICE  Policy routing setup (GW=$GATEWAY_IP LAN=$LAN_IF RT=$ROUTE_TABLE VPN=$VPN_IF)"
 if ip link show "$VPN_IF" &>/dev/null; then
     ip route replace default dev "$VPN_IF" table "$ROUTE_TABLE" metric 100
