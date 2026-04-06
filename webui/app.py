@@ -902,6 +902,13 @@ def api_devices_scan_stream():
             yield "event: done\ndata: []\n\n"
             return
 
+        # IPs to exclude from scan results: ourselves and the gateway
+        own_ip_out, _ = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")
+        exclude_ips = {own_ip_out.strip()}
+        gw = _detect_gateway()
+        if gw:
+            exclude_ips.add(gw)
+
         yield f"data: Scanning {subnet.strip()} ...\n\n"
 
         try:
@@ -935,6 +942,7 @@ def api_devices_scan_stream():
                 devices.append({"ip": ip, "mac": mac, "hostname": "", "vendor": ""})
                 nmap_macs.add(mac)
 
+            devices = [d for d in devices if d["ip"] not in exclude_ips]
             devices.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
             yield f"event: devices\ndata: {json.dumps(devices)}\n\n"
         except Exception as e:
