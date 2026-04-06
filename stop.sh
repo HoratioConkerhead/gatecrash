@@ -4,8 +4,15 @@
 set -euo pipefail
 
 CONF="/opt/gatecrash/gatecrash.conf"
+LOG="/var/log/gatecrash.log"
+
+# Append a timestamped line to the shared audit log
+log() { printf '%s  %-5s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG"; }
+
+log INFO "SERVICE  stop.sh invoked (PID $$, PPID $PPID)"
 
 if [[ ! -f "$CONF" ]]; then
+    log ERROR "SERVICE  $CONF not found — aborting"
     echo "ERROR: $CONF not found."
     exit 1
 fi
@@ -57,10 +64,12 @@ ip route del default via "$GATEWAY_IP" dev "$LAN_IF" table "$ROUTE_TABLE" 2>/dev
 if ip link show "$VPN_IF" &>/dev/null; then
     wg-quick down "$VPN_IF" && echo "  WireGuard ($VPN_IF) down." \
         || echo "  wg-quick down failed — check manually."
+    log INFO "SERVICE  WireGuard ($VPN_IF) taken down by stop.sh"
 else
     echo "  WireGuard ($VPN_IF) was not up."
 fi
 
+log INFO "SERVICE  Gatecrash stopped"
 echo ""
 echo "Gatecrash stopped."
 echo "Target devices will resume normal routing within ~2 minutes as ARP caches expire."

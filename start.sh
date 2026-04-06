@@ -4,12 +4,19 @@
 set -euo pipefail
 
 CONF="/opt/gatecrash/gatecrash.conf"
+LOG="/var/log/gatecrash.log"
+
+# Append a timestamped line to the shared audit log
+log() { printf '%s  %-5s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG"; }
+
+log INFO "SERVICE  start.sh invoked (PID $$, PPID $PPID)"
 
 # ---------------------------------------------------------------------------
 # Load config
 # ---------------------------------------------------------------------------
 
 if [[ ! -f "$CONF" ]]; then
+    log ERROR "SERVICE  $CONF not found — aborting"
     echo "ERROR: $CONF not found. Run setup.sh first."
     exit 1
 fi
@@ -23,6 +30,7 @@ source "$CONF"
 if ! ip link show "$VPN_IF" &>/dev/null; then
     echo "Bringing up WireGuard ($VPN_IF)..."
     wg-quick up "$VPN_IF"
+    log INFO "SERVICE  WireGuard ($VPN_IF) brought up by start.sh"
 else
     echo "WireGuard ($VPN_IF) already up."
 fi
@@ -112,6 +120,7 @@ done
 # ---------------------------------------------------------------------------
 
 echo ""
+log INFO "SERVICE  Gatecrash running — targets: $TARGET_IPS"
 echo "=== Gatecrash running ==="
 echo "Targets:       $TARGET_IPS"
 HANDSHAKE=$(wg show "$VPN_IF" 2>/dev/null | grep 'latest handshake' | head -1 || true)
