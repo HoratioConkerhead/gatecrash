@@ -1665,11 +1665,9 @@ function updateToggleButtons() {
 }
 
 async function toggleMaster() {
-  const anyRunning = _gcRunning || _wgRunning;
   const btn = document.getElementById('btn-power');
 
-  if (!anyRunning && !hasEnabledDevices()) {
-    // Navigate to devices tab and show the banner
+  if (!_gcRunning && !hasEnabledDevices()) {
     switchTab('devices', document.getElementById('tab-btn-devices'));
     const banner = document.getElementById('no-devices-banner');
     banner.style.display = '';
@@ -1678,29 +1676,31 @@ async function toggleMaster() {
   }
 
   btn.disabled = true;
-  if (anyRunning) {
+  if (_gcRunning) {
+    // Stop: shut down GC and WG
     showOutput('Stopping...');
-    if (_gcRunning) {
-      const r = await fetch('/api/stop', {method: 'POST'});
-      const d = await r.json();
-      showOutput(d.output || (d.ok ? 'Gatecrash stopped.' : 'Failed to stop Gatecrash.'));
-    }
+    const r = await fetch('/api/stop', {method: 'POST'});
+    const d = await r.json();
+    showOutput(d.output || (d.ok ? 'Gatecrash stopped.' : 'Failed to stop Gatecrash.'));
     if (_wgRunning) {
-      const r = await fetch('/api/wg/stop', {method: 'POST'});
-      const d = await r.json();
-      showOutput(d.output || (d.ok ? 'Stopped.' : 'Failed to stop WireGuard.'));
+      const r2 = await fetch('/api/wg/stop', {method: 'POST'});
+      const d2 = await r2.json();
+      showOutput(d2.output || (d2.ok ? 'WireGuard stopped.' : 'Failed to stop WireGuard.'));
     }
   } else {
-    showOutput('Starting WireGuard...');
-    const r1 = await fetch('/api/wg/start', {method: 'POST'});
-    const d1 = await r1.json();
-    if (!d1.ok) {
-      showOutput('Failed to start WireGuard: ' + (d1.output || 'unknown error'));
-      btn.disabled = false;
-      fetchStatus();
-      return;
+    // Start: bring up WG first, then GC
+    if (!_wgRunning) {
+      showOutput('Starting WireGuard...');
+      const r1 = await fetch('/api/wg/start', {method: 'POST'});
+      const d1 = await r1.json();
+      if (!d1.ok) {
+        showOutput('Failed to start WireGuard: ' + (d1.output || 'unknown error'));
+        btn.disabled = false;
+        fetchStatus();
+        return;
+      }
     }
-    showOutput('WireGuard started. Syncing devices and starting Gatecrash...');
+    showOutput('Syncing devices and starting Gatecrash...');
     const r2 = await fetch('/api/saved-devices/sync', {method: 'POST'});
     const d2 = await r2.json();
     showOutput(d2.ok ? `Started with ${d2.active_ips.length} device(s).` : 'Gatecrash failed: ' + (d2.output || 'unknown error'));
@@ -1988,10 +1988,9 @@ function hasEnabledDevices() {
 function updateMasterButton() {
   const btn = document.getElementById('btn-power');
   if (!btn) return;
-  const anyRunning = _gcRunning || _wgRunning;
   const hasDevices = hasEnabledDevices();
 
-  if (anyRunning) {
+  if (_gcRunning) {
     btn.disabled = false;
     btn.className = 'tab-power-btn running';
     btn.title = 'Stop Gatecrash';
@@ -2769,3 +2768,4 @@ if ('serviceWorker' in navigator) {
 
 </body>
 </html>
+  
