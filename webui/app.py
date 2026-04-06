@@ -3,6 +3,8 @@
 
 import hashlib
 import ipaddress
+import logging
+import logging.handlers
 import os
 import re
 import json
@@ -15,6 +17,23 @@ from datetime import timedelta
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context, session, redirect
 
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Audit log — persistent file log for service actions, auth events, etc.
+# ---------------------------------------------------------------------------
+
+LOG_PATH = "/var/log/gatecrash.log"
+
+audit_log = logging.getLogger("gatecrash.audit")
+audit_log.setLevel(logging.INFO)
+_log_handler = logging.handlers.RotatingFileHandler(
+    LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3,  # 2 MB, keep 3 old files
+)
+_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s  %(levelname)-5s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+))
+audit_log.addHandler(_log_handler)
+audit_log.info("Web UI started (PID %d)", os.getpid())
 
 # ---------------------------------------------------------------------------
 # Authentication — session-based login with password stored on disk
@@ -339,10 +358,13 @@ def ip_watch_loop():
             if changed:
                 save_devices(devices)
                 # Rebuild TARGET_IPS and restart Gatecrash
-                sync_targets_from_devices()
-                run("systemctl restart gatecrash 2>&1", timeout=30)
-        except Exception:
-            pass
+                new_ips = sync_targets_from_devices()
+                audit_log.info("SERVICE  IP watchdog detected IP change — restarting Gatecrash (targets: %s)", new_ips)
+                out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+                if rc != 0:
+                    audit_log.error("SERVICE  Gatecrash restart FAILED after IP change: %s", out)
+        except Exception as e:
+            audit_log.error("SERVICE  IP watchdog error: %s", e)
 
 
 def ensure_ip_watch():
@@ -395,7 +417,9 @@ def _trigger_upgrade(repo):
     try:
         repo = _valid_repo(repo)
     except ValueError:
+        audit_log.error("UPGRADE  Refused upgrade — unsafe repo path: %s", repo)
         return  # refuse to run upgrade with unsafe repo path
+    audit_log.info("UPGRADE  Upgrade triggered from repo %s", repo)
     upgrade_script = f"""#!/bin/bash
 > /var/log/gatecrash-upgrade.log
 sleep 1
@@ -450,6 +474,7 @@ def run_update_check():
             "error":          None,
         }
     if behind > 0 and load_update_settings().get("auto_update"):
+        audit_log.info("UPGRADE  Auto-update triggered (%d commits behind, remote %s)", behind, remote_ver.strip())
         _trigger_upgrade(repo)
 
 
@@ -595,6 +620,7 @@ def api_setup_auth():
         # Automatically log in so the page loads immediately after setup
         session["authenticated"] = True
         session.permanent = True
+        audit_log.info("AUTH  Initial password configured from %s", request.remote_addr)
         return jsonify({"ok": True})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
@@ -609,13 +635,16 @@ def api_login():
     if hashlib.sha256(password.encode()).hexdigest() == hashlib.sha256(stored.encode()).hexdigest():
         session["authenticated"] = True
         session.permanent = True
+        audit_log.info("AUTH  Login succeeded from %s", request.remote_addr)
         return jsonify({"ok": True})
+    audit_log.warning("AUTH  Login FAILED from %s", request.remote_addr)
     return jsonify({"ok": False, "error": "Incorrect password"})
 
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
     session.clear()
+    audit_log.info("AUTH  Logout from %s", request.remote_addr)
     return jsonify({"ok": True})
 
 
@@ -628,6 +657,7 @@ def api_change_password():
     current  = data.get("current", "")
     new_pw   = data.get("new", "")
     if hashlib.sha256(current.encode()).hexdigest() != hashlib.sha256(stored.encode()).hexdigest():
+        audit_log.warning("AUTH  Password change FAILED (wrong current password) from %s", request.remote_addr)
         return jsonify({"ok": False, "error": "Current password is incorrect"})
     if len(new_pw) < 8:
         return jsonify({"ok": False, "error": "New password must be at least 8 characters"})
@@ -635,6 +665,7 @@ def api_change_password():
         with open(WEBUI_TOKEN_PATH, "w") as f:
             f.write(new_pw)
         os.chmod(WEBUI_TOKEN_PATH, 0o600)
+        audit_log.info("AUTH  Password changed from %s", request.remote_addr)
         return jsonify({"ok": True})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
@@ -648,6 +679,7 @@ def api_factory_reset():
         if hashlib.sha256(password.encode()).hexdigest() != hashlib.sha256(stored.encode()).hexdigest():
             return jsonify({"ok": False, "error": "Incorrect password"})
     # Stop running services before wiping config
+    audit_log.warning("SYSTEM  Factory reset initiated from %s", request.remote_addr)
     run("systemctl stop gatecrash 2>/dev/null", timeout=10)
     run("wg-quick down wg0 2>/dev/null", timeout=10)
     # Delete all user data and credentials
@@ -711,22 +743,31 @@ def api_status():
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
+    audit_log.info("SERVICE  Gatecrash START requested from %s", request.remote_addr)
     out, rc = run("systemctl start gatecrash 2>&1", timeout=30)
     if rc == 0:
         _record_service_state("gatecrash", True)
+        audit_log.info("SERVICE  Gatecrash started successfully")
+    else:
+        audit_log.error("SERVICE  Gatecrash start FAILED: %s", out)
     return jsonify({"ok": rc == 0, "output": out})
 
 
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
+    audit_log.info("SERVICE  Gatecrash STOP requested from %s", request.remote_addr)
     out, rc = run("systemctl stop gatecrash 2>&1", timeout=30)
     if rc == 0:
         _record_service_state("gatecrash", False)
+        audit_log.info("SERVICE  Gatecrash stopped successfully")
+    else:
+        audit_log.error("SERVICE  Gatecrash stop FAILED: %s", out)
     return jsonify({"ok": rc == 0, "output": out})
 
 
 @app.route("/api/wg/start", methods=["POST"])
 def api_wg_start():
+    audit_log.info("SERVICE  WireGuard START requested from %s", request.remote_addr)
     out, rc = run("wg-quick up wg0 2>&1", timeout=20)
     # Restore vpntarget VPN route (wg-quick wipes it on down/up)
     conf = read_conf()
@@ -737,14 +778,21 @@ def api_wg_start():
         pass  # invalid table name — skip route restore
     if rc == 0:
         _record_service_state("wg", True)
+        audit_log.info("SERVICE  WireGuard started successfully")
+    else:
+        audit_log.error("SERVICE  WireGuard start FAILED: %s", out)
     return jsonify({"ok": rc == 0, "output": out})
 
 
 @app.route("/api/wg/stop", methods=["POST"])
 def api_wg_stop():
+    audit_log.info("SERVICE  WireGuard STOP requested from %s", request.remote_addr)
     out, rc = run("wg-quick down wg0 2>&1", timeout=20)
     if rc == 0:
         _record_service_state("wg", False)
+        audit_log.info("SERVICE  WireGuard stopped successfully")
+    else:
+        audit_log.error("SERVICE  WireGuard stop FAILED: %s", out)
     return jsonify({"ok": rc == 0, "output": out})
 
 
@@ -776,15 +824,18 @@ def api_autostart():
             state["wg_running"] = wg_out.strip() == "active"
             state["gc_running"] = gc_out.strip() == "active"
         _write_boot_state(state)
+        audit_log.info("CONFIG  Boot mode changed to '%s' from %s", new_mode, request.remote_addr)
         results["mode"] = new_mode
     if "wg" in data:
         cmd = "enable" if data["wg"] else "disable"
         _, rc = run(f"systemctl {cmd} wg-quick@wg0 2>&1")
         results["wg"] = rc == 0
+        audit_log.info("CONFIG  WireGuard autostart %sd from %s", cmd, request.remote_addr)
     if "gatecrash" in data:
         cmd = "enable" if data["gatecrash"] else "disable"
         _, rc = run(f"systemctl {cmd} gatecrash 2>&1")
         results["gatecrash"] = rc == 0
+        audit_log.info("CONFIG  Gatecrash autostart %sd from %s", cmd, request.remote_addr)
     return jsonify({"ok": True, "results": results})
 
 
@@ -822,6 +873,7 @@ def parse_nmap_devices(output):
 @app.route("/api/devices/scan-stream")
 def api_devices_scan_stream():
     """SSE stream of nmap scan output, followed by parsed device list."""
+    audit_log.info("SCAN  Device scan started from %s", request.remote_addr)
     conf = read_conf()
     try:
         lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
@@ -929,6 +981,11 @@ def api_save_device():
         })
 
     save_devices(devices)
+    nick = data.get("nickname", "")
+    if existing:
+        audit_log.info("DEVICE  Updated %s (%s) from %s", mac, nick, request.remote_addr)
+    else:
+        audit_log.info("DEVICE  Saved new device %s (%s) from %s", mac, nick, request.remote_addr)
     return jsonify({"ok": True, "devices": devices})
 
 
@@ -938,6 +995,7 @@ def api_delete_device():
     mac = request.json.get("mac", "").lower().strip()
     devices = [d for d in load_devices() if d["mac"] != mac]
     save_devices(devices)
+    audit_log.info("DEVICE  Deleted %s from %s", mac, request.remote_addr)
     return jsonify({"ok": True, "devices": devices})
 
 
@@ -945,8 +1003,14 @@ def api_delete_device():
 def api_sync_devices():
     """Sync enabled saved devices → TARGET_IPS in config, then restart Gatecrash."""
     active_ips = sync_targets_from_devices()
+    audit_log.info("DEVICE  Synced targets → %s, restarting Gatecrash from %s",
+                   active_ips or "(none)", request.remote_addr)
     # Restart Gatecrash to apply new targets
     out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+    if rc == 0:
+        audit_log.info("SERVICE  Gatecrash restarted after device sync")
+    else:
+        audit_log.error("SERVICE  Gatecrash restart FAILED after device sync: %s", out)
     return jsonify({"ok": rc == 0, "active_ips": active_ips, "output": out})
 
 
@@ -1088,12 +1152,14 @@ def api_diagnostics():
 
 @app.route("/api/reboot", methods=["POST"])
 def api_reboot():
+    audit_log.warning("SYSTEM  Reboot requested from %s", request.remote_addr)
     subprocess.Popen(["shutdown", "-r", "now"])
     return jsonify({"ok": True})
 
 
 @app.route("/api/shutdown", methods=["POST"])
 def api_shutdown():
+    audit_log.warning("SYSTEM  Shutdown requested from %s", request.remote_addr)
     subprocess.Popen(["shutdown", "-h", "now"])
     return jsonify({"ok": True})
 
@@ -1138,6 +1204,8 @@ def api_config():
         if gw.strip():
             data["GATEWAY_IP"] = gw.strip()
         write_conf(data)
+        audit_log.info("CONFIG  Configuration updated from %s: %s", request.remote_addr,
+                       {k: v for k, v in data.items()})
         return jsonify({"ok": True})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
@@ -1156,6 +1224,7 @@ def api_wg_config():
         with open(WG_CONF_PATH, "w") as f:
             f.write(content)
         os.chmod(WG_CONF_PATH, 0o600)
+        audit_log.info("CONFIG  WireGuard config updated from %s", request.remote_addr)
         return jsonify({"ok": True})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
@@ -1237,6 +1306,7 @@ def api_wg_config_upload():
         with open(WG_CONF_PATH, "w") as f:
             f.write(final_content)
         os.chmod(WG_CONF_PATH, 0o600)
+        audit_log.info("CONFIG  WireGuard config uploaded from %s (fixes: %s)", request.remote_addr, fixes)
         return jsonify({"ok": True, "fixes": fixes})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error", "fixes": []})
@@ -1294,8 +1364,27 @@ def api_update_apply():
     repo = get_repo_path()
     if not repo:
         return jsonify({"ok": False, "error": "Repo path not set — re-run setup.sh"})
+    audit_log.info("UPGRADE  Update apply requested from %s", request.remote_addr)
     _trigger_upgrade(repo)
     return jsonify({"ok": True})
+
+
+@app.route("/api/audit-log")
+def api_audit_log():
+    """Return the last N lines of the audit log."""
+    try:
+        lines_requested = min(int(request.args.get("lines", 200)), 1000)
+    except (ValueError, TypeError):
+        lines_requested = 200
+    try:
+        with open(LOG_PATH) as f:
+            all_lines = f.readlines()
+        tail = all_lines[-lines_requested:]
+        return jsonify({"ok": True, "lines": [l.rstrip() for l in tail]})
+    except FileNotFoundError:
+        return jsonify({"ok": True, "lines": []})
+    except Exception:
+        return jsonify({"ok": False, "error": "Internal error"})
 
 
 if __name__ == "__main__":

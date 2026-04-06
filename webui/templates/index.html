@@ -1297,6 +1297,20 @@ document.getElementById('login-pw').focus();
     <div style="font-size:12px;color:#999;margin-top:8px;">To change the VPN config, go to Config &gt; VPN Config (WireGuard) and upload a new file.</div>
   </div>
 
+  <!-- Audit Log -->
+  <div class="card full-width">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      Audit Log
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:12px;font-weight:400;color:#aaa;display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="audit-log-auto" checked onchange="_auditAutoScroll=this.checked"> Auto-scroll
+        </label>
+        <button class="btn-grey" onclick="loadAuditLog()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
+      </div>
+    </h2>
+    <div id="audit-log-box" style="font-family:monospace;font-size:11px;background:var(--bg-subtle);color:var(--text-primary);border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;max-height:300px;overflow-y:auto;line-height:1.5;">Loading...</div>
+  </div>
+
   <!-- DNS Log -->
   <div class="card full-width">
     <h2 style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
@@ -2208,6 +2222,29 @@ async function loadDiagnostics() {
       el.style.color = '#999';
     }
   } catch(e) {}
+
+  // Load audit log when diagnostics tab refreshes
+  loadAuditLog();
+}
+
+var _auditAutoScroll = true;
+
+async function loadAuditLog() {
+  try {
+    const r = await fetch('/api/audit-log?lines=200');
+    const d = await r.json();
+    const box = document.getElementById('audit-log-box');
+    if (d.ok && d.lines.length) {
+      box.textContent = d.lines.join('\n');
+      if (_auditAutoScroll) box.scrollTop = box.scrollHeight;
+    } else if (d.ok) {
+      box.textContent = '(no log entries yet)';
+    } else {
+      box.textContent = 'Error loading log';
+    }
+  } catch(e) {
+    document.getElementById('audit-log-box').textContent = 'Error loading log';
+  }
 }
 
 async function loadAutostart() {
