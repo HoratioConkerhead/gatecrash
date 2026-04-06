@@ -178,6 +178,12 @@ def run(cmd, timeout=15):
         return str(e), 1
 
 
+def _detect_gateway():
+    """Return the default gateway IP from the routing table, or empty string."""
+    gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
+    return gw.strip()
+
+
 # ---------------------------------------------------------------------------
 # Input validators — guard against injection via config values in shell strings
 # ---------------------------------------------------------------------------
@@ -250,9 +256,9 @@ def read_conf():
 def write_conf(data):
     # Ensure GATEWAY_IP is never written empty
     if not data.get("GATEWAY_IP"):
-        gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
-        if gw.strip():
-            data["GATEWAY_IP"] = gw.strip()
+        gw = _detect_gateway()
+        if gw:
+            data["GATEWAY_IP"] = gw
     lines = [f'{k}="{v}"' for k, v in data.items()]
     with open(CONF_PATH, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -369,7 +375,7 @@ def ip_watch_loop():
                 out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
                 if rc == 0:
                     _record_service_state("gatecrash", True)
-                if rc != 0:
+                else:
                     audit_log.error("SERVICE  Gatecrash restart FAILED after IP change: %s", out)
         except Exception as e:
             audit_log.error("SERVICE  IP watchdog error: %s", e)
@@ -1025,8 +1031,8 @@ def api_sync_devices():
 
 @app.route("/api/gateway")
 def api_gateway():
-    gw, rc = run("ip route show default | awk '/default/ {print $3}' | head -1")
-    return jsonify({"ok": rc == 0, "gateway": gw.strip()})
+    gw = _detect_gateway()
+    return jsonify({"ok": bool(gw), "gateway": gw})
 
 
 @app.route("/api/diagnostics/dump")
@@ -1142,15 +1148,12 @@ def api_diagnostics():
     # Hostname
     hostname_out, _ = run("hostname 2>/dev/null")
 
-    # Gateway
-    gw_out, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
-
     return jsonify({
         "lan_if": lan_if,
         "lan_mac": mac,
         "lan_ip": lan_ip,
         "hostname": hostname_out.strip(),
-        "gateway": gw_out.strip(),
+        "gateway": _detect_gateway(),
         "arpspoof_procs": arps,
         "iptables_mangle": ipt_out.strip(),
         "ip_rules": iprules_out.strip(),
@@ -1184,8 +1187,7 @@ def api_config():
     if request.method == "GET":
         conf = read_conf()
         # Always inject the live detected gateway
-        gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
-        conf["GATEWAY_IP"] = gw.strip() or conf.get("GATEWAY_IP", "")
+        conf["GATEWAY_IP"] = _detect_gateway() or conf.get("GATEWAY_IP", "")
         return jsonify(conf)
     try:
         data = request.json
@@ -1209,12 +1211,11 @@ def api_config():
         if errors:
             return jsonify({"ok": False, "error": "; ".join(errors)}), 400
         # Refresh gateway from routing table before saving
-        gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
-        if gw.strip():
-            data["GATEWAY_IP"] = gw.strip()
+        gw = _detect_gateway()
+        if gw:
+            data["GATEWAY_IP"] = gw
         write_conf(data)
-        audit_log.info("CONFIG  Configuration updated from %s: %s", request.remote_addr,
-                       {k: v for k, v in data.items()})
+        audit_log.info("CONFIG  Configuration updated from %s: %s", request.remote_addr, data)
         return jsonify({"ok": True})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
@@ -1387,8 +1388,7 @@ def api_audit_log():
         lines_requested = 200
     try:
         with open(LOG_PATH) as f:
-            all_lines = f.readlines()
-        tail = all_lines[-lines_requested:]
+            tail = deque(f, maxlen=lines_requested)
         return jsonify({"ok": True, "lines": [l.rstrip() for l in tail]})
     except FileNotFoundError:
         return jsonify({"ok": True, "lines": []})

@@ -4,10 +4,9 @@
 set -euo pipefail
 
 CONF="/opt/gatecrash/gatecrash.conf"
-LOG="/var/log/gatecrash.log"
 
-# Append a timestamped line to the shared audit log
-log() { printf '%s  %-5s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG"; }
+# shellcheck source=log.sh
+source "$(dirname "$0")/log.sh"
 
 log INFO "SERVICE  stop.sh invoked (PID $$, PPID $PPID)"
 

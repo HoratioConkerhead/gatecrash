@@ -2222,8 +2222,8 @@ async function loadDiagnostics() {
     }
   } catch(e) {}
 
-  // Load audit log when diagnostics tab refreshes
-  loadAuditLog();
+  // Load audit log only when diagnostics tab is visible
+  if (_activeTab === 'diagnostics') loadAuditLog();
 }
 
 var _auditAutoScroll = true;
