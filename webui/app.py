@@ -33,6 +33,7 @@ _log_handler.setFormatter(logging.Formatter(
     "%(asctime)s  %(levelname)-5s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 ))
 audit_log.addHandler(_log_handler)
+audit_log.info("――――――――――――――――――――――――――――――――――――――――――――――――――――――――――")
 audit_log.info("Web UI started (PID %d)", os.getpid())
 
 # ---------------------------------------------------------------------------

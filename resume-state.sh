@@ -7,17 +7,19 @@ LOG="/var/log/gatecrash.log"
 
 log() { printf '%s  %-5s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG"; }
 
+log INFO "――――――――――――――――――――――――――――――――――――――――――――――――――――――――――"
+
 if [ ! -f "$STATE_FILE" ]; then
     exit 0
 fi
 
 MODE=$(python3 -c "import json; print(json.load(open('$STATE_FILE')).get('mode',''))" 2>/dev/null)
 if [ "$MODE" != "resume" ]; then
-    log INFO "SERVICE resume-state.sh: invoked (boot mode: noresume)"
+    log INFO "SERVICE  resume-state.sh: boot mode is not resume, skipping"
     exit 0
 fi
 
-log INFO "SERVICE resume-state.sh: invoked (boot mode: resume)"
+log INFO "SERVICE  resume-state.sh: invoked (boot mode: resume)"
 
 WG_RUNNING=$(python3 -c "import json; print(str(json.load(open('$STATE_FILE')).get('wg_running', False)).lower())" 2>/dev/null)
 GC_RUNNING=$(python3 -c "import json; print(str(json.load(open('$STATE_FILE')).get('gc_running', False)).lower())" 2>/dev/null)

@@ -2734,6 +2734,11 @@ loadSavedDevices();
 initThemeUI();
 initPwaButton();
 
+// Clean ?upgraded= from URL bar after cache-bust reload
+if (window.location.search.includes('upgraded')) {
+  history.replaceState(null, '', '/');
+}
+
 // Service worker
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/static/sw.js').catch(() => {});
