@@ -49,6 +49,7 @@ fi
 # When wg0 goes down, Linux removes its route automatically → traffic falls
 # back to the real gateway. When wg0 comes back, it wins again.
 
+log INFO "SERVICE  Policy routing setup (GW=$GATEWAY_IP LAN=$LAN_IF RT=$ROUTE_TABLE VPN=$VPN_IF)"
 if ip link show "$VPN_IF" &>/dev/null; then
     ip route replace default dev "$VPN_IF" table "$ROUTE_TABLE" metric 100
     echo "  vpntarget: VPN route via $VPN_IF (metric 100)"
@@ -56,6 +57,7 @@ else
     echo "  vpntarget: $VPN_IF not up — VPN route skipped"
 fi
 
+log INFO "SERVICE  Adding fallback route"
 ip route replace default via "$GATEWAY_IP" dev "$LAN_IF" table "$ROUTE_TABLE" metric 200
 echo "  vpntarget: fallback route via $GATEWAY_IP (metric 200)"
 
