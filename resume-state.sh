@@ -35,5 +35,5 @@ if [ "$GC_RUNNING" = "true" ]; then
     log INFO "SERVICE resume-state.sh: Resuming Gatecrash (was running before shutdown)"
     systemctl start gatecrash 2>&1 || true
 else
-    log INFO "SERVICE resume-state.sh: Gatecrash was not running before shutdown, skipping
+    log INFO "SERVICE resume-state.sh: Gatecrash was not running before shutdown, skipping"
 fi
