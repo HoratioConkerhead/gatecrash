@@ -19,8 +19,8 @@ fi
 
 log INFO "SERVICE resume-state.sh: invoked (boot mode: resume)"
 
-WG_RUNNING=$(python3 -c "import json; print(json.load(open('$STATE_FILE')).get('wg_running', False))" 2>/dev/null)
-GC_RUNNING=$(python3 -c "import json; print(json.load(open('$STATE_FILE')).get('gc_running', False))" 2>/dev/null)
+WG_RUNNING=$(python3 -c "import json; print(str(json.load(open('$STATE_FILE')).get('wg_running', False)).lower())" 2>/dev/null)
+GC_RUNNING=$(python3 -c "import json; print(str(json.load(open('$STATE_FILE')).get('gc_running', False)).lower())" 2>/dev/null)
 
 if [ "$WG_RUNNING" = "true" ]; then
     echo "Resuming WireGuard..."

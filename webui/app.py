@@ -366,6 +366,8 @@ def ip_watch_loop():
                 new_ips = sync_targets_from_devices()
                 audit_log.info("SERVICE  IP watchdog detected IP change — restarting Gatecrash (targets: %s)", new_ips)
                 out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+                if rc == 0:
+                    _record_service_state("gatecrash", True)
                 if rc != 0:
                     audit_log.error("SERVICE  Gatecrash restart FAILED after IP change: %s", out)
         except Exception as e:
@@ -1013,6 +1015,7 @@ def api_sync_devices():
     # Restart Gatecrash to apply new targets
     out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
     if rc == 0:
+        _record_service_state("gatecrash", True)
         audit_log.info("SERVICE  Gatecrash restarted after device sync")
     else:
         audit_log.error("SERVICE  Gatecrash restart FAILED after device sync: %s", out)
