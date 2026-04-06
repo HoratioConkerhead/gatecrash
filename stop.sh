@@ -58,13 +58,14 @@ ip route del default via "$GATEWAY_IP" dev "$LAN_IF" table "$ROUTE_TABLE" 2>/dev
 # and will be needed again on next start.
 
 # ---------------------------------------------------------------------------
-# 4. WireGuard
+# 4. WireGuard — leave alone
 # ---------------------------------------------------------------------------
+# WireGuard is managed independently. Stopping Gatecrash should not kill
+# the VPN tunnel — the user may want it up for other reasons, or may
+# restart Gatecrash without a WireGuard interruption.
 
 if ip link show "$VPN_IF" &>/dev/null; then
-    wg-quick down "$VPN_IF" && echo "  WireGuard ($VPN_IF) down." \
-        || echo "  wg-quick down failed — check manually."
-    log INFO "SERVICE  WireGuard ($VPN_IF) taken down by stop.sh"
+    echo "  WireGuard ($VPN_IF) is still up (managed separately)."
 else
     echo "  WireGuard ($VPN_IF) was not up."
 fi

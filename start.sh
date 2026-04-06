@@ -24,15 +24,20 @@ fi
 source "$CONF"
 
 # ---------------------------------------------------------------------------
-# 1. WireGuard
+# 1. WireGuard — check only, do NOT bring up
 # ---------------------------------------------------------------------------
+# WireGuard is managed independently (web UI / wg-quick@wg0 service).
+# Gatecrash works with or without it: when wg0 is up the VPN route wins
+# (metric 100); when it's down, traffic falls back to the real gateway
+# (metric 200). This avoids start.sh undoing a deliberate WireGuard stop.
 
-if ! ip link show "$VPN_IF" &>/dev/null; then
-    echo "Bringing up WireGuard ($VPN_IF)..."
-    wg-quick up "$VPN_IF"
-    log INFO "SERVICE  WireGuard ($VPN_IF) brought up by start.sh"
+if ip link show "$VPN_IF" &>/dev/null; then
+    echo "WireGuard ($VPN_IF) is up — VPN routing will be active."
+    log INFO "SERVICE  WireGuard ($VPN_IF) is up"
 else
-    echo "WireGuard ($VPN_IF) already up."
+    echo "WireGuard ($VPN_IF) is NOT up — targets will use direct connection."
+    echo "  Start WireGuard separately if VPN routing is needed."
+    log INFO "SERVICE  WireGuard ($VPN_IF) is not up — proceeding without VPN"
 fi
 
 # ---------------------------------------------------------------------------
@@ -69,6 +74,7 @@ fi
 # Flushing is safe because Gatecrash owns these chains — no other service uses
 # mangle PREROUTING/FORWARD or nat PREROUTING/POSTROUTING on this box.
 
+log INFO "SERVICE  Flushing iptables rules"
 echo "Flushing iptables rules and connection tracking..."
 iptables -t mangle -F PREROUTING
 iptables -t mangle -F FORWARD
@@ -82,6 +88,7 @@ echo "  [OK] iptables and conntrack flushed."
 # 4. Global iptables rules
 # ---------------------------------------------------------------------------
 
+log INFO "SERVICE  Adding global iptables rules"
 iptables -t mangle -A FORWARD -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 iptables -t nat -A POSTROUTING -o "$VPN_IF" -j MASQUERADE
 
@@ -89,6 +96,7 @@ iptables -t nat -A POSTROUTING -o "$VPN_IF" -j MASQUERADE
 # 5. Per-target rules and ARP spoofing
 # ---------------------------------------------------------------------------
 
+log INFO "SERVICE  Activating per-target rules for: ${TARGET_IPS:-(none)}"
 for ip in $TARGET_IPS; do
     echo "Activating target: $ip"
 
