@@ -1143,10 +1143,21 @@ def api_save_device():
 
     save_devices(devices)
     nick = data.get("nickname", "")
+    # Log what actually changed
+    changes = []
+    if "enabled" in data:
+        changes.append("enabled=%s" % data["enabled"])
+    if "nickname" in data:
+        changes.append("nickname=%r" % data["nickname"])
+    if "auto_stop" in data:
+        changes.append("auto_stop=%s" % data["auto_stop"])
+    if "ip" in data:
+        changes.append("ip=%s" % data["ip"])
+    detail = ", ".join(changes) if changes else "saved"
     if existing:
-        audit_log.info("DEVICE  Updated %s (%s) from %s", mac, nick, request.remote_addr)
+        audit_log.info("DEVICE  %s (%s): %s [from %s]", mac, nick, detail, request.remote_addr)
     else:
-        audit_log.info("DEVICE  Saved new device %s (%s) from %s", mac, nick, request.remote_addr)
+        audit_log.info("DEVICE  New %s (%s): %s [from %s]", mac, nick, detail, request.remote_addr)
     return jsonify({"ok": True, "devices": devices})
 
 
