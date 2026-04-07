@@ -615,6 +615,15 @@ def _traffic_watch_loop():
                     delta = current_bytes  # counter reset (iptables flush)
                 state["last_bytes"] = current_bytes
 
+                mb = current_bytes / (1024 * 1024)
+                idle_since = state["idle_since"]
+                idle_min = (now - idle_since) / 60 if idle_since else 0
+                nick = dev.get("nickname") or dev.get("mac", "?")
+                audit_log.info(
+                    "AUTO-STOP  %s (%s): %.2f MB total, delta %d B, idle %.1f min",
+                    ip, nick, mb, delta, idle_min,
+                )
+
                 if delta < threshold_bytes:
                     if state["idle_since"] is None:
                         state["idle_since"] = now

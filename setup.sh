@@ -94,7 +94,7 @@ mkdir -p "$INSTALL_DIR"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-for script in start.sh stop.sh; do
+for script in start.sh stop.sh log.sh; do
     if [[ -f "$SCRIPT_DIR/$script" ]]; then
         cp "$SCRIPT_DIR/$script" "$INSTALL_DIR/$script"
         chmod 750 "$INSTALL_DIR/$script"
