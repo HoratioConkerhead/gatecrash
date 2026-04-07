@@ -1074,6 +1074,49 @@ document.getElementById('login-pw').focus();
     </div>
   </div>
 
+  <!-- Auto-Stop -->
+  <div class="card">
+    <h2>Auto-Stop</h2>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5;">
+      Automatically disable idle devices after a period of low traffic (e.g. user stopped streaming and went to bed).
+      Devices can be exempted individually.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Enable auto-stop
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Monitor traffic and disable idle devices</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="as-enabled" onchange="saveAutoStopSettings()">
+          <div class="track"></div><div class="knob"></div>
+        </label>
+      </div>
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Traffic threshold
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">KB/min — streaming is typically 5,000+</div>
+        </div>
+        <input type="number" id="as-threshold" min="1" max="10000" value="50" style="width:80px;border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;background:var(--input-bg);color:var(--text-primary);font-size:14px;" onchange="saveAutoStopSettings()">
+      </div>
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Idle timeout
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Minutes below threshold before disabling</div>
+        </div>
+        <input type="number" id="as-idle-timeout" min="1" max="1440" value="30" style="width:80px;border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;background:var(--input-bg);color:var(--text-primary);font-size:14px;" onchange="saveAutoStopSettings()">
+      </div>
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Minimum active time
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Don't auto-stop recently enabled devices</div>
+        </div>
+        <input type="number" id="as-min-active" min="0" max="1440" value="5" style="width:80px;border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;background:var(--input-bg);color:var(--text-primary);font-size:14px;" onchange="saveAutoStopSettings()">
+      </div>
+      <div class="save-status" id="as-status"></div>
+    </div>
+  </div>
+
   <!-- Appearance -->
   <div class="card">
     <h2>Appearance</h2>
@@ -1386,11 +1429,29 @@ document.getElementById('login-pw').focus();
   </div>
 
   <div class="card">
+    <h2>Auto-Stop</h2>
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;">
+      <p style="margin-bottom:10px;">Auto-stop monitors traffic for each enabled device. If a device drops below the traffic threshold for longer than the idle timeout, it is automatically disabled — useful for devices left on overnight after streaming.</p>
+      <p style="margin-bottom:10px;">Configure global settings in <strong>Config → Auto-Stop</strong>. You can exempt individual devices from auto-stop in the device info popup (tap the <strong>i</strong> button on any saved device).</p>
+      <p>Auto-stopped devices show as disabled in the device list. Just re-enable them to start routing again.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Audit Log</h2>
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;">
+      <p style="margin-bottom:10px;">All service actions are logged to <code>/var/log/gatecrash.log</code> and visible on the <strong>Diagnostics</strong> tab. This includes service start/stop, login attempts, device changes, config updates, reboots, and auto-stop events.</p>
+      <p>The log auto-refreshes every 10 seconds and rotates at 2 MB.</p>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Troubleshooting</h2>
     <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;">
       <p style="margin-bottom:8px;"><strong>Devices not routing through VPN?</strong> Check the Diagnostics tab — confirm arpspoof processes are running and the vpntarget route is present.</p>
       <p style="margin-bottom:8px;"><strong>ARP spoofing not working?</strong> On a client device, run <code>arp -a</code> (Windows) or <code>arp -n</code> (Mac/Linux) and check that the router's IP shows Gatecrash's MAC address.</p>
-      <p><strong>WireGuard won't start?</strong> Check your <code>.conf</code> file has a valid <code>PrivateKey</code> and <code>Endpoint</code>.</p>
+      <p style="margin-bottom:8px;"><strong>WireGuard won't start?</strong> Check your <code>.conf</code> file has a valid <code>PrivateKey</code> and <code>Endpoint</code>.</p>
+      <p><strong>Something restarting unexpectedly?</strong> Check the audit log on the Diagnostics tab — it shows exactly what triggered each start/stop, including systemd restarts and IP watchdog events.</p>
     </div>
   </div>
 
@@ -1430,6 +1491,11 @@ document.getElementById('login-pw').focus();
         <span style="color:#888;">Hostname</span><span id="di-hostname">—</span>
         <span style="color:#888;">IP Address</span><span id="di-ip" style="font-family:monospace;">—</span>
         <span style="color:#888;">MAC Address</span><span id="di-mac" style="font-family:monospace;">—</span>
+        <span style="color:#888;">Auto-stop</span>
+        <label class="toggle" style="justify-self:start;">
+          <input type="checkbox" id="di-auto-stop" onchange="toggleDeviceAutoStop(this.checked)">
+          <div class="track"></div><div class="knob"></div>
+        </label>
       </div>
     </div>
     <div class="modal-footer">
@@ -1542,6 +1608,7 @@ function switchTab(name, btn) {
     loadManualWGFields();
     loadAutostart();
     loadUpdateSettings();
+    loadAutoStopSettings();
   } else if (name === 'diagnostics') {
     loadDiagnostics();
   }
@@ -1918,15 +1985,31 @@ function renderSavedDevices() {
   updateMasterButton();
 }
 
+var _deviceInfoIdx = -1;
+
 function showDeviceInfo(idx) {
   const dev = _savedDevices[idx];
   if (!dev) return;
+  _deviceInfoIdx = idx;
   document.getElementById('device-info-title').textContent = dev.nickname || dev.ip || 'Device';
   document.getElementById('di-nick').textContent = dev.nickname || '—';
   document.getElementById('di-hostname').textContent = dev.hostname || dev.vendor || '—';
   document.getElementById('di-ip').textContent = dev.ip || '—';
   document.getElementById('di-mac').textContent = dev.mac || '—';
+  document.getElementById('di-auto-stop').checked = dev.auto_stop !== false;
   document.getElementById('device-info-modal').classList.add('open');
+}
+
+async function toggleDeviceAutoStop(enabled) {
+  const dev = _savedDevices[_deviceInfoIdx];
+  if (!dev) return;
+  const r = await fetch('/api/saved-devices', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac: dev.mac, auto_stop: enabled}),
+  });
+  const d = await r.json();
+  if (d.ok) _savedDevices = d.devices;
 }
 
 async function toggleDevice(mac, enabled, idx) {
@@ -2593,6 +2676,37 @@ async function saveUpdateSettings() {
     const el = document.getElementById('upd-status');
     el.className = 'save-status';
     el.textContent = '✓ Saved';
+    setTimeout(() => { el.textContent = ''; }, 3000);
+  } catch(e) {}
+}
+
+async function loadAutoStopSettings() {
+  try {
+    const r = await fetch('/api/auto-stop-settings');
+    const d = await r.json();
+    document.getElementById('as-enabled').checked       = !!d.enabled;
+    document.getElementById('as-threshold').value        = d.threshold_kb_min || 50;
+    document.getElementById('as-idle-timeout').value     = d.idle_timeout_min || 30;
+    document.getElementById('as-min-active').value       = d.min_active_min || 5;
+  } catch(e) {}
+}
+
+async function saveAutoStopSettings() {
+  const settings = {
+    enabled:          document.getElementById('as-enabled').checked,
+    threshold_kb_min: parseInt(document.getElementById('as-threshold').value) || 50,
+    idle_timeout_min: parseInt(document.getElementById('as-idle-timeout').value) || 30,
+    min_active_min:   parseInt(document.getElementById('as-min-active').value) || 5,
+  };
+  try {
+    await fetch('/api/auto-stop-settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(settings),
+    });
+    const el = document.getElementById('as-status');
+    el.className = 'save-status';
+    el.textContent = '\u2713 Saved';
     setTimeout(() => { el.textContent = ''; }, 3000);
   } catch(e) {}
 }

@@ -527,6 +527,140 @@ def ensure_update_check_thread():
 
 
 # ---------------------------------------------------------------------------
+# Auto-stop — disable idle devices after configurable timeout
+# ---------------------------------------------------------------------------
+
+AUTO_STOP_SETTINGS_FILE = "/opt/gatecrash/auto_stop_settings.json"
+
+_DEFAULT_AUTO_STOP_SETTINGS = {
+    "enabled":           False,
+    "threshold_kb_min":  50,      # KB/min — streaming is ~5-50 MB/min
+    "idle_timeout_min":  30,      # minutes below threshold before auto-stop
+    "min_active_min":    5,       # don't auto-stop within first N minutes
+}
+
+
+def load_auto_stop_settings():
+    try:
+        with open(AUTO_STOP_SETTINGS_FILE) as f:
+            return {**_DEFAULT_AUTO_STOP_SETTINGS, **json.load(f)}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_DEFAULT_AUTO_STOP_SETTINGS)
+
+
+def save_auto_stop_settings(settings):
+    with open(AUTO_STOP_SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+
+traffic_watch_started = False
+_traffic_state = {}  # {ip: {"last_bytes": int, "idle_since": float|None, "active_since": float}}
+
+
+def _parse_mangle_counters():
+    """Parse iptables mangle PREROUTING byte counters per source IP."""
+    out, rc = run("iptables -t mangle -L PREROUTING -n -v -x 2>/dev/null")
+    if rc != 0:
+        return {}
+    result = {}
+    for line in out.splitlines():
+        m = re.match(r'\s*\d+\s+(\d+)\s+MARK\s+.*?\s+(\d+\.\d+\.\d+\.\d+)\s+', line)
+        if m:
+            bytes_count = int(m.group(1))
+            ip = m.group(2)
+            result[ip] = result.get(ip, 0) + bytes_count
+    return result
+
+
+def _traffic_watch_loop():
+    import time
+    global _traffic_state
+    POLL_INTERVAL = 30
+
+    while True:
+        time.sleep(POLL_INTERVAL)
+        try:
+            settings = load_auto_stop_settings()
+            if not settings.get("enabled"):
+                _traffic_state = {}
+                continue
+
+            counters = _parse_mangle_counters()
+            now = time.time()
+            threshold_bytes = settings["threshold_kb_min"] * 1024 * (POLL_INTERVAL / 60.0)
+            idle_timeout_secs = settings["idle_timeout_min"] * 60
+            min_active_secs = settings["min_active_min"] * 60
+            devices = load_devices()
+
+            for dev in devices:
+                if not dev.get("enabled") or not dev.get("ip"):
+                    continue
+                if not dev.get("auto_stop", True):
+                    continue
+
+                ip = dev["ip"]
+                current_bytes = counters.get(ip, 0)
+                state = _traffic_state.get(ip)
+
+                if state is None:
+                    _traffic_state[ip] = {
+                        "last_bytes": current_bytes,
+                        "idle_since": None,
+                        "active_since": now,
+                    }
+                    continue
+
+                delta = current_bytes - state["last_bytes"]
+                if delta < 0:
+                    delta = current_bytes  # counter reset (iptables flush)
+                state["last_bytes"] = current_bytes
+
+                if delta < threshold_bytes:
+                    if state["idle_since"] is None:
+                        state["idle_since"] = now
+                    idle_dur = now - state["idle_since"]
+                    active_dur = now - state["active_since"]
+
+                    if idle_dur >= idle_timeout_secs and active_dur >= min_active_secs:
+                        audit_log.info(
+                            "AUTO-STOP  Device %s (%s) idle for %.0f min — disabling",
+                            ip, dev.get("nickname") or dev.get("mac", "?"),
+                            idle_dur / 60,
+                        )
+                        dev["enabled"] = False
+                        save_devices(devices)
+                        sync_targets_from_devices()
+                        out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+                        if rc == 0:
+                            _record_service_state("gatecrash", True)
+                        else:
+                            audit_log.error("AUTO-STOP  Gatecrash restart FAILED: %s", out)
+                        _traffic_state.pop(ip, None)
+                        break  # device list mutated — catch others next cycle
+                else:
+                    state["idle_since"] = None
+
+            # Clean stale entries
+            active_ips = {d["ip"] for d in devices if d.get("enabled") and d.get("ip")}
+            for ip in list(_traffic_state):
+                if ip not in active_ips:
+                    del _traffic_state[ip]
+
+        except Exception as e:
+            audit_log.error("AUTO-STOP  Traffic watch error: %s", e)
+
+
+def ensure_traffic_watch():
+    global traffic_watch_started
+    with _state_lock:
+        if traffic_watch_started:
+            return
+        traffic_watch_started = True
+    t = threading.Thread(target=_traffic_watch_loop, daemon=True)
+    t.start()
+
+
+# ---------------------------------------------------------------------------
 # Saved devices (MAC-based persistence)
 # ---------------------------------------------------------------------------
 
@@ -615,6 +749,7 @@ def index():
         ensure_dns_thread()
         ensure_ip_watch()
         ensure_update_check_thread()
+        ensure_traffic_watch()
     return render_template("index.html", version=get_version(),
                            setup_required=setup_required, login_required=login_required)
 
@@ -704,6 +839,7 @@ def api_factory_reset():
         WEBUI_TOKEN_PATH,
         SECRET_KEY_PATH,
         UPDATE_SETTINGS_FILE,
+        AUTO_STOP_SETTINGS_FILE,
         BOOT_STATE_FILE,
     ]:
         try:
@@ -993,6 +1129,8 @@ def api_save_device():
             existing["enabled"] = data["enabled"]
         if "hostname" in data:
             existing["hostname"] = data["hostname"]
+        if "auto_stop" in data:
+            existing["auto_stop"] = data["auto_stop"]
     else:
         devices.append({
             "mac": mac,
@@ -1000,6 +1138,7 @@ def api_save_device():
             "ip": data.get("ip", ""),
             "hostname": data.get("hostname", ""),
             "enabled": data.get("enabled", True),
+            "auto_stop": data.get("auto_stop", True),
         })
 
     save_devices(devices)
@@ -1365,6 +1504,23 @@ def api_save_update_settings():
         if key in data:
             settings[key] = data[key]
     save_update_settings(settings)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auto-stop-settings")
+def api_get_auto_stop_settings():
+    return jsonify(load_auto_stop_settings())
+
+
+@app.route("/api/auto-stop-settings", methods=["POST"])
+def api_save_auto_stop_settings():
+    data = request.json or {}
+    settings = load_auto_stop_settings()
+    for key in ("enabled", "threshold_kb_min", "idle_timeout_min", "min_active_min"):
+        if key in data:
+            settings[key] = data[key]
+    save_auto_stop_settings(settings)
+    audit_log.info("CONFIG  Auto-stop settings updated from %s: %s", request.remote_addr, settings)
     return jsonify({"ok": True})
 
 

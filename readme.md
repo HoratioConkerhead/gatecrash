@@ -327,12 +327,16 @@ After setup, the web UI is available at **http://gatecrash.local**. It provides:
 
 - **Status** — live indicators for Gatecrash and WireGuard
 - **Controls** — start/stop Gatecrash and WireGuard independently
+- **Device management** — scan the LAN, save devices by MAC, enable/disable per-device
+- **Auto-stop** — automatically disable idle devices after configurable timeout (e.g. user stopped streaming and went to bed)
 - **VPN Test** — checks your VPN exit IP through the tunnel
 - **Config editor** — set target IPs, gateway, and LAN interface
-- **WireGuard config editor** — paste your VPN provider's config
+- **WireGuard config** — upload/paste your VPN provider's config
 - **WireGuard stats** — endpoint, last handshake, bytes transferred
 - **DNS query log** — live view of DNS requests from target devices
+- **Audit log** — persistent log of all service actions, auth events, config changes (Diagnostics tab)
 - **Updates** — check for and apply updates from GitHub in one click
+- **PWA** — install as an app on iPhone, Android, or desktop
 
 ## Manual Setup
 
@@ -505,6 +509,25 @@ sudo iptables -t mangle -L PREROUTING -v -n
 
 On the target device, visit https://whatismyip.com — it should show the VPN
 exit IP, not your ISP's IP.
+
+## Auto-Stop (Idle Device Timeout)
+
+Gatecrash can automatically disable devices that have gone idle — useful for
+devices left on overnight after streaming.
+
+Enable it in **Config → Auto-Stop** in the web UI. Settings:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Traffic threshold | 50 KB/min | Below this = "idle" (streaming is typically 5,000+ KB/min) |
+| Idle timeout | 30 min | How long below threshold before disabling |
+| Minimum active time | 5 min | Don't auto-stop recently enabled devices |
+
+Individual devices can be exempted from auto-stop via the device info popup
+(tap the **i** button on any saved device).
+
+Auto-stopped devices appear as disabled in the device list. Re-enable them
+to start routing again. Events are logged to the audit log.
 
 ## Auto-Start on Boot
 
