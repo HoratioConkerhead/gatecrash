@@ -558,22 +558,23 @@ _traffic_state = {}  # {ip: {"last_bytes": int, "idle_since": float|None, "activ
 
 
 def _parse_mangle_counters():
-    """Parse per-device byte counters (upload + download) from conntrack."""
-    out, rc = run("conntrack -L -o extended 2>/dev/null")
+    """Parse per-device byte counters (upload + download) from iptables FORWARD chain."""
+    out, rc = run("iptables -L FORWARD -n -v -x 2>/dev/null")
     if rc != 0:
         return {}
     result = {}
     for line in out.splitlines():
-        # Each conntrack line has src=IP and bytes=N (twice: original + reply)
-        srcs = re.findall(r'src=(\d+\.\d+\.\d+\.\d+)', line)
-        byte_vals = re.findall(r'bytes=(\d+)', line)
-        if len(srcs) >= 2 and len(byte_vals) >= 2:
-            # original direction: src=device dst=remote bytes=upload
-            # reply direction:    src=remote dst=device bytes=download
-            device_ip = srcs[0]
-            upload = int(byte_vals[0])
-            download = int(byte_vals[1])
-            result[device_ip] = result.get(device_ip, 0) + upload + download
+        parts = line.split()
+        if len(parts) < 9 or parts[2] != "ACCEPT":
+            continue
+        bytes_val = int(parts[1])
+        src, dst = parts[7], parts[8]
+        # Upload rule: src=<device> dst=0.0.0.0/0
+        if src != "0.0.0.0/0" and dst == "0.0.0.0/0":
+            result[src] = result.get(src, 0) + bytes_val
+        # Download rule: src=0.0.0.0/0 dst=<device>
+        elif src == "0.0.0.0/0" and dst != "0.0.0.0/0":
+            result[dst] = result.get(dst, 0) + bytes_val
     return result
 
 
