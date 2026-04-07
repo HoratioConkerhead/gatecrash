@@ -1582,4 +1582,6 @@ def api_audit_log():
 
 if __name__ == "__main__":
     ensure_dns_thread()
+    ensure_ip_watch()
+    ensure_traffic_watch()
     app.run(host="0.0.0.0", port=80, debug=False)
