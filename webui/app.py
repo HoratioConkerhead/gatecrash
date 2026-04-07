@@ -558,17 +558,22 @@ _traffic_state = {}  # {ip: {"last_bytes": int, "idle_since": float|None, "activ
 
 
 def _parse_mangle_counters():
-    """Parse iptables mangle PREROUTING byte counters per source IP."""
-    out, rc = run("iptables -t mangle -L PREROUTING -n -v -x 2>/dev/null")
+    """Parse per-device byte counters (upload + download) from conntrack."""
+    out, rc = run("conntrack -L -o extended 2>/dev/null")
     if rc != 0:
         return {}
     result = {}
     for line in out.splitlines():
-        m = re.match(r'\s*\d+\s+(\d+)\s+MARK\s+.*?\s+(\d+\.\d+\.\d+\.\d+)\s+', line)
-        if m:
-            bytes_count = int(m.group(1))
-            ip = m.group(2)
-            result[ip] = result.get(ip, 0) + bytes_count
+        # Each conntrack line has src=IP and bytes=N (twice: original + reply)
+        srcs = re.findall(r'src=(\d+\.\d+\.\d+\.\d+)', line)
+        byte_vals = re.findall(r'bytes=(\d+)', line)
+        if len(srcs) >= 2 and len(byte_vals) >= 2:
+            # original direction: src=device dst=remote bytes=upload
+            # reply direction:    src=remote dst=device bytes=download
+            device_ip = srcs[0]
+            upload = int(byte_vals[0])
+            download = int(byte_vals[1])
+            result[device_ip] = result.get(device_ip, 0) + upload + download
     return result
 
 
