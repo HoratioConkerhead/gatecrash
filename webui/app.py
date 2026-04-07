@@ -557,6 +557,14 @@ traffic_watch_started = False
 _traffic_state = {}  # {ip: {"last_bytes": int, "idle_since": float|None, "active_since": float}}
 
 
+def _fmt_bytes(b):
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(b) < 1024:
+            return f"{b:.1f} {unit}"
+        b /= 1024
+    return f"{b:.1f} PB"
+
+
 def _parse_mangle_counters():
     """Parse per-device byte counters (upload + download) from iptables FORWARD chain."""
     out, rc = run("iptables -L FORWARD -n -v -x 2>/dev/null")
@@ -621,13 +629,12 @@ def _traffic_watch_loop():
                     delta = current_bytes  # counter reset (iptables flush)
                 state["last_bytes"] = current_bytes
 
-                mb = current_bytes / (1024 * 1024)
                 idle_since = state["idle_since"]
                 idle_min = (now - idle_since) / 60 if idle_since else 0
                 nick = dev.get("nickname") or dev.get("mac", "?")
                 audit_log.info(
-                    "AUTO-STOP  %s (%s): %.2f MB total, delta %d B, idle %.1f min",
-                    ip, nick, mb, delta, idle_min,
+                    "AUTO-STOP  %s (%s): %s total, delta %s, idle %.1f min",
+                    ip, nick, _fmt_bytes(current_bytes), _fmt_bytes(delta), idle_min,
                 )
 
                 if delta < threshold_bytes:
