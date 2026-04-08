@@ -6,7 +6,6 @@ After=network.target
 Type=simple
 ExecStart=/opt/gatecrash/webui/venv/bin/python /opt/gatecrash/webui/app.py
 WorkingDirectory=/opt/gatecrash/webui
-AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
 Restart=on-failure
 RestartSec=5
 
