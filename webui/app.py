@@ -116,7 +116,9 @@ def _get_or_create_secret():
 
 
 app.secret_key = _get_or_create_secret()
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
 
 
 @app.errorhandler(429)
@@ -125,21 +127,38 @@ def rate_limit_exceeded(_e):
 
 
 @app.after_request
-def no_cache_api(response):
-    """Prevent browser from serving stale API responses (critical for PWA)."""
+def set_security_headers(response):
+    """Add security headers and prevent stale API caching."""
     if request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
+    # Hide server identity
+    response.headers["Server"] = "Gatecrash"
     return response
 
 
 @app.before_request
 def require_auth():
-    # Static assets and the login/setup endpoints are always public
-    if request.path.startswith("/static/") or request.path in _PUBLIC_PATHS:
+    # Static assets are always public
+    if request.path.startswith("/static/"):
         return
     stored = _get_stored_token()
     if stored is None:
-        # Setup mode — no password set yet, let everything through
+        # Setup mode — only allow the setup endpoint and the page itself
+        if request.path in ("/", "/api/setup-auth"):
+            return
+        if request.path.startswith("/api/"):
+            return Response(
+                json.dumps({"ok": False, "error": "Setup not complete"}),
+                403,
+                {"Content-Type": "application/json"},
+            )
+        return redirect("/")
+    # Normal mode — public paths don't need a session
+    if request.path in _PUBLIC_PATHS:
         return
     if session.get("authenticated"):
         return
@@ -151,6 +170,40 @@ def require_auth():
             {"Content-Type": "application/json"},
         )
     return redirect("/")
+
+
+# ---------------------------------------------------------------------------
+# CSRF protection — double-submit token validated on state-changing requests
+# ---------------------------------------------------------------------------
+
+# Paths exempt from CSRF (login/setup need to work before a token exists)
+_CSRF_EXEMPT = {"/api/login", "/api/setup-auth"}
+
+
+def _ensure_csrf_token():
+    """Create a CSRF token in the session if one doesn't exist."""
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+    return session["csrf_token"]
+
+
+@app.before_request
+def csrf_protect():
+    """Validate CSRF token on all state-changing requests."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    if request.path.startswith("/static/") or request.path in _CSRF_EXEMPT:
+        return
+    # Only enforce for authenticated sessions (setup-mode is locked down by require_auth)
+    if not session.get("authenticated"):
+        return
+    token = request.headers.get("X-CSRF-Token", "")
+    if not token or token != session.get("csrf_token"):
+        return Response(
+            json.dumps({"ok": False, "error": "CSRF token missing or invalid"}),
+            403,
+            {"Content-Type": "application/json"},
+        )
 
 
 CONF_PATH      = "/opt/gatecrash/gatecrash.conf"
@@ -868,8 +921,10 @@ def index():
         ensure_ip_watch()
         ensure_update_check_thread()
         ensure_traffic_watch()
+    csrf = _ensure_csrf_token() if not setup_required and not login_required else ""
     return render_template("index.html", version=get_version(),
-                           setup_required=setup_required, login_required=login_required)
+                           setup_required=setup_required, login_required=login_required,
+                           csrf_token=csrf)
 
 
 @app.route("/api/setup-auth", methods=["POST"])
@@ -886,7 +941,7 @@ def api_setup_auth():
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Initial password configured from %s", request.remote_addr)
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
 
@@ -906,7 +961,7 @@ def api_login():
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Login succeeded from %s", request.remote_addr)
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
     audit_log.warning("AUTH  Login FAILED from %s", request.remote_addr)
     return jsonify({"ok": False, "error": "Incorrect password"})
 

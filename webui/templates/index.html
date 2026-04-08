@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Gatecrash">
 <link rel="apple-touch-icon" href="/static/icon-192.svg">
 <link rel="icon" type="image/svg+xml" href="/static/icon-192.svg">
+<meta name="csrf-token" content="{{ csrf_token }}">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
 
@@ -1507,6 +1508,21 @@ document.getElementById('login-pw').focus();
 </div>
 
 <script>
+// ---------------------------------------------------------------------------
+// CSRF — read token from meta tag, auto-inject into all state-changing fetches
+// ---------------------------------------------------------------------------
+let _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+const _origFetch = window.fetch;
+window.fetch = function(url, opts) {
+  opts = opts || {};
+  const method = (opts.method || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD' && _csrfToken) {
+    opts.headers = Object.assign({}, opts.headers || {}, {'X-CSRF-Token': _csrfToken});
+  }
+  return _origFetch.call(this, url, opts);
+};
+
 // HTML entity encoder — use for all user-supplied data inserted into innerHTML
 function h(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
