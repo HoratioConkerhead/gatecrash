@@ -192,11 +192,18 @@ def _detect_gateway():
 _IF_RE    = re.compile(r'^[a-zA-Z0-9_@.-]{1,15}$')
 # Route table names: alphanumeric, _ or -
 _TABLE_RE = re.compile(r'^[a-zA-Z0-9_-]{1,31}$')
+# IPv4 address: dotted quad
+_IPV4_RE  = re.compile(r'^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$')
+# Hex fwmark: 0x followed by 1-8 hex digits
+_FWMARK_RE = re.compile(r'^0x[0-9a-fA-F]{1,8}$')
 # Repo path: block newlines and common shell metacharacters
 _REPO_SAFE_RE = re.compile(r'^[^\n\r;&|`$<>\\!]{1,512}$')
 # MAC address: lowercase hex pairs separated by colons
 _MAC_RE   = re.compile(r'^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
 _NICK_MAX = 64
+
+# Only these keys are permitted in gatecrash.conf
+_CONF_ALLOWED_KEYS = {"LAN_IF", "VPN_IF", "GATEWAY_IP", "TARGET_IPS", "ROUTE_TABLE", "FWMARK"}
 
 # WireGuard hook lines that allow arbitrary code execution via wg-quick
 _WG_HOOK_RE = re.compile(
@@ -217,6 +224,30 @@ def _valid_table(name):
     if not _TABLE_RE.match(name or ""):
         raise ValueError(f"Invalid route table name: {name!r}")
     return name
+
+
+def _valid_ip(addr):
+    """Return addr if it is a valid IPv4 address, else raise ValueError."""
+    if not _IPV4_RE.match(addr or ""):
+        raise ValueError(f"Invalid IP address: {addr!r}")
+    return addr
+
+
+def _valid_fwmark(mark):
+    """Return mark if it is a valid hex fwmark (e.g. 0x1), else raise ValueError."""
+    if not _FWMARK_RE.match(mark or ""):
+        raise ValueError(f"Invalid fwmark: {mark!r}")
+    return mark
+
+
+def _valid_target_ips(value):
+    """Return value if it is empty or space-separated IPv4 addresses, else raise ValueError."""
+    if not value or not value.strip():
+        return ""
+    for part in value.split():
+        if not _IPV4_RE.match(part):
+            raise ValueError(f"Invalid IP in TARGET_IPS: {part!r}")
+    return value
 
 
 def _valid_repo(path):
@@ -254,11 +285,28 @@ def read_conf():
 
 
 def write_conf(data):
+    # Defense-in-depth: reject unknown keys and validate all values before
+    # writing to disk.  This file is sourced as bash by start.sh / stop.sh,
+    # so any unvalidated value is a root-level code-execution risk.
+    unknown = set(data.keys()) - _CONF_ALLOWED_KEYS
+    if unknown:
+        raise ValueError(f"Unknown config keys: {', '.join(sorted(unknown))}")
+    validators = {
+        "LAN_IF": _valid_if,
+        "VPN_IF": _valid_if,
+        "ROUTE_TABLE": _valid_table,
+        "GATEWAY_IP": _valid_ip,
+        "FWMARK": _valid_fwmark,
+        "TARGET_IPS": _valid_target_ips,
+    }
     # Ensure GATEWAY_IP is never written empty
     if not data.get("GATEWAY_IP"):
         gw = _detect_gateway()
         if gw:
             data["GATEWAY_IP"] = gw
+    for key, value in data.items():
+        if key in validators:
+            validators[key](value)
     lines = [f'{k}="{v}"' for k, v in data.items()]
     with open(CONF_PATH, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -534,7 +582,7 @@ AUTO_STOP_SETTINGS_FILE = "/opt/gatecrash/auto_stop_settings.json"
 
 _DEFAULT_AUTO_STOP_SETTINGS = {
     "enabled":           False,
-    "threshold_kb_min":  50,      # KB/min — streaming is ~5-50 MB/min
+    "threshold_kb_min":  250,     # KB/min — streaming is ~5-50 MB/min
     "idle_timeout_min":  30,      # minutes below threshold before auto-stop
     "min_active_min":    5,       # don't auto-stop within first N minutes
 }
@@ -1371,23 +1419,26 @@ def api_config():
         return jsonify(conf)
     try:
         data = request.json
-        # Validate fields that feed into shell commands before writing to disk
+        # Reject unknown keys — only permitted config fields may be written
+        unknown = set(data.keys()) - _CONF_ALLOWED_KEYS
+        if unknown:
+            return jsonify({"ok": False, "error": f"Unknown config keys: {', '.join(sorted(unknown))}"}), 400
+        # Validate every field with strict allowlists
         errors = []
-        if "LAN_IF" in data:
-            try:
-                _valid_if(data["LAN_IF"])
-            except ValueError as e:
-                errors.append(str(e))
-        if "VPN_IF" in data:
-            try:
-                _valid_if(data["VPN_IF"])
-            except ValueError as e:
-                errors.append(str(e))
-        if "ROUTE_TABLE" in data:
-            try:
-                _valid_table(data["ROUTE_TABLE"])
-            except ValueError as e:
-                errors.append(str(e))
+        _conf_validators = {
+            "LAN_IF": _valid_if,
+            "VPN_IF": _valid_if,
+            "ROUTE_TABLE": _valid_table,
+            "GATEWAY_IP": _valid_ip,
+            "FWMARK": _valid_fwmark,
+            "TARGET_IPS": _valid_target_ips,
+        }
+        for key, validator in _conf_validators.items():
+            if key in data:
+                try:
+                    validator(data[key])
+                except ValueError as e:
+                    errors.append(str(e))
         if errors:
             return jsonify({"ok": False, "error": "; ".join(errors)}), 400
         # Refresh gateway from routing table before saving
