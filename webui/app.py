@@ -15,8 +15,21 @@ import subprocess
 from collections import deque
 from datetime import timedelta
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context, session, redirect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Rate limiting — protect against brute-force and abuse
+# ---------------------------------------------------------------------------
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],          # no global limit — only on decorated routes
+    storage_uri="memory://",
+)
 
 # ---------------------------------------------------------------------------
 # Audit log — persistent file log for service actions, auth events, etc.
@@ -104,6 +117,11 @@ def _get_or_create_secret():
 
 app.secret_key = _get_or_create_secret()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+
+
+@app.errorhandler(429)
+def rate_limit_exceeded(_e):
+    return jsonify({"ok": False, "error": "Too many requests — please wait and try again"}), 429
 
 
 @app.after_request
@@ -874,6 +892,7 @@ def api_setup_auth():
 
 
 @app.route("/api/login", methods=["POST"])
+@limiter.limit("5 per minute")
 def api_login():
     stored = _get_stored_token()
     if stored is None:
@@ -922,6 +941,7 @@ def api_change_password():
 
 
 @app.route("/api/factory-reset", methods=["POST"])
+@limiter.limit("1 per minute")
 def api_factory_reset():
     stored = _get_stored_token()
     if stored is not None:
@@ -1423,6 +1443,7 @@ def api_diagnostics():
 
 
 @app.route("/api/reboot", methods=["POST"])
+@limiter.limit("1 per minute")
 def api_reboot():
     audit_log.warning("SYSTEM  Reboot requested from %s", request.remote_addr)
     subprocess.Popen(["shutdown", "-r", "now"])
@@ -1430,6 +1451,7 @@ def api_reboot():
 
 
 @app.route("/api/shutdown", methods=["POST"])
+@limiter.limit("1 per minute")
 def api_shutdown():
     audit_log.warning("SYSTEM  Shutdown requested from %s", request.remote_addr)
     subprocess.Popen(["shutdown", "-h", "now"])
@@ -1489,11 +1511,24 @@ def api_wg_config():
     if request.method == "GET":
         try:
             with open(WG_CONF_PATH) as f:
-                return jsonify({"ok": True, "content": f.read()})
+                content = f.read()
+            # Redact PrivateKey — only accept it on writes
+            content = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', content)
+            return jsonify({"ok": True, "content": content})
         except Exception:
             return jsonify({"ok": False, "content": "", "error": "Internal error"})
     try:
         content = _strip_wg_hooks(request.json.get("content", ""))
+        # If client sent back [redacted], restore the real PrivateKey from disk
+        if "[redacted]" in content:
+            try:
+                with open(WG_CONF_PATH) as f:
+                    old = f.read()
+                pk = re.search(r'(?im)^(\s*PrivateKey\s*=\s*)(.+)$', old)
+                if pk:
+                    content = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*)\[redacted\]', pk.group(1) + pk.group(2), content)
+            except FileNotFoundError:
+                pass
         with open(WG_CONF_PATH, "w") as f:
             f.write(content)
         os.chmod(WG_CONF_PATH, 0o600)
@@ -1650,6 +1685,7 @@ def api_upgrade_log_content():
 
 
 @app.route("/api/update/apply", methods=["POST"])
+@limiter.limit("1 per minute")
 def api_update_apply():
     repo = get_repo_path()
     if not repo:

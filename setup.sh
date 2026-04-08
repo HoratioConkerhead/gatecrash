@@ -147,12 +147,10 @@ cp "$SCRIPT_DIR/webui/static/"* "$WEBUI_DIR/static/" 2>/dev/null || true
 if [[ ! -d "$WEBUI_DIR/venv" ]]; then
     echo "  Creating Python virtual environment..."
     python3 -m venv "$WEBUI_DIR/venv"
-    echo "  Installing Flask..."
-    "$WEBUI_DIR/venv/bin/pip" install --quiet flask bcrypt
-    echo "  [OK] Python environment ready."
-else
-    echo "  [OK] Python virtual environment already exists — skipping."
 fi
+echo "  Installing Python dependencies..."
+"$WEBUI_DIR/venv/bin/pip" install --quiet flask bcrypt flask-limiter
+echo "  [OK] Python environment ready."
 
 cp "$SCRIPT_DIR/webui/gatecrash-webui.service" /etc/systemd/system/gatecrash-webui.service
 systemctl daemon-reload
