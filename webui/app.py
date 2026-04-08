@@ -601,7 +601,7 @@ echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
                      start_new_session=True)
 
 
-def run_update_check():
+def run_update_check(allow_auto_upgrade=False):
     global update_check_state
     from datetime import datetime, timezone
     repo = get_repo_path()
@@ -636,7 +636,7 @@ def run_update_check():
             "last_checked":   now,
             "error":          None,
         }
-    if behind > 0 and load_update_settings().get("auto_update"):
+    if allow_auto_upgrade and behind > 0 and load_update_settings().get("auto_update"):
         audit_log.info("UPGRADE  Auto-update triggered (%d commits behind, remote %s)", behind, remote_ver.strip())
         _trigger_upgrade(repo)
 
@@ -659,7 +659,7 @@ def update_check_loop():
                     except (ValueError, TypeError):
                         should_check = True
                 if should_check:
-                    run_update_check()
+                    run_update_check(allow_auto_upgrade=True)
         except Exception:
             pass
         time.sleep(300)  # re-evaluate every 5 minutes

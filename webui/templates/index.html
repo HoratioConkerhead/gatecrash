@@ -1644,7 +1644,8 @@ async function fetchStatus() {
     const d = await r.json();
 
     // If the server is now running a different version, the upgrade completed — reload
-    if (d.version && d.version !== PAGE_VERSION) {
+    // (but not while an upgrade is actively in progress — let the upgrade modal handle it)
+    if (d.version && d.version !== PAGE_VERSION && !window._upgradeInProgress) {
       hardReload();
       return;
     }
@@ -2798,6 +2799,7 @@ async function applyUpdate() {
 
   logLines.textContent = '';
   reloadBtn.style.display = 'none';
+  window._upgradeInProgress = true;
   modal.classList.add('open');
 
   await fetch('/api/update/apply', {method: 'POST'});
