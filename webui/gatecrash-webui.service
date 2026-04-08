@@ -4,8 +4,6 @@ After=network.target
 
 [Service]
 Type=simple
-User=gatecrash
-Group=gatecrash
 ExecStart=/opt/gatecrash/webui/venv/bin/python /opt/gatecrash/webui/app.py
 WorkingDirectory=/opt/gatecrash/webui
 AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW

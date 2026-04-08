@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Gatecrash web UI — serves HTTPS on port 443, runs as unprivileged 'gatecrash' user.
-
-Privileged operations (systemctl, iptables, tcpdump, etc.) are executed via
-sudo with a restrictive sudoers drop-in (see gatecrash-webui-sudoers).
-"""
+"""Gatecrash web UI — serves HTTPS on port 443, must run as root."""
 
 import bcrypt
 import ipaddress
@@ -274,10 +270,7 @@ def _record_service_state(service, running):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def run(cmd, timeout=15, sudo=True):
-    """Run a shell command. Defaults to sudo since the web UI runs unprivileged."""
-    if sudo:
-        cmd = f"sudo {cmd}"
+def run(cmd, timeout=15):
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
         return r.stdout.strip(), r.returncode
@@ -451,7 +444,7 @@ def capture_dns():
     own_ip = own_ip_out.strip()
     try:
         proc = subprocess.Popen(
-            ["sudo", "tcpdump", "-i", lan_if, "-n", "-l", "udp dst port 53"],
+            ["tcpdump", "-i", lan_if, "-n", "-l", "udp dst port 53"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -603,7 +596,7 @@ echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
     with os.fdopen(fd, "w") as f:
         f.write(upgrade_script)
     os.chmod(script_path, 0o700)
-    subprocess.Popen(["sudo", "bash", script_path],
+    subprocess.Popen(["bash", script_path],
                      stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL,
                      start_new_session=True)
@@ -623,19 +616,19 @@ def run_update_check(allow_auto_upgrade=False):
         with _state_lock:
             update_check_state["error"] = "Repo path contains unsafe characters"
         return
-    fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1", sudo=False)
+    fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1")
     now = datetime.now(timezone.utc).isoformat()
     if rc != 0:
         with _state_lock:
             update_check_state = {**update_check_state, "error": fetch_out.strip(), "last_checked": now}
         return
-    behind_out, _ = run(f"git -c safe.directory={repo} -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null", sudo=False)
+    behind_out, _ = run(f"git -c safe.directory={repo} -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
     try:
         behind = int(behind_out.strip())
     except ValueError:
         behind = 0
-    commit_msg, _    = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null", sudo=False)
-    remote_ver, _    = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null", sudo=False)
+    commit_msg, _    = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null")
+    remote_ver, _    = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null")
     with _state_lock:
         update_check_state = {
             "available":      behind > 0,
@@ -1032,7 +1025,7 @@ def api_factory_reset():
         except FileNotFoundError:
             pass
     session.clear()
-    subprocess.Popen(["sudo", "systemctl", "reboot"])
+    subprocess.Popen(["systemctl", "reboot"])
     return jsonify({"ok": True})
 
 
@@ -1050,7 +1043,7 @@ def api_status():
     _, rc = run("ip link show wg0 2>/dev/null")
     wg_up = rc == 0
 
-    arp_out, _ = run("pgrep -c arpspoof 2>/dev/null || echo 0", sudo=False)
+    arp_out, _ = run("pgrep -c arpspoof 2>/dev/null || echo 0")
 
     # Check if vpntarget has a VPN route (not just the fallback gateway)
     vt_out, _ = run("ip route show table vpntarget 2>/dev/null")
@@ -1234,7 +1227,7 @@ def api_devices_scan_stream():
 
         try:
             proc = subprocess.Popen(
-                ["sudo", "nmap", "-sn", "--stats-every", "3s", subnet.strip()],
+                ["nmap", "-sn", "--stats-every", "3s", subnet.strip()],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -1391,15 +1384,15 @@ def api_diagnostics_dump():
 
     sections = []
 
-    def section(title, cmd, sudo=True):
-        out, _ = run(cmd, timeout=10, sudo=sudo)
+    def section(title, cmd):
+        out, _ = run(cmd, timeout=10)
         # Redact WireGuard private keys from all output
         redacted = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', out or '')
         sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd}\n\n{redacted or '(empty)'}\n")
 
     sections.append(f"Gatecrash Diagnostics Dump\nGenerated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nVersion: {get_version()}\n")
 
-    section("Gatecrash Config", f"cat {CONF_PATH}", sudo=False)
+    section("Gatecrash Config", f"cat {CONF_PATH}")
     section("Gatecrash Service Status", "systemctl status gatecrash --no-pager -l 2>&1")
     section("Web UI Service Status", "systemctl status gatecrash-webui --no-pager -l 2>&1")
 
@@ -1472,7 +1465,7 @@ def api_diagnostics():
         lan_ip = m.group(1)
 
     # Active arpspoof processes
-    arps_out, _ = run("ps -eo pid,args | grep arpspoof | grep -v grep", sudo=False)
+    arps_out, _ = run("ps -eo pid,args | grep arpspoof | grep -v grep")
     arps = [line.strip() for line in arps_out.splitlines() if line.strip()] if arps_out else []
 
     # iptables mangle PREROUTING rules
@@ -1489,7 +1482,7 @@ def api_diagnostics():
     wg_if = wg_out.strip() if wg_rc == 0 else "wg0 not found"
 
     # Hostname
-    hostname_out, _ = run("hostname 2>/dev/null", sudo=False)
+    hostname_out, _ = run("hostname 2>/dev/null")
 
     return jsonify({
         "lan_if": lan_if,
@@ -1509,7 +1502,7 @@ def api_diagnostics():
 @limiter.limit("1 per minute")
 def api_reboot():
     audit_log.warning("SYSTEM  Reboot requested from %s", request.remote_addr)
-    subprocess.Popen(["sudo", "shutdown", "-r", "now"])
+    subprocess.Popen(["shutdown", "-r", "now"])
     return jsonify({"ok": True})
 
 
@@ -1517,7 +1510,7 @@ def api_reboot():
 @limiter.limit("1 per minute")
 def api_shutdown():
     audit_log.warning("SYSTEM  Shutdown requested from %s", request.remote_addr)
-    subprocess.Popen(["sudo", "shutdown", "-h", "now"])
+    subprocess.Popen(["shutdown", "-h", "now"])
     return jsonify({"ok": True})
 
 

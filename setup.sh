@@ -4,7 +4,6 @@
 set -euo pipefail
 
 INSTALL_DIR="/opt/gatecrash"
-WG_CONF_PATH="/etc/wireguard/wg0.conf"
 RT_TABLES="/etc/iproute2/rt_tables"
 SYSCTL_CONF="/etc/sysctl.d/99-gatecrash.conf"
 
@@ -22,17 +21,6 @@ fi
 echo ""
 echo "=== Gatecrash Setup ==="
 echo ""
-
-# ---------------------------------------------------------------------------
-# 1a. Create gatecrash system user (no login shell, no home)
-# ---------------------------------------------------------------------------
-
-if ! id -u gatecrash &>/dev/null; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin gatecrash
-    echo "  [OK] Created system user 'gatecrash'."
-else
-    echo "  [OK] System user 'gatecrash' already exists."
-fi
 
 # ---------------------------------------------------------------------------
 # 1. Install dependencies
@@ -200,63 +188,9 @@ echo "  [OK] Web UI installed and restarted."
 echo "$SCRIPT_DIR" > "$INSTALL_DIR/repo_path"
 echo "  [OK] Repo path saved."
 
-# Allow root and gatecrash to run git in this repo (owned by a different user)
+# Allow root to run git in this repo (owned by a different user)
 git config --global --add safe.directory "$SCRIPT_DIR"
 echo "  [OK] Git safe.directory configured."
-
-# ---------------------------------------------------------------------------
-# 8. Sudoers drop-in for gatecrash web UI user
-# ---------------------------------------------------------------------------
-
-echo "Installing sudoers drop-in for gatecrash user..."
-cp "$SCRIPT_DIR/gatecrash-webui-sudoers" /etc/sudoers.d/gatecrash-webui
-chmod 440 /etc/sudoers.d/gatecrash-webui
-chown root:root /etc/sudoers.d/gatecrash-webui
-# Validate syntax — remove if invalid to avoid locking out sudo
-if ! visudo -cf /etc/sudoers.d/gatecrash-webui &>/dev/null; then
-    echo "  [ERROR] Sudoers syntax invalid — removing drop-in."
-    rm -f /etc/sudoers.d/gatecrash-webui
-    echo "  Please check gatecrash-webui-sudoers and re-run setup."
-    exit 1
-fi
-echo "  [OK] Sudoers drop-in installed."
-
-# ---------------------------------------------------------------------------
-# 9. Set file ownership for gatecrash user
-# ---------------------------------------------------------------------------
-
-echo "Setting file ownership for gatecrash user..."
-
-# Web UI directory — owned by gatecrash for runtime writes
-chown -R gatecrash:gatecrash "$WEBUI_DIR"
-
-# Config and data files writable by gatecrash
-for f in gatecrash.conf devices.json boot_state.json update_settings.json auto_stop_settings.json webui_token webui_secret repo_path; do
-    if [[ -f "$INSTALL_DIR/$f" ]]; then
-        chown gatecrash:gatecrash "$INSTALL_DIR/$f"
-    fi
-done
-
-# Ensure gatecrash user can create these files if they don't exist yet
-chown gatecrash:gatecrash "$INSTALL_DIR"
-
-# TLS certs — readable by gatecrash, key restricted
-chown -R gatecrash:gatecrash "$CERT_DIR"
-
-# WireGuard config — owned by root, readable/writable by gatecrash group
-if [[ -f "$WG_CONF_PATH" ]]; then
-    chgrp gatecrash "$WG_CONF_PATH"
-    chmod 660 "$WG_CONF_PATH"
-fi
-# Ensure /etc/wireguard dir is group-accessible for gatecrash
-chgrp gatecrash /etc/wireguard 2>/dev/null || true
-chmod 750 /etc/wireguard 2>/dev/null || true
-
-# Audit log writable by gatecrash
-touch /var/log/gatecrash.log
-chown gatecrash:gatecrash /var/log/gatecrash.log
-
-echo "  [OK] File ownership configured."
 
 # ---------------------------------------------------------------------------
 # Done
