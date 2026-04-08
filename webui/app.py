@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Gatecrash web UI — runs on port 8080, must run as root."""
 
-import hashlib
+import bcrypt
 import ipaddress
 import logging
 import logging.handlers
@@ -48,12 +48,42 @@ _PUBLIC_PATHS = {"/", "/api/login", "/api/setup-auth"}
 
 
 def _get_stored_token():
-    """Return the stored password string, or None if no token file exists."""
+    """Return the stored password hash (bytes), or None if no token file exists."""
     try:
-        with open(WEBUI_TOKEN_PATH) as f:
-            return f.read().strip() or None
+        with open(WEBUI_TOKEN_PATH, "rb") as f:
+            data = f.read().strip()
+            return data or None
     except FileNotFoundError:
         return None
+
+
+def _hash_password(password):
+    """Hash a plaintext password with bcrypt and return the hash bytes."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+
+
+def _check_password(password, stored):
+    """Check a plaintext password against a stored hash or legacy plaintext.
+
+    Returns (matched: bool, needs_rehash: bool).
+    If stored is legacy plaintext, comparison uses hmac.compare_digest
+    and signals that rehashing is needed.
+    """
+    import hmac
+    if stored.startswith(b"$2b$") or stored.startswith(b"$2a$"):
+        # bcrypt hash
+        return bcrypt.checkpw(password.encode("utf-8"), stored), False
+    # Legacy plaintext — constant-time comparison, flag for migration
+    matched = hmac.compare_digest(password.encode("utf-8"), stored)
+    return matched, True
+
+
+def _store_password(password):
+    """Hash and write a password to the token file."""
+    hashed = _hash_password(password)
+    with open(WEBUI_TOKEN_PATH, "wb") as f:
+        f.write(hashed)
+    os.chmod(WEBUI_TOKEN_PATH, 0o600)
 
 
 def _get_or_create_secret():
@@ -833,9 +863,7 @@ def api_setup_auth():
     if len(password) < 8:
         return jsonify({"ok": False, "error": "Password must be at least 8 characters"})
     try:
-        with open(WEBUI_TOKEN_PATH, "w") as f:
-            f.write(password)
-        os.chmod(WEBUI_TOKEN_PATH, 0o600)
+        _store_password(password)
         # Automatically log in so the page loads immediately after setup
         session["authenticated"] = True
         session.permanent = True
@@ -851,7 +879,11 @@ def api_login():
     if stored is None:
         return jsonify({"ok": False, "error": "Setup not complete"})
     password = (request.json or {}).get("password", "")
-    if hashlib.sha256(password.encode()).hexdigest() == hashlib.sha256(stored.encode()).hexdigest():
+    matched, needs_rehash = _check_password(password, stored)
+    if matched:
+        if needs_rehash:
+            _store_password(password)
+            audit_log.info("AUTH  Migrated legacy plaintext password to bcrypt from %s", request.remote_addr)
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Login succeeded from %s", request.remote_addr)
@@ -875,15 +907,14 @@ def api_change_password():
     data = request.json or {}
     current  = data.get("current", "")
     new_pw   = data.get("new", "")
-    if hashlib.sha256(current.encode()).hexdigest() != hashlib.sha256(stored.encode()).hexdigest():
+    matched, _ = _check_password(current, stored)
+    if not matched:
         audit_log.warning("AUTH  Password change FAILED (wrong current password) from %s", request.remote_addr)
         return jsonify({"ok": False, "error": "Current password is incorrect"})
     if len(new_pw) < 8:
         return jsonify({"ok": False, "error": "New password must be at least 8 characters"})
     try:
-        with open(WEBUI_TOKEN_PATH, "w") as f:
-            f.write(new_pw)
-        os.chmod(WEBUI_TOKEN_PATH, 0o600)
+        _store_password(new_pw)
         audit_log.info("AUTH  Password changed from %s", request.remote_addr)
         return jsonify({"ok": True})
     except Exception:
@@ -895,7 +926,8 @@ def api_factory_reset():
     stored = _get_stored_token()
     if stored is not None:
         password = (request.json or {}).get("password", "")
-        if hashlib.sha256(password.encode()).hexdigest() != hashlib.sha256(stored.encode()).hexdigest():
+        matched, _ = _check_password(password, stored)
+        if not matched:
             return jsonify({"ok": False, "error": "Incorrect password"})
     # Stop running services before wiping config
     audit_log.warning("SYSTEM  Factory reset initiated from %s", request.remote_addr)

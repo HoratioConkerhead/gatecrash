@@ -148,7 +148,7 @@ if [[ ! -d "$WEBUI_DIR/venv" ]]; then
     echo "  Creating Python virtual environment..."
     python3 -m venv "$WEBUI_DIR/venv"
     echo "  Installing Flask..."
-    "$WEBUI_DIR/venv/bin/pip" install --quiet flask
+    "$WEBUI_DIR/venv/bin/pip" install --quiet flask bcrypt
     echo "  [OK] Python environment ready."
 else
     echo "  [OK] Python virtual environment already exists — skipping."
