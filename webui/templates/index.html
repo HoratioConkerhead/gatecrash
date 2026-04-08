@@ -1458,6 +1458,21 @@ document.getElementById('login-pw').focus();
     </div>
   </div>
 
+  <div class="card">
+    <h2>"Not Secure" Browser Warning</h2>
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;">
+      <p style="margin-bottom:10px;">Your browser may show a <strong>"Not secure"</strong> or <strong>"Your connection is not private"</strong> warning when connecting to Gatecrash. This is normal and expected.</p>
+      <p style="margin-bottom:10px;">Gatecrash uses a <strong>self-signed TLS certificate</strong> to encrypt all traffic between your browser and the device. The connection is fully encrypted — passwords, settings, and VPN keys cannot be intercepted on the network. The warning appears only because the certificate wasn't issued by a public certificate authority, which isn't possible for a local network device.</p>
+      <p style="margin-bottom:10px;">To proceed past the warning:</p>
+      <ul style="font-size:13px;line-height:1.8;padding-left:18px;margin-bottom:10px;">
+        <li><strong>Chrome / Edge:</strong> Click <em>Advanced</em>, then <em>Proceed to &lt;address&gt;</em></li>
+        <li><strong>Firefox:</strong> Click <em>Advanced</em>, then <em>Accept the Risk and Continue</em></li>
+        <li><strong>Safari:</strong> Click <em>Show Details</em>, then <em>visit this website</em></li>
+      </ul>
+      <p>You only need to do this once per browser. The warning will not reappear after you accept.</p>
+    </div>
+  </div>
+
   </div><!-- /tab-help -->
 
 </main>
