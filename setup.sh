@@ -43,7 +43,7 @@ echo "Setting hostname to 'gatecrash'..."
 hostnamectl set-hostname gatecrash
 systemctl enable avahi-daemon
 systemctl start avahi-daemon
-echo "  [OK] Hostname set. Device accessible at http://gatecrash.local"
+echo "  [OK] Hostname set. Device accessible at https://gatecrash.local"
 
 # ---------------------------------------------------------------------------
 # 2. Enable IP forwarding
@@ -133,7 +133,32 @@ fi
 systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
-# 6. Install web UI
+# 6. Generate self-signed TLS certificate (if not already present)
+# ---------------------------------------------------------------------------
+
+CERT_DIR="$INSTALL_DIR/certs"
+CERT_FILE="$CERT_DIR/gatecrash.crt"
+KEY_FILE="$CERT_DIR/gatecrash.key"
+
+mkdir -p "$CERT_DIR"
+chmod 700 "$CERT_DIR"
+
+if [[ ! -f "$CERT_FILE" || ! -f "$KEY_FILE" ]]; then
+    echo "Generating self-signed TLS certificate..."
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$KEY_FILE" -out "$CERT_FILE" \
+        -days 3650 -subj "/CN=gatecrash" \
+        -addext "subjectAltName=DNS:gatecrash,DNS:gatecrash.local,IP:127.0.0.1" \
+        2>/dev/null
+    chmod 600 "$KEY_FILE"
+    chmod 644 "$CERT_FILE"
+    echo "  [OK] TLS certificate generated (valid 10 years)."
+else
+    echo "  [OK] TLS certificate already exists — not overwritten."
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Install web UI
 # ---------------------------------------------------------------------------
 
 echo "Installing web UI..."
@@ -197,5 +222,5 @@ echo "       sudo systemctl enable gatecrash"
 echo ""
 echo "  Web UI is running at:"
 WEBUI_IP=$(ip -4 addr show | grep -oP '(?<=inet )[\d.]+' | grep -v 127 | head -1)
-echo "       http://${WEBUI_IP:-<VM-IP>}:8080"
+echo "       https://${WEBUI_IP:-<VM-IP>}"
 echo ""

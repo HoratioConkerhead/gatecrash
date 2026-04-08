@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gatecrash web UI — runs on port 8080, must run as root."""
+"""Gatecrash web UI — serves HTTPS on port 443, must run as root."""
 
 import bcrypt
 import ipaddress
@@ -119,6 +119,7 @@ app.secret_key = _get_or_create_secret()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = os.path.isfile("/opt/gatecrash/certs/gatecrash.crt")
 
 
 @app.errorhandler(429)
@@ -1767,8 +1768,36 @@ def api_audit_log():
         return jsonify({"ok": False, "error": "Internal error"})
 
 
+def _http_redirect_server():
+    """Tiny HTTP server on port 80 that redirects everything to HTTPS."""
+    from flask import Flask as _Flask
+    redir = _Flask("redirect")
+
+    @redir.route("/", defaults={"path": ""})
+    @redir.route("/<path:path>")
+    def _redir(path):
+        return redirect(request.url.replace("http://", "https://", 1).replace(":80", ""), code=301)
+
+    redir.run(host="0.0.0.0", port=80, debug=False)
+
+
+CERT_DIR = "/opt/gatecrash/certs"
+
 if __name__ == "__main__":
     ensure_dns_thread()
     ensure_ip_watch()
     ensure_traffic_watch()
-    app.run(host="0.0.0.0", port=80, debug=False)
+
+    cert = os.path.join(CERT_DIR, "gatecrash.crt")
+    key  = os.path.join(CERT_DIR, "gatecrash.key")
+
+    if os.path.isfile(cert) and os.path.isfile(key):
+        # Start HTTP→HTTPS redirect in background
+        threading.Thread(target=_http_redirect_server, daemon=True).start()
+        import ssl
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        app.run(host="0.0.0.0", port=443, debug=False, ssl_context=ctx)
+    else:
+        # Fallback to plain HTTP if no cert found
+        app.run(host="0.0.0.0", port=80, debug=False)
