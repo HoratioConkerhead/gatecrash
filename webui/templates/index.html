@@ -166,6 +166,8 @@
     border-radius: 10px;
     padding: 20px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    min-width: 0;
+    overflow: hidden;
   }
   .card h2 {
     font-size: 14px;
@@ -1354,7 +1356,7 @@ document.getElementById('login-pw').focus();
         <button class="btn-grey" onclick="loadAuditLog()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
       </div>
     </h2>
-    <div id="audit-log-box" style="font-family:monospace;font-size:11px;background:var(--bg-subtle);color:var(--text-primary);border-radius:6px;padding:10px;white-space:pre-wrap;min-height:60px;max-height:300px;overflow-y:auto;line-height:1.5;">Loading...</div>
+    <div id="audit-log-box" style="font-family:monospace;font-size:11px;background:var(--bg-subtle);color:var(--text-primary);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;min-height:60px;max-height:300px;overflow:auto;line-height:1.5;">Loading...</div>
   </div>
 
   <!-- DNS Log -->
