@@ -8,15 +8,15 @@
   "theme_color": "#1a1a2e",
   "icons": [
     {
-      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj4KICA8cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjQwIiBmaWxsPSIjMWExYTJlIi8+CiAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoOTYsOTYpIj4KICAgIDwhLS0gU2hpZWxkIG91dGxpbmUgLS0+CiAgICA8cGF0aCBkPSJNMC02MCBDMzAtNjAgNTAtNDUgNTUtMzAgTDU1IDEwIEM1NSA0MCAzMCA2MCAwIDcwIEMtMzAgNjAgLTU1IDQwIC01NSAxMCBMLTU1LTMwIEMtNTAtNDUgLTMwLTYwIDAtNjBaIgogICAgICAgICAgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNGNhZjUwIiBzdHJva2Utd2lkdGg9IjUiLz4KICAgIDwhLS0gVlBOIHR1bm5lbCBhcnJvdyAtLT4KICAgIDxwYXRoIGQ9Ik0tMjAgMTAgTDAtMjAgTDIwIDEwIiBmaWxsPSJub25lIiBzdHJva2U9IiM0Y2FmNTAiIHN0cm9rZS13aWR0aD0iNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CiAgICA8bGluZSB4MT0iMCIgeTE9Ii0yMCIgeDI9IjAiIHkyPSIzMCIgc3Ryb2tlPSIjNGNhZjUwIiBzdHJva2Utd2lkdGg9IjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDwvZz4KPC9zdmc+Cg==",
+      "src": "/static/icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjEwOCIgZmlsbD0iIzFhMWEyZSIvPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDI1NiwyNTYpIj4KICAgIDwhLS0gU2hpZWxkIG91dGxpbmUgLS0+CiAgICA8cGF0aCBkPSJNMC0xNjAgQzgwLTE2MCAxMzMtMTIwIDE0Ny04MCBMMTQ3IDI3IEMxNDcgMTA3IDgwIDE2MCAwIDE4NyBDLTgwIDE2MCAtMTQ3IDEwNyAtMTQ3IDI3IEwtMTQ3LTgwIEMtMTMzLTEyMCAtODAtMTYwIDAtMTYwWiIKICAgICAgICAgIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzRjYWY1MCIgc3Ryb2tlLXdpZHRoPSIxNCIvPgogICAgPCEtLSBWUE4gdHVubmVsIGFycm93IC0tPgogICAgPHBhdGggZD0iTS01MyAyNyBMMC01MyBMNTMgMjciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzRjYWY1MCIgc3Ryb2tlLXdpZHRoPSIxNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CiAgICA8bGluZSB4MT0iMCIgeTE9Ii01MyIgeDI9IjAiIHkyPSI4MCIgc3Ryb2tlPSIjNGNhZjUwIiBzdHJva2Utd2lkdGg9IjE2IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8L2c+Cjwvc3ZnPgo=",
+      "src": "/static/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

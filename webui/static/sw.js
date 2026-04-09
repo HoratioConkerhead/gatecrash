@@ -1,5 +1,5 @@
 const CACHE = 'gatecrash-v3';
-const PRECACHE = ['/', '/static/manifest.json', '/static/icon-192.svg'];
+const PRECACHE = ['/', '/static/manifest.json', '/static/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
