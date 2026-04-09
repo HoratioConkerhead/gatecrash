@@ -643,6 +643,9 @@
     box-shadow: 0 -3px 20px rgba(76,175,80,0.45);
     animation: power-glow 6.5s ease-in-out infinite;
   }
+  .tab-power-btn.stopped {
+    opacity: 0.4;
+  }
   @keyframes power-glow {
     0%, 100% { box-shadow: 0 -3px 14px rgba(76,175,80,0.3); }
     50%       { box-shadow: 0 -3px 26px rgba(76,175,80,0.65); }
@@ -2115,7 +2118,7 @@ function updateMasterButton() {
     btn.title = 'Stop Gatecrash';
   } else {
     btn.disabled = false;
-    btn.className = 'tab-power-btn';
+    btn.className = 'tab-power-btn stopped';
     btn.title = 'Start Gatecrash';
   }
 }
@@ -2904,7 +2907,7 @@ if ('serviceWorker' in navigator) {
     Config
   </button>
   <div class="tab-power-wrap">
-    <button class="tab-power-btn" id="btn-power" onclick="toggleMaster()" title="Start / Stop Gatecrash">
+    <button class="tab-power-btn stopped" id="btn-power" onclick="toggleMaster()" title="Start / Stop Gatecrash">
       <svg viewBox="0 0 24 24"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7A7 7 0 0 1 5 12c0-2.28 1.09-4.3 2.79-5.61L6.37 4.99A8.963 8.963 0 0 0 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.19-3.17-6.83z"/></svg>
     </button>
   </div>
