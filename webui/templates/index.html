@@ -631,11 +631,11 @@
     cursor: pointer;
     transition: background 0.3s, border-color 0.3s, color 0.3s, box-shadow 0.3s;
     box-shadow: 0 -3px 14px rgba(0,0,0,0.5);
-    transform: translateY(-18px);
+    transform: translateY(-30px);
     padding: 0;
   }
   .tab-power-btn svg { width: 34px; height: 34px; fill: currentColor; }
-  .tab-power-btn:active { transform: translateY(-12px) scale(0.93); }
+  .tab-power-btn:active { transform: translateY(-30px) scale(0.93); }
   .tab-power-btn.running {
     background: #1b3320;
     border-color: #4caf50;
@@ -694,6 +694,8 @@
   @media (min-width: 701px) {
     .tab-bar { padding-bottom: 6px; }
     .tab-btn { padding: 2px 4px 2px; }
+    .tab-power-btn { transform: translateY(-24px); }
+    .tab-power-btn:active { transform: translateY(-24px) scale(0.93); }
   }
 </style>
 <script>
