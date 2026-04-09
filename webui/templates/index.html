@@ -613,10 +613,7 @@
   /* Centre power button */
   .tab-power-wrap {
     flex: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding-bottom: 0;
+    position: relative;
   }
   .tab-power-btn {
     width: 74px;
@@ -631,12 +628,14 @@
     cursor: pointer;
     transition: background 0.3s, border-color 0.3s, color 0.3s, box-shadow 0.3s;
     box-shadow: 0 -3px 14px rgba(0,0,0,0.5);
-    transform: translateY(-36px);
-    margin-bottom: -36px;
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
     padding: 0;
   }
   .tab-power-btn svg { width: 34px; height: 34px; fill: currentColor; }
-  .tab-power-btn:active { transform: scale(0.93); }
+  .tab-power-btn:active { transform: translateX(-50%) scale(0.93); }
   .tab-power-btn.running {
     background: #1b3320;
     border-color: #4caf50;
@@ -684,10 +683,9 @@
     .tab-bar { padding-bottom: 0; }
     .tab-btn { padding: 2px 4px 1px; font-size: 9px; gap: 0; }
   /*  .tab-btn svg { width: 16px; height: 16px; } */
-    .tab-power-wrap { padding-bottom: 2px; }
-    .tab-power-btn { width: 44px; height: 44px; margin-top: -10px; transform: none; box-shadow: 0 -2px 8px rgba(0,0,0,0.5); }
+    .tab-power-btn { width: 44px; height: 44px; bottom: 2px; box-shadow: 0 -2px 8px rgba(0,0,0,0.5); }
     .tab-power-btn svg { width: 22px; height: 22px; }
-    .tab-power-btn:active { transform: scale(0.93); }
+    .tab-power-btn:active { transform: translateX(-50%) scale(0.93); }
     main { padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
   }
 
@@ -695,8 +693,8 @@
   @media (min-width: 701px) {
     .tab-bar { padding-bottom: 6px; }
     .tab-btn { padding: 2px 4px 2px; }
-    .tab-power-btn { margin-top: -36px; }
-    .tab-power-btn:active { transform: scale(0.93); }
+    .tab-power-btn { bottom: 4px; }
+    .tab-power-btn:active { transform: translateX(-50%) scale(0.93); }
   }
 </style>
 <script>
