@@ -689,6 +689,12 @@
     .tab-power-btn:active { transform: translateY(-4px) scale(0.93); }
     main { padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
   }
+
+  /* ── Desktop ─────────────────────────────────────────────── */
+  @media (min-width: 701px) {
+    .tab-bar { padding-bottom: 6px; }
+    .tab-btn { padding: 2px 4px 2px; }
+  }
 </style>
 <script>
   /* Apply saved theme before first paint to avoid flash */
