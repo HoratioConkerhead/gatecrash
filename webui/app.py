@@ -1524,9 +1524,31 @@ def api_diagnostics():
     })
 
 
+def _require_password_confirmation():
+    """Verify the current session's password against the POSTed `password` field.
+
+    Returns None on success, or a (response, status) tuple on failure.
+    Used to gate destructive operations (reboot/shutdown) against CSRF-chained
+    session hijacks — even with a valid session, the caller must re-prove the
+    password.
+    """
+    stored = _get_stored_token()
+    if stored is None:
+        return jsonify({"ok": False, "error": "No password set"}), 400
+    password = (request.json or {}).get("password", "")
+    matched, _ = _check_password(password, stored)
+    if not matched:
+        audit_log.warning("AUTH  Destructive op denied (bad password) from %s", request.remote_addr)
+        return jsonify({"ok": False, "error": "Incorrect password"}), 403
+    return None
+
+
 @app.route("/api/reboot", methods=["POST"])
 @limiter.limit("1 per minute")
 def api_reboot():
+    failure = _require_password_confirmation()
+    if failure is not None:
+        return failure
     audit_log.warning("SYSTEM  Reboot requested from %s", request.remote_addr)
     subprocess.Popen(["shutdown", "-r", "now"])
     return jsonify({"ok": True})
@@ -1535,6 +1557,9 @@ def api_reboot():
 @app.route("/api/shutdown", methods=["POST"])
 @limiter.limit("1 per minute")
 def api_shutdown():
+    failure = _require_password_confirmation()
+    if failure is not None:
+        return failure
     audit_log.warning("SYSTEM  Shutdown requested from %s", request.remote_addr)
     subprocess.Popen(["shutdown", "-h", "now"])
     return jsonify({"ok": True})

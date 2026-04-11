@@ -2507,7 +2507,14 @@ async function loadWGConfigSummary() {
 
 async function reboot() {
   if (!confirm('Reboot the Gatecrash device?')) return;
-  await fetch('/api/reboot', {method: 'POST'});
+  const pw = prompt('Confirm your password to reboot:');
+  if (!pw) return;
+  const r = await fetch('/api/reboot', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: pw}),
+  });
+  const j = await r.json();
+  if (!j.ok) { alert(j.error || 'Reboot failed'); return; }
   setTimeout(() => {
     const poll = setInterval(async () => {
       try {
@@ -2521,7 +2528,14 @@ async function reboot() {
 
 async function shutdown() {
   if (!confirm('Shut down the Gatecrash device?')) return;
-  await fetch('/api/shutdown', {method: 'POST'});
+  const pw = prompt('Confirm your password to shut down:');
+  if (!pw) return;
+  const r = await fetch('/api/shutdown', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: pw}),
+  });
+  const j = await r.json();
+  if (!j.ok) { alert(j.error || 'Shutdown failed'); }
 }
 
 const REDACTED_KEY = '••••••••••••••••••••••••••••••••••••••••••••';
