@@ -604,6 +604,8 @@ def _trigger_upgrade(repo):
     audit_log.info("UPGRADE  Upgrade triggered from repo %s", repo)
     q_repo = shlex.quote(repo)
     upgrade_script = f"""#!/bin/bash
+# Self-delete on exit so stale upgrade scripts don't accumulate in /tmp.
+trap 'rm -f -- "$0"' EXIT
 > /var/log/gatecrash-upgrade.log
 sleep 1
 cd {q_repo}
@@ -1368,7 +1370,9 @@ def api_save_device():
 @app.route("/api/saved-devices/delete", methods=["POST"])
 def api_delete_device():
     """Remove a saved device by MAC."""
-    mac = request.json.get("mac", "").lower().strip()
+    mac = (request.json or {}).get("mac", "").lower().strip()
+    if not _MAC_RE.match(mac):
+        return jsonify({"ok": False, "error": "Invalid MAC address format"}), 400
     devices = [d for d in load_devices() if d["mac"] != mac]
     save_devices(devices)
     audit_log.info("DEVICE  Deleted %s from %s", mac, request.remote_addr)
