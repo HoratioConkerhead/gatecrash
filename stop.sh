@@ -40,8 +40,19 @@ iptables -t mangle -F FORWARD
 iptables -t nat -F PREROUTING
 iptables -t nat -F POSTROUTING
 iptables -F FORWARD
-conntrack -F 2>/dev/null || true
-echo "  [OK] iptables and conntrack flushed."
+
+# Default-deny FORWARD on teardown. ip_forward stays 1 (it's a sysctl set
+# elsewhere), so without this the box could silently forward target traffic
+# in the clear between the time we flush rules and the next start.
+iptables -P FORWARD DROP
+
+# Flush only target devices' conntrack — never the whole table (would kill
+# SSH, the web UI, and anything else talking to the box).
+for ip in ${TARGET_IPS:-}; do
+    conntrack -D -s "$ip" 2>/dev/null || true
+    conntrack -D -d "$ip" 2>/dev/null || true
+done
+echo "  [OK] iptables flushed, target conntrack entries cleared."
 
 # ---------------------------------------------------------------------------
 # 3. vpntarget routes
