@@ -944,7 +944,10 @@ def index():
         ensure_update_check_thread()
         ensure_traffic_watch()
     csrf = _ensure_csrf_token() if not setup_required and not login_required else ""
-    return render_template("index.html", version=get_version(),
+    # Hide the version string from unauthenticated viewers (login + setup pages)
+    # so a drive-by visitor can't fingerprint the build.
+    version = get_version() if not setup_required and not login_required else ""
+    return render_template("index.html", version=version,
                            setup_required=setup_required, login_required=login_required,
                            csrf_token=csrf)
 

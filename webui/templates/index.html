@@ -870,7 +870,7 @@ document.getElementById('login-pw').focus();
 {% endif %}
 
 <header>
-  <h1>&#x1F6E1; Gatecrash <span style="font-size:14px;font-weight:400;color:#666;">v{{ version }}</span></h1>
+  <h1>&#x1F6E1; Gatecrash {% if version %}<span style="font-size:14px;font-weight:400;color:#666;">v{{ version }}</span>{% endif %}</h1>
   <div class="header-actions">
     <button class="btn-green" id="btn-update-notify" onclick="showUpdateInfo()" style="display:none;padding:5px 12px;font-size:12px;"></button>
     <button class="btn-grey" id="btn-pwa-info" onclick="showPwaInfo()" title="Add to Home Screen" style="display:none;padding:5px 10px;font-size:14px;">&#8962;</button>
