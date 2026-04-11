@@ -120,6 +120,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = os.path.isfile("/opt/gatecrash/certs/gatecrash.crt")
+_TLS_ENABLED = os.path.isfile("/opt/gatecrash/certs/gatecrash.crt")
 
 
 @app.errorhandler(429)
@@ -136,6 +137,8 @@ def set_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
+    if _TLS_ENABLED:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # Hide server identity
     response.headers["Server"] = "Gatecrash"
     return response
@@ -200,6 +203,8 @@ def csrf_protect():
         return
     token = request.headers.get("X-CSRF-Token", "")
     if not token or token != session.get("csrf_token"):
+        audit_log.warning("AUTH  CSRF rejection on %s %s from %s",
+                          request.method, request.path, request.remote_addr)
         return Response(
             json.dumps({"ok": False, "error": "CSRF token missing or invalid"}),
             403,
@@ -938,7 +943,9 @@ def api_setup_auth():
         return jsonify({"ok": False, "error": "Password must be at least 8 characters"})
     try:
         _store_password(password)
-        # Automatically log in so the page loads immediately after setup
+        # Automatically log in so the page loads immediately after setup.
+        # Clear any pre-existing session state first to prevent session fixation.
+        session.clear()
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Initial password configured from %s", request.remote_addr)
@@ -959,6 +966,8 @@ def api_login():
         if needs_rehash:
             _store_password(password)
             audit_log.info("AUTH  Migrated legacy plaintext password to bcrypt from %s", request.remote_addr)
+        # Rotate session on login to prevent session fixation.
+        session.clear()
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Login succeeded from %s", request.remote_addr)
