@@ -11,6 +11,7 @@ import json
 import secrets
 import tempfile
 import threading
+import shlex
 import subprocess
 from collections import deque
 from datetime import timedelta
@@ -92,11 +93,23 @@ def _check_password(password, stored):
 
 
 def _store_password(password):
-    """Hash and write a password to the token file."""
+    """Hash and write a password to the token file (overwrites)."""
     hashed = _hash_password(password)
     with open(WEBUI_TOKEN_PATH, "wb") as f:
         f.write(hashed)
     os.chmod(WEBUI_TOKEN_PATH, 0o600)
+
+
+def _store_password_exclusive(password):
+    """Atomically create the token file — fails if it already exists.
+
+    Closes the setup-mode TOCTOU window: concurrent /api/setup-auth requests
+    can't both win the check in `api_setup_auth()` and overwrite each other.
+    """
+    hashed = _hash_password(password)
+    fd = os.open(WEBUI_TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(hashed)
 
 
 def _get_or_create_secret():
@@ -589,11 +602,12 @@ def _trigger_upgrade(repo):
         audit_log.error("UPGRADE  Refused upgrade — unsafe repo path: %s", repo)
         return  # refuse to run upgrade with unsafe repo path
     audit_log.info("UPGRADE  Upgrade triggered from repo %s", repo)
+    q_repo = shlex.quote(repo)
     upgrade_script = f"""#!/bin/bash
 > /var/log/gatecrash-upgrade.log
 sleep 1
-cd {repo}
-git -c safe.directory={repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
+cd {q_repo}
+git -c safe.directory={q_repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
 bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
 echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
 """
@@ -942,7 +956,10 @@ def api_setup_auth():
     if len(password) < 8:
         return jsonify({"ok": False, "error": "Password must be at least 8 characters"})
     try:
-        _store_password(password)
+        _store_password_exclusive(password)
+    except FileExistsError:
+        return jsonify({"ok": False, "error": "Authentication is already configured"}), 403
+    try:
         # Automatically log in so the page loads immediately after setup.
         # Clear any pre-existing session state first to prevent session fixation.
         session.clear()
