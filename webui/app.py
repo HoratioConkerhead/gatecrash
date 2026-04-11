@@ -11,6 +11,7 @@ import json
 import secrets
 import tempfile
 import threading
+import time
 import subprocess
 from collections import deque
 from datetime import timedelta
@@ -207,9 +208,81 @@ def csrf_protect():
         )
 
 
-CONF_PATH      = "/opt/gatecrash/gatecrash.conf"
-WG_CONF_PATH   = "/etc/wireguard/wg0.conf"
-REPO_PATH_FILE = "/opt/gatecrash/repo_path"
+CONF_PATH         = "/opt/gatecrash/gatecrash.conf"
+WG_CONF_PATH      = "/etc/wireguard/wg0.conf"
+REPO_PATH_FILE    = "/opt/gatecrash/repo_path"
+VPN_LOCATION_PATH = "/opt/gatecrash/vpn_location.json"
+
+_vpn_location_lock = threading.Lock()
+# Guards against spawning multiple concurrent lookups when /api/status fires
+# every 3s while a previous lookup is still in flight.
+_vpn_lookup_in_flight = False
+# ISO 3166-1 alpha-2: two letters. Lowercase only — matches flag-icons filenames.
+_CC_RE = re.compile(r'^[a-z]{2}$')
+
+
+def _lookup_vpn_location_async():
+    """Fetch the VPN exit IP + country via the wg0 interface in a background thread.
+
+    Writes the result to VPN_LOCATION_PATH. No-op if a lookup is already running.
+    """
+    global _vpn_lookup_in_flight
+    with _vpn_location_lock:
+        if _vpn_lookup_in_flight:
+            return
+        _vpn_lookup_in_flight = True
+
+    def worker():
+        global _vpn_lookup_in_flight
+        try:
+            out, rc = run("curl --interface wg0 -m 5 -s https://ifconfig.co/json", timeout=8)
+            if rc != 0 or not out:
+                return
+            try:
+                data = json.loads(out)
+            except json.JSONDecodeError:
+                return
+            cc = (data.get("country_iso") or "").strip().lower()
+            if not _CC_RE.match(cc):
+                return
+            loc = {
+                "ip": data.get("ip") or "",
+                "cc": cc,
+                "country": data.get("country") or "",
+                "ts": int(time.time()),
+            }
+            fd, tmp = tempfile.mkstemp(dir="/opt/gatecrash", prefix=".vpnloc.")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(loc, f)
+                os.replace(tmp, VPN_LOCATION_PATH)
+            except Exception:
+                try:
+                    os.remove(tmp)
+                except FileNotFoundError:
+                    pass
+        except Exception:
+            pass
+        finally:
+            with _vpn_location_lock:
+                _vpn_lookup_in_flight = False
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _get_vpn_location():
+    try:
+        with open(VPN_LOCATION_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _clear_vpn_location():
+    try:
+        os.remove(VPN_LOCATION_PATH)
+    except FileNotFoundError:
+        pass
 
 
 def get_version():
@@ -1059,11 +1132,23 @@ def api_status():
             pass  # invalid table name — skip route restore
         vpn_route_missing = False  # fixed
 
+    # VPN location (country flag in title bar). Clear cache if tunnel is down,
+    # otherwise trigger an async lookup when we don't yet have one.
+    if not wg_up:
+        if _get_vpn_location() is not None:
+            _clear_vpn_location()
+        vpn_location = None
+    else:
+        vpn_location = _get_vpn_location()
+        if vpn_location is None:
+            _lookup_vpn_location_async()
+
     return jsonify({
         "gatecrash_running": gc_running,
         "wg_up": wg_up,
         "arp_processes": arp_out.strip(),
         "wg": wg_stats(),
+        "vpn_location": vpn_location,
         "update": dict(update_check_state),
         "version": get_version(),
     })
@@ -1107,6 +1192,8 @@ def api_wg_start():
     if rc == 0:
         _record_service_state("wg", True)
         audit_log.info("SERVICE  WireGuard started successfully")
+        _clear_vpn_location()
+        _lookup_vpn_location_async()
     else:
         audit_log.error("SERVICE  WireGuard start FAILED: %s", out)
     return jsonify({"ok": rc == 0, "output": out})
@@ -1118,6 +1205,7 @@ def api_wg_stop():
     out, rc = run("wg-quick down wg0 2>&1", timeout=20)
     if rc == 0:
         _record_service_state("wg", False)
+        _clear_vpn_location()
         audit_log.info("SERVICE  WireGuard stopped successfully")
     else:
         audit_log.error("SERVICE  WireGuard stop FAILED: %s", out)
