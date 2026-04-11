@@ -2000,40 +2000,81 @@ async function loadSavedDevices() {
   } catch(e) {}
 }
 
+// Static SVG markup for icon buttons — literal strings, no user data,
+// safe to assign via innerHTML.
+const _SVG_INFO   = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>';
+const _SVG_RENAME = '<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
+const _SVG_REMOVE = '<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+
 function renderSavedDevices() {
   const list = document.getElementById('saved-devices-list');
+  list.textContent = '';
   if (!_savedDevices.length) {
-    list.innerHTML = '<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">No saved devices. Use <strong>Scan network</strong> to find and add devices.</div>';
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:12px;color:#aaa;font-size:13px;text-align:center;';
+    empty.appendChild(document.createTextNode('No saved devices. Use '));
+    const strong = document.createElement('strong');
+    strong.textContent = 'Scan network';
+    empty.appendChild(strong);
+    empty.appendChild(document.createTextNode(' to find and add devices.'));
+    list.appendChild(empty);
     updateMasterButton();
     return;
   }
-  list.innerHTML = _savedDevices.map((dev, i) => {
-    const checked = dev.enabled ? 'checked' : '';
-    const dimClass = dev.enabled ? '' : ' disabled';
-    const nickDisplay = dev.nickname ? h(dev.nickname) : dev.ip ? h(dev.ip) : '<span style=color:#aaa>unnamed</span>';
-    return `
-      <div class="device-row${dimClass}" style="gap:10px;" id="devrow-${i}">
-        <label class="toggle">
-          <input type="checkbox" ${checked} onchange="toggleDevice('${h(dev.mac)}', this.checked, ${i})">
-          <div class="track"></div>
-          <div class="knob"></div>
-        </label>
-        <div class="device-name" style="flex:1;">
-          <span class="dev-nick" id="nick-${i}">${nickDisplay}</span>
-        </div>
-        <div class="dev-actions">
-          <button class="icon-btn info" title="Info" onclick="showDeviceInfo(${i})">
-            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-          </button>
-          <button class="icon-btn rename" title="Rename" onclick="renameDevice('${h(dev.mac)}', ${i})">
-            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-          </button>
-          <button class="icon-btn remove" title="Remove" onclick="removeDevice('${h(dev.mac)}')">
-            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
-      </div>`;
-  }).join('');
+
+  _savedDevices.forEach((dev, i) => {
+    const row = document.createElement('div');
+    row.className = 'device-row' + (dev.enabled ? '' : ' disabled');
+    row.style.gap = '10px';
+    row.id = 'devrow-' + i;
+
+    const label = document.createElement('label');
+    label.className = 'toggle';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!dev.enabled;
+    cb.addEventListener('change', () => toggleDevice(dev.mac, cb.checked, i));
+    const track = document.createElement('div'); track.className = 'track';
+    const knob  = document.createElement('div'); knob.className  = 'knob';
+    label.append(cb, track, knob);
+
+    const nameWrap = document.createElement('div');
+    nameWrap.className = 'device-name';
+    nameWrap.style.flex = '1';
+    const nick = document.createElement('span');
+    nick.className = 'dev-nick';
+    nick.id = 'nick-' + i;
+    if (dev.nickname) {
+      nick.textContent = dev.nickname;
+    } else if (dev.ip) {
+      nick.textContent = dev.ip;
+    } else {
+      const unnamed = document.createElement('span');
+      unnamed.style.color = '#aaa';
+      unnamed.textContent = 'unnamed';
+      nick.appendChild(unnamed);
+    }
+    nameWrap.appendChild(nick);
+
+    const actions = document.createElement('div');
+    actions.className = 'dev-actions';
+    const mkBtn = (cls, title, svg, handler) => {
+      const b = document.createElement('button');
+      b.className = 'icon-btn ' + cls;
+      b.title = title;
+      b.innerHTML = svg;
+      b.addEventListener('click', handler);
+      return b;
+    };
+    actions.append(
+      mkBtn('info',   'Info',   _SVG_INFO,   () => showDeviceInfo(i)),
+      mkBtn('rename', 'Rename', _SVG_RENAME, () => renameDevice(dev.mac, i)),
+      mkBtn('remove', 'Remove', _SVG_REMOVE, () => removeDevice(dev.mac)),
+    );
+
+    row.append(label, nameWrap, actions);
+    list.appendChild(row);
+  });
   updateMasterButton();
 }
 
@@ -2213,8 +2254,13 @@ function renderScannedDevices() {
     );
   }
 
+  list.textContent = '';
+
   if (!unsaved.length) {
-    list.innerHTML = `<div style="padding:12px;color:#aaa;font-size:13px;text-align:center;">${filterVal ? 'No matches' : 'No new devices found'}</div>`;
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:12px;color:#aaa;font-size:13px;text-align:center;';
+    empty.textContent = filterVal ? 'No matches' : 'No new devices found';
+    list.appendChild(empty);
     return;
   }
 
@@ -2225,25 +2271,52 @@ function renderScannedDevices() {
     return na.localeCompare(nb);
   });
 
-  list.innerHTML = sorted.map(dev => {
-    const label = h(dev.hostname || dev.vendor || dev.ip);
-    const sub   = dev.hostname
-      ? `${h(dev.ip)}${dev.vendor ? ' · ' + h(dev.vendor) : ''}`
-      : (dev.vendor ? h(dev.ip) : '');
-    const macDisplay = dev.mac ? h(dev.mac) : '<span style=color:#ccc>no MAC</span>';
-    const saveBtn = dev.mac
-      ? `<button class="device-add" onclick="saveScannedDevice('${h(dev.mac)}','${h(dev.ip)}','${h(dev.hostname || dev.vendor || '')}', this)">+ Save</button>`
-      : '<span style="font-size:11px;color:#ccc;">—</span>';
-    return `
-      <div class="device-row">
-        <div class="device-name">
-          ${label}
-          <div style="font-weight:400;color:#999;font-size:11px;">${sub}</div>
-        </div>
-        <div class="device-mac">${macDisplay}</div>
-        ${saveBtn}
-      </div>`;
-  }).join('');
+  sorted.forEach(dev => {
+    const row = document.createElement('div');
+    row.className = 'device-row';
+
+    const nameCell = document.createElement('div');
+    nameCell.className = 'device-name';
+    nameCell.appendChild(document.createTextNode(dev.hostname || dev.vendor || dev.ip || ''));
+
+    const subText = dev.hostname
+      ? (dev.ip || '') + (dev.vendor ? ' · ' + dev.vendor : '')
+      : (dev.vendor ? (dev.ip || '') : '');
+    const sub = document.createElement('div');
+    sub.style.cssText = 'font-weight:400;color:#999;font-size:11px;';
+    sub.textContent = subText;
+    nameCell.appendChild(sub);
+
+    const macCell = document.createElement('div');
+    macCell.className = 'device-mac';
+    if (dev.mac) {
+      macCell.textContent = dev.mac;
+    } else {
+      const noMac = document.createElement('span');
+      noMac.style.color = '#ccc';
+      noMac.textContent = 'no MAC';
+      macCell.appendChild(noMac);
+    }
+
+    row.append(nameCell, macCell);
+
+    if (dev.mac) {
+      const btn = document.createElement('button');
+      btn.className = 'device-add';
+      btn.textContent = '+ Save';
+      btn.addEventListener('click', () => {
+        saveScannedDevice(dev.mac, dev.ip || '', dev.hostname || dev.vendor || '', btn);
+      });
+      row.appendChild(btn);
+    } else {
+      const dash = document.createElement('span');
+      dash.style.cssText = 'font-size:11px;color:#ccc;';
+      dash.textContent = '—';
+      row.appendChild(dash);
+    }
+
+    list.appendChild(row);
+  });
 }
 
 function filterScannedDevices() { renderScannedDevices(); }
