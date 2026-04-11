@@ -131,8 +131,6 @@
     min-height: 60px;
   }
   header h1 { font-size: 28px; font-weight: 700; white-space: nowrap; }
-  .vpn-flag { height: 0.8em; vertical-align: middle; margin: 0 0.1em 0 0.15em;
-              border-radius: 2px; box-shadow: 0 0 1px rgba(0,0,0,0.5); }
 
   .badge {
     display: inline-flex;
@@ -872,7 +870,7 @@ document.getElementById('login-pw').focus();
 {% endif %}
 
 <header>
-  <h1>&#x1F6E1; Gatecrash <img id="vpn-flag" class="vpn-flag" alt="" hidden> <span style="font-size:14px;font-weight:400;color:#666;">v{{ version }}</span></h1>
+  <h1>&#x1F6E1; Gatecrash <span style="font-size:14px;font-weight:400;color:#666;">v{{ version }}</span></h1>
   <div class="header-actions">
     <button class="btn-green" id="btn-update-notify" onclick="showUpdateInfo()" style="display:none;padding:5px 12px;font-size:12px;"></button>
     <button class="btn-grey" id="btn-pwa-info" onclick="showPwaInfo()" title="Add to Home Screen" style="display:none;padding:5px 10px;font-size:14px;">&#8962;</button>
@@ -1697,22 +1695,6 @@ async function fetchStatus() {
     _gcRunning = d.gatecrash_running;
     _wgRunning = d.wg_up;
     updateToggleButtons();
-
-    // VPN country flag in title bar
-    const flagEl = document.getElementById('vpn-flag');
-    if (flagEl) {
-      const loc = d.vpn_location;
-      if (loc && loc.cc) {
-        const src = `/static/flags/${loc.cc}.svg`;
-        if (flagEl.getAttribute('src') !== src) flagEl.src = src;
-        flagEl.title = loc.country || '';
-        flagEl.hidden = false;
-      } else {
-        flagEl.hidden = true;
-        flagEl.removeAttribute('src');
-        flagEl.removeAttribute('title');
-      }
-    }
 
     // WireGuard stats
     if (d.wg) {
