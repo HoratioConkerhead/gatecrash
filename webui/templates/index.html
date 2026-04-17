@@ -2192,7 +2192,7 @@ async function autoRestart() {
     return;
   }
 
-  // Debounce: if user toggles several devices quickly, only restart once
+  // Debounce: if user toggles several devices quickly, only sync once
   clearTimeout(_restartTimer);
   _restartTimer = setTimeout(async () => {
     const overlay = document.getElementById('restart-overlay');
@@ -2206,8 +2206,7 @@ async function autoRestart() {
       setTimeout(loadDiagnostics, 3000);
     } catch(e) { /* ignore */ }
 
-    // Brief delay so the user sees the overlay
-    setTimeout(() => { overlay.classList.remove('active'); }, 800);
+    overlay.classList.remove('active');
   }, 600);
 }
 

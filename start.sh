@@ -163,9 +163,14 @@ echo ""
 
 # Keep the process alive and watch for arpspoof processes that have exited
 # (e.g. target device was offline at start or rebooted). Restart them as needed.
+# Re-reads TARGET_IPS from config each cycle so hot-reload changes (added/removed
+# devices via the web UI) are picked up without a full service restart.
 # SIGTERM from systemd kills this loop and all children via KillMode=control-group.
 while true; do
     sleep 30
+    # Re-read config to pick up hot-reload changes
+    # shellcheck source=/dev/null
+    source "$CONF"
     for ip in $TARGET_IPS; do
         fwd=$(pgrep -cf "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true)
         rev=$(pgrep -cf "arpspoof -i $LAN_IF -t $GATEWAY_IP $ip" 2>/dev/null || true)

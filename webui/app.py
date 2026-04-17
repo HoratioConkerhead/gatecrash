@@ -558,14 +558,20 @@ def ip_watch_loop():
 
             if changed:
                 save_devices(devices)
-                # Rebuild TARGET_IPS and restart Gatecrash
+                old_targets = read_conf().get("TARGET_IPS", "").split()
                 new_ips = sync_targets_from_devices()
-                audit_log.info("SERVICE  IP watchdog detected IP change — restarting Gatecrash (targets: %s)", new_ips)
-                out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
-                if rc == 0:
+                audit_log.info("SERVICE  IP watchdog detected IP change (targets: %s)", new_ips)
+                ok, out = _hot_reload_targets(old_targets, new_ips)
+                if ok:
                     _record_service_state("gatecrash", True)
+                    audit_log.info("SERVICE  Hot-reloaded after IP change: %s", out)
                 else:
-                    audit_log.error("SERVICE  Gatecrash restart FAILED after IP change: %s", out)
+                    audit_log.error("SERVICE  Hot reload failed after IP change, restarting: %s", out)
+                    out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+                    if rc == 0:
+                        _record_service_state("gatecrash", True)
+                    else:
+                        audit_log.error("SERVICE  Gatecrash restart FAILED after IP change: %s", out)
         except Exception as e:
             audit_log.error("SERVICE  IP watchdog error: %s", e)
 
@@ -848,12 +854,19 @@ def _traffic_watch_loop():
                         )
                         dev["enabled"] = False
                         save_devices(devices)
-                        sync_targets_from_devices()
-                        out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
-                        if rc == 0:
+                        old_targets = read_conf().get("TARGET_IPS", "").split()
+                        new_targets = sync_targets_from_devices()
+                        ok, out = _hot_reload_targets(old_targets, new_targets)
+                        if ok:
                             _record_service_state("gatecrash", True)
+                            audit_log.info("AUTO-STOP  Hot-reloaded: %s", out)
                         else:
-                            audit_log.error("AUTO-STOP  Gatecrash restart FAILED: %s", out)
+                            audit_log.error("AUTO-STOP  Hot reload failed, restarting: %s", out)
+                            out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+                            if rc == 0:
+                                _record_service_state("gatecrash", True)
+                            else:
+                                audit_log.error("AUTO-STOP  Gatecrash restart FAILED: %s", out)
                         _traffic_state.pop(ip, None)
                         break  # device list mutated — catch others next cycle
                 else:
@@ -1414,20 +1427,140 @@ def api_delete_device():
     return jsonify({"ok": True, "devices": devices})
 
 
+def _hot_reload_targets(old_ips, new_ips):
+    """Incrementally add/remove iptables rules and arpspoof for changed targets.
+
+    Returns (ok, output) — mirrors the shape of a systemctl restart result.
+    Only touches rules for IPs that actually changed; unchanged devices keep
+    their existing arpspoof processes running uninterrupted.
+    """
+    conf = read_conf()
+    try:
+        lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
+        vpn_if = _valid_if(conf.get("VPN_IF", "wg0"))
+        fwmark = _valid_fwmark(conf.get("FWMARK", "0x1"))
+    except ValueError as e:
+        return False, f"Invalid config: {e}"
+
+    old_set = set(old_ips)
+    new_set = set(new_ips)
+    removed = old_set - new_set
+    added = new_set - old_set
+
+    lines = []
+    DEVNULL = open(os.devnull, "w")
+
+    # Resolve gateway once — needed for both add and remove
+    gw = conf.get("GATEWAY_IP", "")
+    if not gw:
+        gw_out, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
+        gw = gw_out.strip()
+
+    # --- Remove targets that were disabled ---
+    for ip in removed:
+        try:
+            _valid_ip(ip)
+        except ValueError:
+            continue
+        # Kill arpspoof processes for this target (both directions)
+        if gw:
+            run(f"pkill -f 'arpspoof -i {lan_if} -t {ip} {gw}'", timeout=5)
+            run(f"pkill -f 'arpspoof -i {lan_if} -t {gw} {ip}'", timeout=5)
+
+        # Remove per-target iptables rules (ignore errors if already gone)
+        run(f"iptables -t mangle -D PREROUTING -s {ip} -i {lan_if} -j MARK --set-mark {fwmark}")
+        run(f"iptables -D FORWARD -i {lan_if} -s {ip} -j ACCEPT")
+        run(f"iptables -D FORWARD -d {ip} -o {lan_if} -m state --state RELATED,ESTABLISHED -j ACCEPT")
+        run(f"iptables -D FORWARD -i {vpn_if} -o {lan_if} -d {ip} -m state --state RELATED,ESTABLISHED -j ACCEPT")
+        run(f"iptables -t nat -D PREROUTING -s {ip} -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
+        run(f"iptables -t nat -D PREROUTING -s {ip} -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
+
+        # Flush conntrack for this target
+        run(f"conntrack -D -s {ip}")
+        run(f"conntrack -D -d {ip}")
+        lines.append(f"Removed target: {ip}")
+
+    # --- Add targets that were enabled ---
+    for ip in added:
+        try:
+            _valid_ip(ip)
+        except ValueError:
+            continue
+
+        # Per-target iptables rules (same as start.sh)
+        run(f"iptables -t mangle -A PREROUTING -s {ip} -i {lan_if} -j MARK --set-mark {fwmark}")
+        run(f"iptables -A FORWARD -i {lan_if} -s {ip} -j ACCEPT")
+        run(f"iptables -A FORWARD -d {ip} -o {lan_if} -m state --state RELATED,ESTABLISHED -j ACCEPT")
+        run(f"iptables -A FORWARD -i {vpn_if} -o {lan_if} -d {ip} -m state --state RELATED,ESTABLISHED -j ACCEPT")
+        run(f"iptables -t nat -A PREROUTING -s {ip} -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
+        run(f"iptables -t nat -A PREROUTING -s {ip} -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
+
+        # Flush conntrack so existing connections get re-routed
+        run(f"conntrack -D -s {ip}")
+        run(f"conntrack -D -d {ip}")
+
+        # Kill any stale arpspoof for this target before starting
+        if gw:
+            run(f"pkill -f 'arpspoof -i {lan_if} -t {ip} {gw}'", timeout=5)
+            run(f"pkill -f 'arpspoof -i {lan_if} -t {gw} {ip}'", timeout=5)
+
+            # Launch arpspoof as detached processes (Popen so they don't block)
+            subprocess.Popen(
+                ["arpspoof", "-i", lan_if, "-t", ip, gw],
+                stdout=DEVNULL, stderr=DEVNULL,
+            )
+            subprocess.Popen(
+                ["arpspoof", "-i", lan_if, "-t", gw, ip],
+                stdout=DEVNULL, stderr=DEVNULL,
+            )
+        lines.append(f"Added target: {ip}")
+
+    output = "; ".join(lines) if lines else "No changes"
+    return True, output
+
+
 @app.route("/api/saved-devices/sync", methods=["POST"])
 def api_sync_devices():
     """Sync enabled saved devices → TARGET_IPS in config, then restart Gatecrash."""
+    # Capture old targets before syncing
+    old_conf = read_conf()
+    old_ips = old_conf.get("TARGET_IPS", "").split()
+
     active_ips = sync_targets_from_devices()
-    audit_log.info("DEVICE  Synced targets → %s, restarting Gatecrash from %s",
+    audit_log.info("DEVICE  Synced targets → %s from %s",
                    active_ips or "(none)", request.remote_addr)
-    # Restart Gatecrash to apply new targets
-    out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
-    if rc == 0:
+
+    # Check if gatecrash is currently running
+    status_out, _ = run("systemctl is-active gatecrash 2>/dev/null")
+    gc_running = status_out.strip() == "active"
+
+    if gc_running and set(old_ips) != set(active_ips):
+        # Hot reload — only add/remove what changed
+        ok, out = _hot_reload_targets(old_ips, active_ips)
+        if ok:
+            audit_log.info("SERVICE  Gatecrash hot-reloaded: %s", out)
+        else:
+            audit_log.error("SERVICE  Hot reload failed (%s), falling back to restart", out)
+            out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+            ok = rc == 0
+            if ok:
+                audit_log.info("SERVICE  Gatecrash restarted (hot reload fallback)")
+            else:
+                audit_log.error("SERVICE  Gatecrash restart FAILED: %s", out)
         _record_service_state("gatecrash", True)
-        audit_log.info("SERVICE  Gatecrash restarted after device sync")
+        return jsonify({"ok": ok, "active_ips": active_ips, "output": out})
+    elif gc_running:
+        # Targets unchanged — nothing to do
+        return jsonify({"ok": True, "active_ips": active_ips, "output": "No target changes"})
     else:
-        audit_log.error("SERVICE  Gatecrash restart FAILED after device sync: %s", out)
-    return jsonify({"ok": rc == 0, "active_ips": active_ips, "output": out})
+        # Gatecrash not running — full restart
+        out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+        if rc == 0:
+            _record_service_state("gatecrash", True)
+            audit_log.info("SERVICE  Gatecrash restarted after device sync")
+        else:
+            audit_log.error("SERVICE  Gatecrash restart FAILED after device sync: %s", out)
+        return jsonify({"ok": rc == 0, "active_ips": active_ips, "output": out})
 
 
 @app.route("/api/gateway")
