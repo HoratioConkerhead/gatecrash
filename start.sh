@@ -89,14 +89,16 @@ iptables -t nat -F PREROUTING
 iptables -t nat -F POSTROUTING
 iptables -F FORWARD
 
-# Default-deny FORWARD. The per-target ACCEPT rules below re-open only the
-# targeted devices; anything else crossing the box is dropped even if
-# /proc/sys/net/ipv4/ip_forward is 1.
+# SECURITY: default-deny FORWARD.  ip_forward=1 is required for ARP spoofing
+# to work, but without this DROP policy the box would silently forward ANY
+# traffic between interfaces — turning it into an open router.  Only the
+# per-target ACCEPT rules below re-open specific devices.  (MED-10)
 iptables -P FORWARD DROP
 
-# Only flush conntrack entries for target devices, not the whole table.
-# A global `conntrack -F` would tear down SSH, the web UI, and every other
-# connection to the box — including the one running this script.
+# SECURITY: only flush conntrack for target devices — NOT the whole table.
+# `conntrack -F` would tear down SSH, the web UI, and every other connection
+# to the box, including the session running this script.  An attacker could
+# exploit a full flush to cause a denial-of-service.  (MED-13)
 for ip in $TARGET_IPS; do
     conntrack -D -s "$ip" 2>/dev/null || true
     conntrack -D -d "$ip" 2>/dev/null || true

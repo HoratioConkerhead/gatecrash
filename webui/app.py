@@ -85,9 +85,11 @@ def _check_password(password, stored):
     """
     import hmac
     if stored.startswith(b"$2b$") or stored.startswith(b"$2a$"):
-        # bcrypt hash
+        # bcrypt hash — checkpw is already constant-time internally
         return bcrypt.checkpw(password.encode("utf-8"), stored), False
-    # Legacy plaintext — constant-time comparison, flag for migration
+    # SECURITY: hmac.compare_digest prevents timing attacks — do NOT replace
+    # with == even though it looks equivalent.  An attacker can measure response
+    # time differences with == to guess the password byte-by-byte.  (CRIT-6)
     matched = hmac.compare_digest(password.encode("utf-8"), stored)
     return matched, True
 
@@ -97,6 +99,8 @@ def _store_password(password):
     hashed = _hash_password(password)
     with open(WEBUI_TOKEN_PATH, "wb") as f:
         f.write(hashed)
+    # SECURITY: 0o600 = owner-only read/write.  Without this, other users on
+    # the box could read the bcrypt hash and brute-force it offline.  (CRIT-5)
     os.chmod(WEBUI_TOKEN_PATH, 0o600)
 
 
@@ -124,6 +128,8 @@ def _get_or_create_secret():
     key = secrets.token_bytes(32)
     with open(SECRET_KEY_PATH, "wb") as f:
         f.write(key)
+    # SECURITY: 0o600 — the secret key signs session cookies.  If leaked,
+    # an attacker can forge authenticated sessions without knowing the password.
     os.chmod(SECRET_KEY_PATH, 0o600)
     return key
 
@@ -144,15 +150,21 @@ def rate_limit_exceeded(_e):
 @app.after_request
 def set_security_headers(response):
     """Add security headers and prevent stale API caching."""
+    # SECURITY: no-store prevents the browser (and proxies) from caching API
+    # responses that may contain tokens, device lists, or config.  Without this,
+    # sensitive data can persist in the disk cache after logout.
     if request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
+    # SECURITY: HSTS tells the browser to always use HTTPS for future visits,
+    # preventing SSL-stripping attacks on the LAN.  (MED-16)
     if _TLS_ENABLED:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    # Hide server identity
+    # SECURITY: mask the real server identity (Werkzeug/Python version) to
+    # prevent fingerprinting the exact framework and Python version.  (LOW-3)
     response.headers["Server"] = "Gatecrash"
     return response
 
@@ -164,7 +176,9 @@ def require_auth():
         return
     stored = _get_stored_token()
     if stored is None:
-        # Setup mode — only allow the setup endpoint and the page itself
+        # SECURITY: setup mode locks down ALL endpoints except / and
+        # /api/setup-auth.  Without this, an attacker on the LAN could call
+        # /api/config, /api/wg-config, etc. before a password is set.  (CRIT-7)
         if request.path in ("/", "/api/setup-auth"):
             return
         if request.path.startswith("/api/"):
@@ -215,6 +229,8 @@ def csrf_protect():
     if not session.get("authenticated"):
         return
     token = request.headers.get("X-CSRF-Token", "")
+    # SECURITY: both checks matter — `not token` rejects empty/missing headers,
+    # the comparison rejects forged values.  Do NOT simplify to just `!=`.  (HIGH-5)
     if not token or token != session.get("csrf_token"):
         audit_log.warning("AUTH  CSRF rejection on %s %s from %s",
                           request.method, request.path, request.remote_addr)
@@ -322,10 +338,15 @@ _REPO_SAFE_RE = re.compile(r'^[^\n\r;&|`$<>\\!]{1,512}$')
 _MAC_RE   = re.compile(r'^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
 _NICK_MAX = 64
 
-# Only these keys are permitted in gatecrash.conf
+# SECURITY: gatecrash.conf is `source`d as bash by start.sh/stop.sh, so any
+# key or value written here executes as root.  The allowlist + per-field
+# validators below are the only thing preventing config-write → RCE.  (CRIT-4)
 _CONF_ALLOWED_KEYS = {"LAN_IF", "VPN_IF", "GATEWAY_IP", "TARGET_IPS", "ROUTE_TABLE", "FWMARK"}
 
-# WireGuard hook lines that allow arbitrary code execution via wg-quick
+# SECURITY: wg-quick executes PostUp/PostDown/PreUp/PreDown as root shell
+# commands.  A malicious WireGuard config upload could embed `PostUp = rm -rf /`
+# and it would run when WireGuard starts.  _strip_wg_hooks() removes these
+# lines from every config write path.  Do NOT remove this.  (HIGH-6)
 _WG_HOOK_RE = re.compile(
     r'^\s*(PostUp|PostDown|PreUp|PreDown)\s*=',
     re.IGNORECASE,
@@ -602,9 +623,12 @@ def _trigger_upgrade(repo):
         audit_log.error("UPGRADE  Refused upgrade — unsafe repo path: %s", repo)
         return  # refuse to run upgrade with unsafe repo path
     audit_log.info("UPGRADE  Upgrade triggered from repo %s", repo)
+    # SECURITY: shlex.quote prevents shell injection if the repo path contains
+    # spaces, quotes, or metacharacters (e.g. "; rm -rf /").  (MED-7)
     q_repo = shlex.quote(repo)
     upgrade_script = f"""#!/bin/bash
-# Self-delete on exit so stale upgrade scripts don't accumulate in /tmp.
+# SECURITY: self-delete on exit so stale upgrade scripts don't accumulate
+# in /tmp where another user could modify them before a re-run.  (LOW-4)
 trap 'rm -f -- "$0"' EXIT
 > /var/log/gatecrash-upgrade.log
 sleep 1
@@ -613,6 +637,8 @@ git -c safe.directory={q_repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
 bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
 echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
 """
+    # SECURITY: mkstemp creates a unique file with 0o600 permissions, preventing
+    # a symlink or race-condition attack on a predictable /tmp path.  (MED-1)
     fd, script_path = tempfile.mkstemp(suffix=".sh", prefix="gatecrash-upgrade-")
     with os.fdopen(fd, "w") as f:
         f.write(upgrade_script)
@@ -944,8 +970,8 @@ def index():
         ensure_update_check_thread()
         ensure_traffic_watch()
     csrf = _ensure_csrf_token() if not setup_required and not login_required else ""
-    # Hide the version string from unauthenticated viewers (login + setup pages)
-    # so a drive-by visitor can't fingerprint the build.
+    # SECURITY: hide version from unauthenticated viewers so a drive-by visitor
+    # can't fingerprint the build and target known vulnerabilities.  (LOW-1)
     version = get_version() if not setup_required and not login_required else ""
     return render_template("index.html", version=version,
                            setup_required=setup_required, login_required=login_required,
@@ -965,8 +991,9 @@ def api_setup_auth():
     except FileExistsError:
         return jsonify({"ok": False, "error": "Authentication is already configured"}), 403
     try:
-        # Automatically log in so the page loads immediately after setup.
-        # Clear any pre-existing session state first to prevent session fixation.
+        # SECURITY: session.clear() before setting authenticated = True prevents
+        # session fixation — an attacker who set a known session ID before setup
+        # can't ride the new authentication.  Do NOT remove.  (HIGH-16)
         session.clear()
         session["authenticated"] = True
         session.permanent = True
@@ -988,7 +1015,8 @@ def api_login():
         if needs_rehash:
             _store_password(password)
             audit_log.info("AUTH  Migrated legacy plaintext password to bcrypt from %s", request.remote_addr)
-        # Rotate session on login to prevent session fixation.
+        # SECURITY: session.clear() rotates the session ID on login, preventing
+        # session fixation attacks.  Do NOT remove or move after the auth set.  (HIGH-16)
         session.clear()
         session["authenticated"] = True
         session.permanent = True
@@ -1322,6 +1350,8 @@ def api_save_device():
             return jsonify({"ok": False, "error": "Invalid IP address"})
     if data.get("nickname"):
         nick = str(data["nickname"])
+        # SECURITY: reject HTML/shell-significant characters in nicknames —
+        # these are displayed in the UI and logged to the audit log.  (MED-5)
         if len(nick) > _NICK_MAX or re.search(r'[<>"\'&;]', nick):
             return jsonify({"ok": False, "error": "Nickname contains invalid characters or is too long"})
 
@@ -1374,6 +1404,8 @@ def api_save_device():
 def api_delete_device():
     """Remove a saved device by MAC."""
     mac = (request.json or {}).get("mac", "").lower().strip()
+    # SECURITY: validate MAC even on delete — without this, a crafted MAC value
+    # could exploit downstream processing or log injection.  (LOW-7)
     if not _MAC_RE.match(mac):
         return jsonify({"ok": False, "error": "Invalid MAC address format"}), 400
     devices = [d for d in load_devices() if d["mac"] != mac]
@@ -1419,7 +1451,8 @@ def api_diagnostics_dump():
 
     def section(title, cmd):
         out, _ = run(cmd, timeout=10)
-        # Redact WireGuard private keys from all output
+        # SECURITY: redact WireGuard private keys from diagnostics output — the
+        # dump is downloadable as a text file and may be shared for support.  (HIGH-1, HIGH-9)
         redacted = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', out or '')
         sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd}\n\n{redacted or '(empty)'}\n")
 
@@ -1587,7 +1620,9 @@ def api_config():
         return jsonify(conf)
     try:
         data = request.json
-        # Reject unknown keys — only permitted config fields may be written
+        # SECURITY: reject unknown keys — gatecrash.conf is `source`d as bash,
+        # so an injected key like FOO="$(rm -rf /)" would execute as root.
+        # This allowlist + write_conf() both check independently (defense in depth).  (CRIT-4)
         unknown = set(data.keys()) - _CONF_ALLOWED_KEYS
         if unknown:
             return jsonify({"ok": False, "error": f"Unknown config keys: {', '.join(sorted(unknown))}"}), 400
@@ -1617,6 +1652,7 @@ def api_config():
         audit_log.info("CONFIG  Configuration updated from %s: %s", request.remote_addr, data)
         return jsonify({"ok": True})
     except Exception:
+        # SECURITY: generic error — do not leak internal paths or stack traces.  (HIGH-8)
         return jsonify({"ok": False, "error": "Internal error"})
 
 
@@ -1626,12 +1662,15 @@ def api_wg_config():
         try:
             with open(WG_CONF_PATH) as f:
                 content = f.read()
-            # Redact PrivateKey — only accept it on writes
+            # SECURITY: never send the WireGuard private key to the browser.
+            # The key stays on disk; the UI shows [redacted] and sends it back
+            # unchanged on save (restored from disk below).  (HIGH-9)
             content = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', content)
             return jsonify({"ok": True, "content": content})
         except Exception:
             return jsonify({"ok": False, "content": "", "error": "Internal error"})
     try:
+        # SECURITY: strip PostUp/PostDown hooks — they execute as root via wg-quick.  (HIGH-6)
         content = _strip_wg_hooks(request.json.get("content", ""))
         # If client sent back [redacted], restore the real PrivateKey from disk
         if "[redacted]" in content:
@@ -1645,10 +1684,12 @@ def api_wg_config():
                 pass
         with open(WG_CONF_PATH, "w") as f:
             f.write(content)
+        # SECURITY: 0o600 — WireGuard config contains the VPN private key.
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config updated from %s", request.remote_addr)
         return jsonify({"ok": True})
     except Exception:
+        # SECURITY: generic error — do not leak internal paths or stack traces.  (HIGH-8)
         return jsonify({"ok": False, "error": "Internal error"})
 
 
@@ -1720,6 +1761,9 @@ def api_wg_config_upload():
                     fixes.append("added MTU = 1280")
         new_lines = result
 
+    # SECURITY: strip PostUp/PostDown hooks from uploaded configs — they execute
+    # as root via wg-quick.  An uploaded .conf from a VPN provider could contain
+    # arbitrary shell commands.  (HIGH-6)
     final_content = _strip_wg_hooks("\n".join(new_lines))
     if not final_content.endswith("\n"):
         final_content += "\n"
@@ -1727,10 +1771,12 @@ def api_wg_config_upload():
     try:
         with open(WG_CONF_PATH, "w") as f:
             f.write(final_content)
+        # SECURITY: 0o600 — WireGuard config contains the VPN private key.
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config uploaded from %s (fixes: %s)", request.remote_addr, fixes)
         return jsonify({"ok": True, "fixes": fixes})
     except Exception:
+        # SECURITY: generic error — do not leak internal paths or stack traces.  (HIGH-8)
         return jsonify({"ok": False, "error": "Internal error", "fixes": []})
 
 

@@ -41,13 +41,14 @@ iptables -t nat -F PREROUTING
 iptables -t nat -F POSTROUTING
 iptables -F FORWARD
 
-# Default-deny FORWARD on teardown. ip_forward stays 1 (it's a sysctl set
-# elsewhere), so without this the box could silently forward target traffic
-# in the clear between the time we flush rules and the next start.
+# SECURITY: default-deny FORWARD on teardown.  ip_forward stays 1 (sysctl),
+# so without this DROP policy the box becomes an open router after stop —
+# silently forwarding traffic in the clear.  Do NOT remove.  (MED-10)
 iptables -P FORWARD DROP
 
-# Flush only target devices' conntrack — never the whole table (would kill
-# SSH, the web UI, and anything else talking to the box).
+# SECURITY: flush only target devices' conntrack — never the whole table.
+# `conntrack -F` would kill SSH, the web UI, and anything else talking to the
+# box.  Per-target `-D` is the safe alternative.  (MED-13)
 for ip in ${TARGET_IPS:-}; do
     conntrack -D -s "$ip" 2>/dev/null || true
     conntrack -D -d "$ip" 2>/dev/null || true

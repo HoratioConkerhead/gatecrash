@@ -1550,7 +1550,11 @@ document.getElementById('login-pw').focus();
 
 <script>
 // ---------------------------------------------------------------------------
-// CSRF — read token from meta tag, auto-inject into all state-changing fetches
+// SECURITY: CSRF double-submit — reads the token from <meta> (set by Flask at
+// login) and auto-injects it into every state-changing fetch.  Without this,
+// a malicious page could POST to the API using the browser's session cookie
+// and perform actions (start/stop VPN, factory reset, etc.).  (HIGH-5)
+// Do NOT remove the fetch wrapper or the X-CSRF-Token header.
 // ---------------------------------------------------------------------------
 let _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
@@ -1564,7 +1568,10 @@ window.fetch = function(url, opts) {
   return _origFetch.call(this, url, opts);
 };
 
-// HTML entity encoder — use for all user-supplied data inserted into innerHTML
+// SECURITY: HTML entity encoder — prevents XSS when user-supplied data
+// (hostnames, nicknames, IPs from the network) is inserted via innerHTML.
+// Prefer createElement+textContent where possible, but use h() as a fallback
+// for cases where innerHTML is unavoidable.  (HIGH-2, HIGH-3, HIGH-4)
 function h(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
@@ -2006,9 +2013,13 @@ const _SVG_INFO   = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s
 const _SVG_RENAME = '<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
 const _SVG_REMOVE = '<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
 
+// SECURITY: this function uses createElement + textContent + addEventListener
+// exclusively — NO innerHTML with network data.  Device nicknames, IPs, and
+// hostnames come from the network and could contain <script> tags or event
+// handlers.  Do NOT refactor back to innerHTML/template literals.  (HIGH-13)
 function renderSavedDevices() {
   const list = document.getElementById('saved-devices-list');
-  list.textContent = '';
+  list.textContent = '';  // SECURITY: textContent, not innerHTML — safe clear
   if (!_savedDevices.length) {
     const empty = document.createElement('div');
     empty.style.cssText = 'padding:12px;color:#aaa;font-size:13px;text-align:center;';
@@ -2033,6 +2044,7 @@ function renderSavedDevices() {
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = !!dev.enabled;
+    // SECURITY: addEventListener, not inline onclick — avoids injecting dev.mac into HTML attributes
     cb.addEventListener('change', () => toggleDevice(dev.mac, cb.checked, i));
     const track = document.createElement('div'); track.className = 'track';
     const knob  = document.createElement('div'); knob.className  = 'knob';
@@ -2239,6 +2251,10 @@ function scanDevices() {
   };
 }
 
+// SECURITY: like renderSavedDevices, this uses createElement + textContent
+// only — NO innerHTML with network data.  Scanned device hostnames/vendors
+// come directly from nmap output and could be attacker-controlled (e.g. a
+// rogue device broadcasting "<img onerror=...>" as its hostname).  (HIGH-13)
 function renderScannedDevices() {
   const filterVal = (document.getElementById('scan-filter')?.value || '').toLowerCase();
   const list = document.getElementById('scan-device-list');
@@ -2304,6 +2320,7 @@ function renderScannedDevices() {
       const btn = document.createElement('button');
       btn.className = 'device-add';
       btn.textContent = '+ Save';
+      // SECURITY: addEventListener, not inline onclick — keeps network data out of HTML attributes
       btn.addEventListener('click', () => {
         saveScannedDevice(dev.mac, dev.ip || '', dev.hostname || dev.vendor || '', btn);
       });
@@ -2578,6 +2595,9 @@ async function loadWGConfigSummary() {
   } catch(e) {}
 }
 
+// SECURITY: reboot/shutdown require password re-confirmation even though the
+// user is already logged in.  This protects against CSRF-chained session
+// hijacks — a stolen session cookie alone can't trigger a reboot.  (HIGH-15)
 async function reboot() {
   if (!confirm('Reboot the Gatecrash device?')) return;
   const pw = prompt('Confirm your password to reboot:');
