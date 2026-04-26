@@ -2020,7 +2020,12 @@ def _require_password_confirmation():
     Used to gate destructive operations (reboot/shutdown) against CSRF-chained
     session hijacks — even with a valid session, the caller must re-prove the
     password.
+
+    In no-auth mode there is no password to check (the user opted out of auth
+    entirely at setup), so the gate becomes a simple click-to-confirm in the UI.
     """
+    if _no_auth_enabled():
+        return None
     stored = _get_stored_token()
     if stored is None:
         return jsonify({"ok": False, "error": "No password set"}), 400
@@ -2033,7 +2038,7 @@ def _require_password_confirmation():
 
 
 @app.route("/api/reboot", methods=["POST"])
-@limiter.limit("1 per minute")
+@limiter.limit("5 per minute")
 def api_reboot():
     failure = _require_password_confirmation()
     if failure is not None:
@@ -2044,7 +2049,7 @@ def api_reboot():
 
 
 @app.route("/api/shutdown", methods=["POST"])
-@limiter.limit("1 per minute")
+@limiter.limit("5 per minute")
 def api_shutdown():
     failure = _require_password_confirmation()
     if failure is not None:

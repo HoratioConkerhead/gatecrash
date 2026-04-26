@@ -3012,8 +3012,11 @@ async function loadWGConfigSummary() {
 // hijacks — a stolen session cookie alone can't trigger a reboot.  (HIGH-15)
 async function reboot() {
   if (!confirm('Reboot the Gatecrash device?')) return;
-  const pw = prompt('Confirm your password to reboot:');
-  if (!pw) return;
+  let pw = '';
+  if (!_noAuth) {
+    pw = prompt('Confirm your password to reboot:');
+    if (!pw) return;
+  }
   const r = await fetch('/api/reboot', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({password: pw}),
@@ -3033,8 +3036,11 @@ async function reboot() {
 
 async function shutdown() {
   if (!confirm('Shut down the Gatecrash device?')) return;
-  const pw = prompt('Confirm your password to shut down:');
-  if (!pw) return;
+  let pw = '';
+  if (!_noAuth) {
+    pw = prompt('Confirm your password to shut down:');
+    if (!pw) return;
+  }
   const r = await fetch('/api/shutdown', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({password: pw}),
