@@ -1748,8 +1748,11 @@ def api_test_vpn():
 def api_config():
     if request.method == "GET":
         conf = read_conf()
-        # Always inject the live detected gateway
-        conf["GATEWAY_IP"] = _detect_gateway() or conf.get("GATEWAY_IP", "")
+        # Fill in detected gateway only if not already set — user can override
+        # via the Advanced Config pane (e.g. when auto-detect picks a host
+        # masquerading as a gateway, like a Hyper-V virtual switch).
+        if not conf.get("GATEWAY_IP"):
+            conf["GATEWAY_IP"] = _detect_gateway()
         return jsonify(conf)
     try:
         data = request.json
@@ -1777,10 +1780,11 @@ def api_config():
                     errors.append(str(e))
         if errors:
             return jsonify({"ok": False, "error": "; ".join(errors)}), 400
-        # Refresh gateway from routing table before saving
-        gw = _detect_gateway()
-        if gw:
-            data["GATEWAY_IP"] = gw
+        # Auto-detect gateway only if user left it blank
+        if not data.get("GATEWAY_IP"):
+            gw = _detect_gateway()
+            if gw:
+                data["GATEWAY_IP"] = gw
         write_conf(data)
         audit_log.info("CONFIG  Configuration updated from %s: %s", request.remote_addr, data)
         return jsonify({"ok": True})

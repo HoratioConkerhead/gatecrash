@@ -1248,6 +1248,11 @@ document.getElementById('login-pw').focus();
         <input type="text" id="cfg-vpn" placeholder="wg0">
       </div>
       <div class="field">
+        <label>Gateway IP</label>
+        <input type="text" id="cfg-gateway" placeholder="192.168.1.254">
+        <div class="hint">Your router's IP. Auto-detected, but override here if detection picks the wrong one (e.g. a host masquerading as a gateway).</div>
+      </div>
+      <div class="field">
         <label>Target IPs (manual override)</label>
         <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
         <div class="hint">Auto-populated from saved devices. Only edit manually if needed.</div>
@@ -1930,6 +1935,7 @@ async function loadConfig() {
   document.getElementById('cfg-lan').value     = d.LAN_IF     || '';
   document.getElementById('cfg-targets').value = d.TARGET_IPS || '';
   document.getElementById('cfg-vpn').value     = d.VPN_IF     || 'wg0';
+  document.getElementById('cfg-gateway').value = d.GATEWAY_IP || '';
 }
 
 async function saveConfig() {
@@ -1937,6 +1943,7 @@ async function saveConfig() {
   const data = {
     LAN_IF:      document.getElementById('cfg-lan').value.trim(),
     VPN_IF:      document.getElementById('cfg-vpn').value.trim(),
+    GATEWAY_IP:  document.getElementById('cfg-gateway').value.trim(),
     TARGET_IPS:  document.getElementById('cfg-targets').value.trim(),
     ROUTE_TABLE: 'vpntarget',
     FWMARK:      '0x1',
@@ -1962,6 +1969,7 @@ async function saveAndRestart() {
   const data = {
     LAN_IF:      document.getElementById('cfg-lan').value.trim(),
     VPN_IF:      document.getElementById('cfg-vpn').value.trim(),
+    GATEWAY_IP:  document.getElementById('cfg-gateway').value.trim(),
     TARGET_IPS:  document.getElementById('cfg-targets').value.trim(),
     ROUTE_TABLE: 'vpntarget',
     FWMARK:      '0x1',

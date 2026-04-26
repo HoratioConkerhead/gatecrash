@@ -120,6 +120,18 @@ done
 if [[ ! -f "$INSTALL_DIR/gatecrash.conf" ]]; then
     cp "$SCRIPT_DIR/gatecrash.conf.example" "$INSTALL_DIR/gatecrash.conf"
     chmod 640 "$INSTALL_DIR/gatecrash.conf"
+
+    # Auto-detect gateway and LAN interface from default route
+    DETECTED_GW=$(ip route show default | awk '/default/ {print $3; exit}')
+    DETECTED_IF=$(ip route show default | awk '/default/ {print $5; exit}')
+    if [[ -n "$DETECTED_GW" ]]; then
+        sed -i "s/^GATEWAY_IP=.*/GATEWAY_IP=\"$DETECTED_GW\"/" "$INSTALL_DIR/gatecrash.conf"
+        echo "  [OK] Auto-detected GATEWAY_IP=$DETECTED_GW"
+    fi
+    if [[ -n "$DETECTED_IF" ]]; then
+        sed -i "s/^LAN_IF=.*/LAN_IF=\"$DETECTED_IF\"/" "$INSTALL_DIR/gatecrash.conf"
+        echo "  [OK] Auto-detected LAN_IF=$DETECTED_IF"
+    fi
     echo "  [OK] Created $INSTALL_DIR/gatecrash.conf from example."
 else
     echo "  [OK] $INSTALL_DIR/gatecrash.conf already exists — not overwritten."
