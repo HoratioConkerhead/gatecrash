@@ -391,7 +391,7 @@
   .modal .device-name div { color: #888 !important; }
   .modal .device-mac { color: #7a7a9a; }
   .device-name { flex: 1; font-weight: 600; min-width: 0; }
-  .device-ip { font-family: monospace; color: var(--text-secondary); }
+  .device-ip { font-family: monospace; color: var(--text-primary); }
   .device-mac { font-family: monospace; color: var(--text-tertiary); font-size: 11px; }
 
   /* Icon buttons for device rows */
@@ -928,10 +928,12 @@ document.getElementById('login-pw').focus();
       <button class="modal-close" onclick="closeFactoryResetModal()">&#x2715;</button>
     </div>
     <div class="modal-body" style="padding:20px;">
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;line-height:1.6;">
-        This will permanently delete all settings, saved devices, VPN configuration, and your login password.
-        The device will return to its out-of-box state. <strong>This cannot be undone.</strong>
-      </p>
+      <div style="font-size:13px;color:var(--text-primary);line-height:1.6;margin-bottom:18px;">
+        <p style="margin:0 0 14px;">This will permanently delete all settings, saved devices, VPN configuration, and your login password.</p>
+        <p style="margin:0 0 14px;">The device will return to its out-of-box state.</p>
+        <p style="margin:0;"><strong>This cannot be undone.</strong></p>
+      </div>
+
       <div class="field">
         <label>Enter your password to confirm</label>
         <input type="password" id="reset-pw" autocomplete="current-password"
