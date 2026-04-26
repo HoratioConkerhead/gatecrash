@@ -208,9 +208,10 @@ echo "  Restarting web UI service (connection will drop briefly)..."
 systemctl restart gatecrash-webui
 echo "  [OK] Web UI installed and restarted."
 
-# Note: gatecrash itself is NOT enabled here. The web UI enables it
-# automatically the first time the user saves a WireGuard config, so a fresh
-# install doesn't have a `failed` service unit sitting in systemctl status.
+# Note: gatecrash itself is NOT enabled here. Boot-time start is handled
+# entirely by gatecrash-resume.service, which reads boot_state.json and only
+# starts gc + wg if they were running before the last shutdown. This keeps
+# the two services in sync (no "gc up but wg down" surprises after a reboot).
 
 # Save repo path so the web UI can run upgrades
 echo "$SCRIPT_DIR" > "$INSTALL_DIR/repo_path"
@@ -243,8 +244,8 @@ echo "       curl --interface wg0 -m 10 http://ifconfig.me"
 echo "       (should return your VPN provider's IP)"
 echo ""
 echo "  4. Start Gatecrash from the web UI (the big power button at the bottom)."
-echo "     Once you've uploaded a VPN config the web UI enables Gatecrash on boot"
-echo "     automatically, so it'll come back up after every reboot."
+echo "     Whatever state the box is in when you shut down (gatecrash + WG on,"
+echo "     or off, etc.) is what it'll boot back into."
 echo ""
 echo "  Web UI is running at:"
 WEBUI_IP=$(ip -4 addr show | grep -oP '(?<=inet )[\d.]+' | grep -v 127 | head -1)

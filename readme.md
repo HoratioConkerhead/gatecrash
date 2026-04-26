@@ -571,12 +571,16 @@ to start routing again. Events are logged to the audit log.
 
 ## Auto-Start on Boot
 
-`setup.sh` enables both `gatecrash-webui` and `gatecrash` on boot. The web
-UI is always available; Gatecrash itself starts automatically once you've
-uploaded a WireGuard config and saved at least one device. To opt out:
+The web UI (`gatecrash-webui`) is always enabled on boot. Gatecrash and
+WireGuard themselves are state-resumed via `gatecrash-resume.service`:
+whatever was running at the time of the last shutdown comes back up, so
+the two services stay in sync (no "gatecrash up but WG down" surprises).
+
+If you'd rather have it always-on regardless of last state:
 
 ```bash
-sudo systemctl disable gatecrash
+sudo systemctl enable gatecrash
+sudo systemctl enable wg-quick@wg0
 ```
 
 ## Troubleshooting
