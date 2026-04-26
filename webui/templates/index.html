@@ -945,8 +945,11 @@ document.getElementById('login-pw').focus();
       <button class="modal-close" onclick="document.getElementById('update-info-modal').classList.remove('open')">&#x2715;</button>
     </div>
     <div class="modal-body" style="font-family:inherit;color:#e0e0e0;padding:18px;white-space:normal;">
-      <div style="font-size:18px;font-weight:700;color:#4caf50;margin-bottom:10px;" id="update-info-version"></div>
-      <div style="font-size:13px;color:#aaa;" id="update-info-message"></div>
+      <div style="font-size:18px;font-weight:700;color:#4caf50;margin-bottom:6px;" id="update-info-version"></div>
+      <div style="font-size:12px;color:#888;margin-bottom:14px;" id="update-info-summary"></div>
+      <div style="font-size:12px;color:#aaa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">What's changing</div>
+      <ul id="update-info-commits" style="margin:0;padding-left:18px;font-size:13px;color:#ccc;line-height:1.55;max-height:280px;overflow-y:auto;"></ul>
+      <div id="update-info-message" style="font-size:13px;color:#aaa;display:none;"></div>
     </div>
     <div class="modal-footer" style="gap:8px;">
       <button class="btn-grey" onclick="document.getElementById('update-info-modal').classList.remove('open')" style="font-size:13px;padding:7px 16px;">Cancel</button>
@@ -3174,10 +3177,29 @@ function setUpdateNotify(state) {
 
 function showUpdateInfo() {
   const state = document.getElementById('btn-update-notify')._updateState || {};
-  const ver = state.remote_version ? `v${state.remote_version}` : 'New version';
-  document.getElementById('update-info-version').textContent = ver;
-  document.getElementById('update-info-message').textContent =
-    state.commit_message || 'A new version of Gatecrash is available.';
+  const remoteVer = state.remote_version ? `v${state.remote_version}` : 'New version';
+  const localVer = PAGE_VERSION ? `v${PAGE_VERSION}` : '';
+  document.getElementById('update-info-version').textContent =
+    localVer ? `${localVer} → ${remoteVer}` : remoteVer;
+  const n = (state.commits_behind || (state.commit_log || []).length || 0);
+  document.getElementById('update-info-summary').textContent =
+    n > 0 ? `${n} commit${n === 1 ? '' : 's'} since your version` : '';
+  const ul = document.getElementById('update-info-commits');
+  ul.innerHTML = '';
+  const commits = state.commit_log || [];
+  if (commits.length) {
+    for (const subj of commits) {
+      const li = document.createElement('li');
+      li.textContent = subj;
+      ul.appendChild(li);
+    }
+  } else {
+    const li = document.createElement('li');
+    li.textContent = state.commit_message || 'A new version of Gatecrash is available.';
+    li.style.listStyle = 'none';
+    li.style.marginLeft = '-18px';
+    ul.appendChild(li);
+  }
   document.getElementById('update-info-modal').classList.add('open');
 }
 

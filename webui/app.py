@@ -840,11 +840,17 @@ def run_update_check(allow_auto_upgrade=False):
         behind = 0
     commit_msg, _    = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null")
     remote_ver, _    = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null")
+    # Full subject list of every commit the user would gain by upgrading,
+    # newest first. Capped at 50 to keep the payload sane.
+    commit_log_out, _ = run(f"git -c safe.directory={repo} -C {repo} log HEAD..@{{upstream}} --pretty=format:%s -n 50 2>/dev/null")
+    commit_log = [l for l in (commit_log_out or "").splitlines() if l.strip()] if behind > 0 else []
     with _state_lock:
         update_check_state = {
             "available":      behind > 0,
             "remote_version": remote_ver.strip()   if behind > 0 else None,
             "commit_message": commit_msg.strip()   if behind > 0 else None,
+            "commit_log":     commit_log,
+            "commits_behind": behind,
             "last_checked":   now,
             "error":          None,
         }
