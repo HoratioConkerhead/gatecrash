@@ -60,6 +60,7 @@ WEBUI_TOKEN_PATH  = "/opt/gatecrash/webui_token"
 SECRET_KEY_PATH   = "/opt/gatecrash/webui_secret"
 NO_AUTH_PATH      = "/opt/gatecrash/webui_no_auth"
 HTTPS_PREF_PATH   = "/opt/gatecrash/https_pref"
+WELCOME_PATH      = "/opt/gatecrash/welcome_pending"
 CERT_DIR          = "/opt/gatecrash/certs"
 
 # Endpoints always accessible without a session
@@ -131,6 +132,19 @@ def _set_https_pref(enabled):
     with open(HTTPS_PREF_PATH, "w") as f:
         f.write("on" if enabled else "off")
     os.chmod(HTTPS_PREF_PATH, 0o644)
+
+
+def _mark_welcome_pending():
+    """Create a marker so the next index() render shows the welcome modal.
+
+    Survives the HTTPS switch (server-side) which localStorage cannot
+    (http://host and https://host are separate Origins for storage)."""
+    try:
+        with open(WELCOME_PATH, "w") as f:
+            f.write("1")
+        os.chmod(WELCOME_PATH, 0o644)
+    except OSError:
+        pass
 
 
 def _schedule_webui_restart(delay=1.0):
@@ -1036,9 +1050,13 @@ def index():
     # SECURITY: hide version from unauthenticated viewers so a drive-by visitor
     # can't fingerprint the build and target known vulnerabilities.  (LOW-1)
     version = get_version() if not setup_required and not login_required else ""
+    show_welcome = (
+        not setup_required and not login_required
+        and os.path.isfile(WELCOME_PATH)
+    )
     return render_template("index.html", version=version,
                            setup_required=setup_required, login_required=login_required,
-                           csrf_token=csrf)
+                           show_welcome=show_welcome, csrf_token=csrf)
 
 
 @app.route("/api/setup-auth", methods=["POST"])
@@ -1064,6 +1082,7 @@ def api_setup_auth():
         # Enable HTTPS for the next service start. Restart so the user lands
         # on the secure transport immediately after setup.
         _set_https_pref(True)
+        _mark_welcome_pending()
         _schedule_webui_restart()
         return jsonify({"ok": True, "csrf_token": _ensure_csrf_token(), "switch_to_https": True})
     except Exception:
@@ -1081,6 +1100,7 @@ def api_skip_setup_auth():
         os.close(fd)
         audit_log.warning("AUTH  Authentication SKIPPED at initial setup from %s — web UI is now open to anyone on the LAN", request.remote_addr)
         _set_https_pref(True)
+        _mark_welcome_pending()
         _schedule_webui_restart()
         return jsonify({"ok": True, "switch_to_https": True})
     except FileExistsError:
@@ -1189,6 +1209,15 @@ def api_remove_password():
     return jsonify({"ok": True})
 
 
+@app.route("/api/welcome-dismiss", methods=["POST"])
+def api_welcome_dismiss():
+    try:
+        os.remove(WELCOME_PATH)
+    except FileNotFoundError:
+        pass
+    return jsonify({"ok": True})
+
+
 @app.route("/api/set-https", methods=["POST"])
 def api_set_https():
     """Enable or disable HTTPS for the next start, then restart the service."""
@@ -1226,6 +1255,7 @@ def api_factory_reset():
         SECRET_KEY_PATH,
         NO_AUTH_PATH,
         HTTPS_PREF_PATH,
+        WELCOME_PATH,
         UPDATE_SETTINGS_FILE,
         AUTO_STOP_SETTINGS_FILE,
         BOOT_STATE_FILE,

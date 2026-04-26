@@ -984,6 +984,50 @@ document.getElementById('login-pw').focus();
   </div>
 </div>
 
+{% if show_welcome %}
+<!-- First-run welcome modal — guides the user through VPN config + device scan -->
+<div id="welcome-overlay" style="position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.72);display:flex;align-items:center;justify-content:center;padding:24px;font-family:inherit;">
+  <div style="background:#1a1a2e;border-radius:14px;width:480px;max-width:96vw;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.6);color:#e0e0e0;">
+    <div style="padding:24px 24px 8px;text-align:center;">
+      <img src="/static/icon-192.svg" style="width:48px;height:48px;margin-bottom:10px;" alt="">
+      <h1 style="font-size:20px;font-weight:700;margin-bottom:6px;">Welcome to Gatecrash!</h1>
+      <p style="color:#9090a8;font-size:13px;line-height:1.5;">A quick three-step setup to get you routing.</p>
+    </div>
+    <div style="padding:16px 24px;display:flex;flex-direction:column;gap:14px;">
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div style="flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#4caf50;color:#0f0f1a;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;">1</div>
+        <div style="flex:1;font-size:13px;line-height:1.55;color:#c8c8d8;">
+          <strong style="color:#e8e8f0;">Configure the VPN.</strong> Download a WireGuard config from your VPN provider (e.g. for Albania), then drag it onto the folder icon on the <strong>Config</strong> tab — or click to browse.
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div style="flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#4caf50;color:#0f0f1a;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;">2</div>
+        <div style="flex:1;font-size:13px;line-height:1.55;color:#c8c8d8;">
+          <strong style="color:#e8e8f0;">Find your devices.</strong> On the <strong>Devices</strong> tab, scan your LAN and pick the devices you want to route through the VPN.
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div style="flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#4caf50;color:#0f0f1a;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;">3</div>
+        <div style="flex:1;font-size:13px;line-height:1.55;color:#c8c8d8;">
+          <strong style="color:#e8e8f0;">Turn on Gatecrash.</strong> Hit the green power button at the bottom of the screen and the selected devices will start tunnelling through the VPN.
+        </div>
+      </div>
+    </div>
+    <div style="padding:14px 24px 22px;display:flex;gap:10px;">
+      <button onclick="dismissWelcome()" class="btn-green" style="flex:1;padding:11px;font-size:14px;font-weight:600;border:none;border-radius:8px;cursor:pointer;">Take me to Config &rarr;</button>
+    </div>
+  </div>
+</div>
+<script>
+async function dismissWelcome() {
+  try { await fetch('/api/welcome-dismiss', {method: 'POST'}); } catch(e) {}
+  document.getElementById('welcome-overlay').remove();
+  const cfgBtn = document.getElementById('tab-btn-config');
+  if (cfgBtn) switchTab('config', cfgBtn);
+}
+</script>
+{% endif %}
+
 <!-- Factory reset rebooting overlay — not dismissible -->
 <div id="rebooting-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;padding:32px;">
   <div class="spinner" style="width:36px;height:36px;border-width:4px;"></div>
