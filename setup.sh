@@ -23,7 +23,20 @@ echo "=== Gatecrash Setup ==="
 echo ""
 
 # ---------------------------------------------------------------------------
-# 1. Install dependencies
+# 1. Remove conflicting packages (apache2 binds port 80, blocks web UI)
+# ---------------------------------------------------------------------------
+
+if dpkg -l apache2 2>/dev/null | grep -q '^ii'; then
+    echo "Removing apache2 (conflicts with web UI on port 80)..."
+    systemctl stop apache2 2>/dev/null || true
+    systemctl disable apache2 2>/dev/null || true
+    apt-get --purge remove -y apache2 apache2-utils apache2-bin apache2-data || true
+    apt-get autoremove --purge -y
+    echo "  [OK] apache2 removed."
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Install dependencies
 # ---------------------------------------------------------------------------
 
 echo "Installing dependencies..."
@@ -46,7 +59,7 @@ systemctl start avahi-daemon
 echo "  [OK] Hostname set. Device accessible at https://gatecrash.local"
 
 # ---------------------------------------------------------------------------
-# 2. Enable IP forwarding
+# 3. Enable IP forwarding
 # ---------------------------------------------------------------------------
 
 echo "Enabling IP forwarding..."
@@ -57,7 +70,7 @@ EOF
 echo "  [OK] IP forwarding enabled."
 
 # ---------------------------------------------------------------------------
-# 3. Policy routing table
+# 4. Policy routing table
 # ---------------------------------------------------------------------------
 
 echo "Configuring policy routing..."
@@ -86,7 +99,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Install scripts and config
+# 5. Install scripts and config
 # ---------------------------------------------------------------------------
 
 echo "Installing scripts to $INSTALL_DIR..."
@@ -113,7 +126,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Install systemd service (not enabled, not started)
+# 6. Install systemd service (not enabled, not started)
 # ---------------------------------------------------------------------------
 
 echo "Installing systemd services..."
@@ -133,7 +146,7 @@ fi
 systemctl daemon-reload
 
 # ---------------------------------------------------------------------------
-# 6. Generate self-signed TLS certificate (if not already present)
+# 7. Generate self-signed TLS certificate (if not already present)
 # ---------------------------------------------------------------------------
 
 CERT_DIR="$INSTALL_DIR/certs"
@@ -158,7 +171,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 7. Install web UI
+# 8. Install web UI
 # ---------------------------------------------------------------------------
 
 echo "Installing web UI..."
