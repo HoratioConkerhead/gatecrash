@@ -571,12 +571,12 @@ to start routing again. Events are logged to the audit log.
 
 ## Auto-Start on Boot
 
-`setup.sh` installs and enables the systemd service automatically. The
-web UI (`gatecrash-webui`) starts on boot automatically. Gatecrash itself
-must be manually enabled once you're satisfied it works:
+`setup.sh` enables both `gatecrash-webui` and `gatecrash` on boot. The web
+UI is always available; Gatecrash itself starts automatically once you've
+uploaded a WireGuard config and saved at least one device. To opt out:
 
 ```bash
-sudo systemctl enable gatecrash
+sudo systemctl disable gatecrash
 ```
 
 ## Troubleshooting

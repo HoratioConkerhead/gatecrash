@@ -242,6 +242,26 @@ def _generate_self_signed_cert():
         return False
 
 
+def _ensure_gatecrash_enabled():
+    """Enable the gatecrash systemd unit on boot if it isn't already.
+
+    Called after a successful WireGuard config save so that fresh installs
+    don't show `gatecrash` as enabled-but-failing in systemctl. Idempotent and
+    safe to call repeatedly. Logged once per state change."""
+    try:
+        out = subprocess.run(
+            ["systemctl", "is-enabled", "gatecrash"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.stdout.strip() == "enabled":
+            return
+        subprocess.run(["systemctl", "enable", "gatecrash"],
+                       capture_output=True, timeout=10)
+        audit_log.info("SERVICE  gatecrash unit enabled on boot (first WG-config save)")
+    except Exception:
+        pass
+
+
 def _schedule_webui_restart(delay=1.0):
     """Restart the gatecrash-webui service after the current response is sent.
 
@@ -1432,6 +1452,7 @@ def api_status():
         "version": get_version(),
         "no_auth": _no_auth_enabled(),
         "https_on": _TLS_ENABLED,
+        "wg_configured": os.path.isfile(WG_CONF_PATH),
     })
 
 
@@ -1462,6 +1483,9 @@ def api_stop():
 @app.route("/api/wg/start", methods=["POST"])
 def api_wg_start():
     audit_log.info("SERVICE  WireGuard START requested from %s", request.remote_addr)
+    if not os.path.isfile(WG_CONF_PATH):
+        return jsonify({"ok": False, "error": "no_config",
+                        "output": "No WireGuard config — upload one on the Config tab first."})
     out, rc = run("wg-quick up wg0 2>&1", timeout=20)
     # Restore vpntarget VPN route (wg-quick wipes it on down/up)
     conf = read_conf()
@@ -2114,6 +2138,7 @@ def api_wg_config():
         # SECURITY: 0o600 — WireGuard config contains the VPN private key.
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config updated from %s", request.remote_addr)
+        _ensure_gatecrash_enabled()
         return jsonify({"ok": True})
     except Exception:
         # SECURITY: generic error — do not leak internal paths or stack traces.  (HIGH-8)
@@ -2201,6 +2226,7 @@ def api_wg_config_upload():
         # SECURITY: 0o600 — WireGuard config contains the VPN private key.
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config uploaded from %s (fixes: %s)", request.remote_addr, fixes)
+        _ensure_gatecrash_enabled()
         return jsonify({"ok": True, "fixes": fixes})
     except Exception:
         # SECURITY: generic error — do not leak internal paths or stack traces.  (HIGH-8)

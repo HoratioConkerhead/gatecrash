@@ -208,6 +208,10 @@ echo "  Restarting web UI service (connection will drop briefly)..."
 systemctl restart gatecrash-webui
 echo "  [OK] Web UI installed and restarted."
 
+# Note: gatecrash itself is NOT enabled here. The web UI enables it
+# automatically the first time the user saves a WireGuard config, so a fresh
+# install doesn't have a `failed` service unit sitting in systemctl status.
+
 # Save repo path so the web UI can run upgrades
 echo "$SCRIPT_DIR" > "$INSTALL_DIR/repo_path"
 echo "  [OK] Repo path saved."
@@ -238,11 +242,9 @@ echo "       sudo wg-quick up wg0"
 echo "       curl --interface wg0 -m 10 http://ifconfig.me"
 echo "       (should return your VPN provider's IP)"
 echo ""
-echo "  4. Start Gatecrash:"
-echo "       sudo /opt/gatecrash/start.sh"
-echo ""
-echo "  5. To start on boot once you're happy it works:"
-echo "       sudo systemctl enable gatecrash"
+echo "  4. Start Gatecrash from the web UI (the big power button at the bottom)."
+echo "     Once you've uploaded a VPN config the web UI enables Gatecrash on boot"
+echo "     automatically, so it'll come back up after every reboot."
 echo ""
 echo "  Web UI is running at:"
 WEBUI_IP=$(ip -4 addr show | grep -oP '(?<=inet )[\d.]+' | grep -v 127 | head -1)

@@ -955,6 +955,26 @@ document.getElementById('login-pw').focus();
   </div>
 </div>
 
+<!-- "No VPN configured" modal — shown when user tries to start without a wg0.conf -->
+<div class="modal-backdrop" id="no-vpn-modal" onclick="if(event.target===this)closeNoVpnModal()">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>&#9888; No VPN configured</h3>
+      <button class="modal-close" onclick="closeNoVpnModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="padding:20px;">
+      <div style="font-size:13px;color:var(--text-primary);line-height:1.6;">
+        <p style="margin:0 0 12px;">Gatecrash needs a WireGuard config before it can route any traffic.</p>
+        <p style="margin:0;">Go to the <strong>Config</strong> tab and drop your provider's <code>.conf</code> file onto the upload area.</p>
+      </div>
+    </div>
+    <div class="modal-footer" style="padding:14px 20px;display:flex;gap:10px;border-top:1px solid var(--border-card);">
+      <button class="btn-grey" onclick="closeNoVpnModal()" style="flex:1;">Cancel</button>
+      <button class="btn-green" onclick="closeNoVpnModal();switchTab('config',document.getElementById('tab-btn-config'));" style="flex:1;">Go to Config &rarr;</button>
+    </div>
+  </div>
+</div>
+
 <!-- Factory Reset modal -->
 <div class="modal-backdrop" id="factory-reset-modal" onclick="if(event.target===this)closeFactoryResetModal()">
   <div class="modal" style="max-width:420px;">
@@ -1918,6 +1938,7 @@ async function fetchStatus() {
     // Track state for toggle buttons
     _gcRunning = d.gatecrash_running;
     _wgRunning = d.wg_up;
+    _wgConfigured = !!d.wg_configured;
     updateToggleButtons();
 
     // WireGuard stats
@@ -2144,6 +2165,7 @@ document.addEventListener('visibilitychange', () => {
 
 let _gcRunning = false;
 let _wgRunning = false;
+let _wgConfigured = true;  // assume true until status says otherwise (avoids false alarm on first paint)
 
 function showOutput(text) {
   const el = document.getElementById('ctrl-output');
@@ -2173,9 +2195,13 @@ function updateToggleButtons() {
   }
 }
 
+function openNoVpnModal()  { document.getElementById('no-vpn-modal').classList.add('open'); }
+function closeNoVpnModal() { document.getElementById('no-vpn-modal').classList.remove('open'); }
+
 async function toggleMaster() {
   const btn = document.getElementById('btn-power');
 
+  if (!_gcRunning && !_wgConfigured) { openNoVpnModal(); return; }
   btn.disabled = true;
   if (_gcRunning) {
     // Stop: shut down GC and WG
@@ -2213,6 +2239,7 @@ async function toggleMaster() {
 
 async function toggleGC() {
   const btn = document.getElementById('btn-toggle-gc');
+  if (!_gcRunning && !_wgConfigured) { openNoVpnModal(); return; }
   btn.disabled = true;
   if (_gcRunning) {
     showOutput('Stopping Gatecrash...');
@@ -2232,6 +2259,7 @@ async function toggleGC() {
 
 async function toggleWG() {
   const btn = document.getElementById('btn-toggle-wg');
+  if (!_wgRunning && !_wgConfigured) { openNoVpnModal(); return; }
   btn.disabled = true;
   if (_wgRunning) {
     showOutput('Stopping WireGuard...');
