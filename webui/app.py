@@ -56,9 +56,10 @@ audit_log.info("Web UI started (PID %d)", os.getpid())
 
 WEBUI_TOKEN_PATH  = "/opt/gatecrash/webui_token"
 SECRET_KEY_PATH   = "/opt/gatecrash/webui_secret"
+NO_AUTH_PATH      = "/opt/gatecrash/webui_no_auth"
 
 # Endpoints always accessible without a session
-_PUBLIC_PATHS = {"/", "/api/login", "/api/setup-auth"}
+_PUBLIC_PATHS = {"/", "/api/login", "/api/setup-auth", "/api/skip-setup-auth"}
 
 
 def _get_stored_token():
@@ -102,6 +103,11 @@ def _store_password(password):
     # SECURITY: 0o600 = owner-only read/write.  Without this, other users on
     # the box could read the bcrypt hash and brute-force it offline.  (CRIT-5)
     os.chmod(WEBUI_TOKEN_PATH, 0o600)
+
+
+def _no_auth_enabled():
+    """True when the user opted out of authentication during initial setup."""
+    return os.path.isfile(NO_AUTH_PATH)
 
 
 def _store_password_exclusive(password):
@@ -174,12 +180,16 @@ def require_auth():
     # Static assets are always public
     if request.path.startswith("/static/"):
         return
+    # No-auth mode: user explicitly opted out during setup. Every endpoint
+    # is open. Anyone on the LAN can configure the box — by design.
+    if _no_auth_enabled():
+        return
     stored = _get_stored_token()
     if stored is None:
         # SECURITY: setup mode locks down ALL endpoints except / and
         # /api/setup-auth.  Without this, an attacker on the LAN could call
         # /api/config, /api/wg-config, etc. before a password is set.  (CRIT-7)
-        if request.path in ("/", "/api/setup-auth"):
+        if request.path in ("/", "/api/setup-auth", "/api/skip-setup-auth"):
             return
         if request.path.startswith("/api/"):
             return Response(
@@ -208,7 +218,7 @@ def require_auth():
 # ---------------------------------------------------------------------------
 
 # Paths exempt from CSRF (login/setup need to work before a token exists)
-_CSRF_EXEMPT = {"/api/login", "/api/setup-auth"}
+_CSRF_EXEMPT = {"/api/login", "/api/setup-auth", "/api/skip-setup-auth"}
 
 
 def _ensure_csrf_token():
@@ -980,8 +990,9 @@ def sync_targets_from_devices():
 
 @app.route("/")
 def index():
-    setup_required = _get_stored_token() is None
-    login_required = not setup_required and not session.get("authenticated")
+    no_auth = _no_auth_enabled()
+    setup_required = not no_auth and _get_stored_token() is None
+    login_required = not no_auth and not setup_required and not session.get("authenticated")
     if not setup_required and not login_required:
         ensure_dns_thread()
         ensure_ip_watch()
@@ -1017,6 +1028,23 @@ def api_setup_auth():
         session.permanent = True
         audit_log.info("AUTH  Initial password configured from %s", request.remote_addr)
         return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
+    except Exception:
+        return jsonify({"ok": False, "error": "Internal error"})
+
+
+@app.route("/api/skip-setup-auth", methods=["POST"])
+def api_skip_setup_auth():
+    """Opt out of authentication entirely. Only callable during initial setup."""
+    if _get_stored_token() is not None or _no_auth_enabled():
+        return jsonify({"ok": False, "error": "Setup is already complete"}), 403
+    try:
+        # O_EXCL guards against concurrent skip + setup-auth requests racing.
+        fd = os.open(NO_AUTH_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+        audit_log.warning("AUTH  Authentication SKIPPED at initial setup from %s — web UI is now open to anyone on the LAN", request.remote_addr)
+        return jsonify({"ok": True})
+    except FileExistsError:
+        return jsonify({"ok": False, "error": "Setup is already complete"}), 403
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
 
