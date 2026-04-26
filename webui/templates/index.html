@@ -1813,11 +1813,16 @@ function startRebootReconnect(opts) {
   // by the plain reboot (keeps the current protocol). On HTTPS, browsers
   // block mixed-content fetch so the poll can't see a new HTTP server —
   // hence the max-wait timer fallback.
+  // gracePeriod: seconds to wait before starting to poll. Without this we
+  // catch the still-up server (shutdown -r takes a few seconds to actually
+  // tear down networking) and "reconnect" before the device has even gone
+  // down.
   opts = opts || {};
-  const target  = opts.target  || (window.location.protocol + '//' + window.location.hostname + '/');
-  const message = opts.message || 'Waiting for the device to come back online';
-  const maxWait = opts.maxWait || 60;
-  const detail  = document.getElementById('reboot-detail');
+  const target      = opts.target       || (window.location.protocol + '//' + window.location.hostname + '/');
+  const message     = opts.message      || 'Waiting for the device to come back online';
+  const maxWait     = opts.maxWait      || 60;
+  const gracePeriod = opts.gracePeriod  || 0;
+  const detail      = document.getElementById('reboot-detail');
   let done = false;
   let elapsed = 0;
 
@@ -1837,6 +1842,7 @@ function startRebootReconnect(opts) {
   tick();
 
   (async () => {
+    if (gracePeriod > 0) await new Promise(r => setTimeout(r, gracePeriod * 1000));
     while (!done) {
       try {
         const ctl = new AbortController();
@@ -1854,6 +1860,7 @@ function startPostResetReconnect() {
   startRebootReconnect({
     target: 'http://' + window.location.hostname + '/',
     message: 'All settings cleared.<br>Waiting for the device to come back online',
+    gracePeriod: 10,
   });
 }
 
@@ -3039,6 +3046,7 @@ async function reboot() {
   document.querySelector('#rebooting-overlay > div:nth-child(2)').textContent = 'Device is rebooting…';
   startRebootReconnect({
     message: 'Waiting for the device to come back online',
+    gracePeriod: 10,
   });
 }
 
