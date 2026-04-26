@@ -29,47 +29,80 @@ VPN drops, target devices fall back to the normal gateway automatically.
 
 Gatecrash has been testing on a Hyper-V VM, and Raspberry Pi 4 B.
 
-## Quickstart
+## Quickstart - Installing on a Raspberry Pi
 
-First prepare your machine
+Using a Raspberry Pi may be the simpliest way to get Gatecrash running.
+>You don't need to plug into a monitor, keyboard, or mouse to set it up, as the Raspberry Pi Imager sets up all the remote access.  You may want to plug into a monitor if there are issues.
 
- - See [Preparing the Raspberry Pi](#preparing-the-raspberry-pi) for Raspberry Pi use.
+We use Raspberry Pi OS Lite, the command line only version.  This should work on a 4GB card, but hasn't been tested.
 
- - See [Preparing the VM](#preparing-the-vm) first if you haven't set up your Linux VM yet.
+**1. Prepare the SD Card**
 
-**1. Clone and run setup:**
+On a computer, use Raspberry PI Imager from https://www.raspberrypi.com/software/ to install and confgure the OS:
+
+1. Pick  OS : Raspberry Pi OS (other) : Raspberry Pi OS Lite (64-bt)
+2. Set up with hostname of gatecrash
+3. Create a username and password
+4. Enable SSH, with password or public key - but password is easiest
+5. If you wish, enable raspberry Pi Connect.  This shouldn't be needed.
+
+**2. Boot and logon**
+1. Insert SD card into the Pi
+2. Plug into ethernet
+3. Turn on.  it will take a few of minutes the first time to set up
+4. Logon to it remotely using SSH.  e.g. on Windows
+   1. Load terminal (or cmd.exe)
+   2. Run **ssh gatecrash -l <user_you_specified>**
+   3. Accept fingerprint
+   4. Enter password
+
+**3. Install Git**
+1. run **sudo apt -y install git-all**
+2. Enter password
+
+**4. Get GitHub Token if still in private repo**
+
+If Gatecrash is still in a private repo then you'll need an invite to the repo, and a git token to access it
+1. Go to GitHub : Settingst : Developer settings,
+2. Add token to just this repo with 
+    * finegrained security of Contents:Read-Only
+		* No expiry
+3. Make a note of it, e.g.**github_pat_[long string of random letters and numbers]**
+
+**5. Install Gatecrash**
+
+This installs dependencies, clones the report, and runs the setup script.
+it  starts the web UI,  It does not start Gatecrash itself.
 
 ```bash
 sudo apt install -y git
-git clone https://github.com/HoratioConkerhead/gatecrash
+git clone https://[the_long_key_from_above]@github.com/HoratioConkerhead/gatecrash
 cd gatecrash
 sudo bash setup.sh
 ```
 
-This installs dependencies, sets the hostname to `gatecrash`, and starts
-the web UI. It does not start Gatecrash itself.
 
-**2. Open the web UI:**
+**6. Open the web UI:**
 
+On a computer or mobile device
 ```
 http://gatecrash.local
 ```
 
-Use the web UI to paste in your WireGuard config and set your target
-device IPs, gateway, and LAN interface.
+Now follow the prompts to configure your WireGuard (NPN) config and target devices.
 
-**3. Test WireGuard first** using the **Start WireGuard** and **Check VPN IP**
+**7. Test WireGuard first**
+
+Using the **Start WireGuard** and **Check VPN IP**
 buttons in the web UI before starting Gatecrash.
 
 **4. Start Gatecrash** using the **Start Gatecrash** button in the web UI.
 
-**5. Enable Gatecrash on boot** once you're happy it works:
 
-```bash
-sudo systemctl enable gatecrash
-```
 
-**CLI commands (if preferred):**
+---
+
+### CLI commands (if preferred): ###
 
 ```bash
 sudo /opt/gatecrash/start.sh           # start Gatecrash
@@ -80,15 +113,10 @@ sudo systemctl status gatecrash-webui  # web UI status
 
 ---
 
-## Preparing the Raspberry Pi
-
-These steps get teh Raspberry Pi ready before you clone the repo and run `setup.sh`.
-
-
 
 ## Preparing the VM
 
-These steps get the VM ready before you run `setup.sh`. The instructions
+If you are using a VM, then these steps get the VM ready before you run `setup.sh`. The instructions
 cover Hyper-V on Windows specifically.
 
 > **Note:** This process is more involved than it needs to be. Streamlining
@@ -174,14 +202,15 @@ You can now SSH in from Windows: `ssh yourusername@192.168.1.x`
 
 #### 5. Create a GitHub token
 
-You need a read-only token to clone the (private) repo:
+You need a read-only token to clone the (private) repo.  This can be provded by the repo owner (horatioconkerhead)
 
 1. GitHub → profile picture → **Settings → Developer settings**
-2. **Fine-grained tokens → Generate new token**
+2. Personal Access token **Fine-grained tokens → Generate new token**
 3. Repository access: **Only select repositories** → pick `gatecrash`
 4. Permissions → **Contents: Read-only**
 5. Expiry: your preference (No expiry is fine for a dedicated device)
-6. Copy the token — you won't see it again
+6. Add a name for the token
+7. Copy the token — you won't see it again
 
 #### 6. Clone and run setup
 
@@ -239,8 +268,8 @@ During Debian installation, when you reach **Software selection**, uncheck
 everything except:
 - **SSH server**
 - **Standard system utilities**
-
-No desktop. This keeps the VM footprint small.
+- **No desktop**
+. This keeps the VM footprint small.
 
 ### 4. Enable MAC Address Spoofing (Hyper-V)
 
