@@ -969,7 +969,7 @@ document.getElementById('login-pw').focus();
         <p style="margin:0;"><strong>This cannot be undone.</strong></p>
       </div>
 
-      <div class="field">
+      <div class="field" id="reset-pw-field">
         <label>Enter your password to confirm</label>
         <input type="password" id="reset-pw" autocomplete="current-password"
                placeholder="Current password"
@@ -1009,7 +1009,7 @@ document.getElementById('login-pw').focus();
       <div style="display:flex;gap:12px;align-items:flex-start;">
         <div style="flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#4caf50;color:#0f0f1a;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;">3</div>
         <div style="flex:1;font-size:13px;line-height:1.55;color:#c8c8d8;">
-          <strong style="color:#e8e8f0;">Turn on Gatecrash.</strong> Hit the green power button at the bottom of the screen and the selected devices will start tunnelling through the VPN.
+          <strong style="color:#e8e8f0;">Turn on Gatecrash.</strong> Hit the transparent power button at the bottom of the screen and the selected devices will start tunnelling through the VPN.
         </div>
       </div>
     </div>
@@ -1810,8 +1810,9 @@ function openFactoryResetModal() {
   document.getElementById('reset-err').style.display = 'none';
   document.getElementById('reset-btn').disabled = false;
   document.getElementById('reset-btn').textContent = '🗑 Reset Device';
+  document.getElementById('reset-pw-field').style.display = _noAuth ? 'none' : '';
   document.getElementById('factory-reset-modal').classList.add('open');
-  setTimeout(() => document.getElementById('reset-pw').focus(), 100);
+  if (!_noAuth) setTimeout(() => document.getElementById('reset-pw').focus(), 100);
 }
 
 function closeFactoryResetModal() {
@@ -1823,12 +1824,12 @@ async function doFactoryReset() {
   const err = document.getElementById('reset-err');
   const btn = document.getElementById('reset-btn');
   err.style.display = 'none';
-  if (!pw) { err.textContent = 'Please enter your password.'; err.style.display = ''; return; }
+  if (!_noAuth && !pw) { err.textContent = 'Please enter your password.'; err.style.display = ''; return; }
   btn.disabled = true;
   btn.textContent = 'Resetting…';
   const r = await fetch('/api/factory-reset', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({password: pw}),
+    body: JSON.stringify({password: _noAuth ? '' : pw}),
   });
   const d = await r.json();
   if (d.ok) {

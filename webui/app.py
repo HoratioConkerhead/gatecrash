@@ -1234,7 +1234,7 @@ def api_set_https():
 
 
 @app.route("/api/factory-reset", methods=["POST"])
-@limiter.limit("1 per minute")
+@limiter.limit("5 per minute")
 def api_factory_reset():
     stored = _get_stored_token()
     if stored is not None:
