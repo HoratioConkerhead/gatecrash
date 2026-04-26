@@ -127,8 +127,9 @@ ARPSPOOF_LOG_DIR="/var/log"
 start_arpspoof() {
     # $1 = target IP, $2 = direction ("fwd" tells the target we're the gateway,
     # "rev" tells the gateway we're the target). Wraps arpspoof in a subshell
-    # so we can append its exit code to the log (revealing whether it died
-    # from a signal — exit 143 = SIGTERM — or a real error).
+    # so we can capture its real PID + exit code in the log — telling us
+    # whether it died from a signal (143 = SIGTERM, 137 = SIGKILL) or its own
+    # error (1 = couldn't arp for host).
     local ip="$1" dir="$2" target host logf
     if [[ "$dir" == "fwd" ]]; then
         target="$ip"; host="$GATEWAY_IP"
@@ -142,8 +143,11 @@ start_arpspoof() {
     fi
     {
         printf -- '--- spawn at %s (target=%s host=%s) ---\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$target" "$host"
-        arpspoof -i "$LAN_IF" -t "$target" "$host" 2>&1
-        printf -- '[exit %d at %s]\n' "$?" "$(date '+%Y-%m-%d %H:%M:%S')"
+        arpspoof -i "$LAN_IF" -t "$target" "$host" 2>&1 &
+        apid=$!
+        printf -- '[arpspoof PID %d]\n' "$apid"
+        wait "$apid"
+        printf -- '[exit %d (PID %d) at %s]\n' "$?" "$apid" "$(date '+%Y-%m-%d %H:%M:%S')"
     } >>"$logf" &
 }
 
@@ -202,6 +206,13 @@ echo "arpspoof pids: $ARPS running"
 echo "========================="
 echo ""
 
+# Snapshot the values we resolved at startup. Re-sourcing $CONF in the watchdog
+# would clobber GATEWAY_IP back to empty (recommended config default — auto-
+# detect at boot), and the pgrep patterns below would then mis-detect the rev
+# arpspoof as dead and respawn it forever.
+INIT_GATEWAY_IP="$GATEWAY_IP"
+INIT_LAN_IF="$LAN_IF"
+
 # Keep the process alive and watch for arpspoof processes that have exited
 # (e.g. target device was offline at start or rebooted). Restart only the
 # direction that died — killing the surviving one too would briefly take the
@@ -213,6 +224,8 @@ while true; do
     sleep 10
     # shellcheck source=/dev/null
     source "$CONF"
+    [[ -z "${GATEWAY_IP:-}" ]] && GATEWAY_IP="$INIT_GATEWAY_IP"
+    [[ -z "${LAN_IF:-}"     ]] && LAN_IF="$INIT_LAN_IF"
     for ip in $TARGET_IPS; do
         fwd=$(pgrep -cf "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true)
         rev=$(pgrep -cf "arpspoof -i $LAN_IF -t $GATEWAY_IP $ip" 2>/dev/null || true)
