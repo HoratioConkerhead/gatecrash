@@ -1807,16 +1807,19 @@ async function changePassword() {
   }
 }
 
-function startPostResetReconnect() {
-  // After factory reset the device reboots and comes back as a fresh HTTP-only
-  // install (HTTPS pref is wiped). On HTTP, polling /api/version detects the
-  // device being back within ~2s. On HTTPS, browsers block mixed-content fetch
-  // so the poll can't see the new HTTP server — fall back to a max-wait timer.
-  const target = 'http://' + window.location.hostname + '/';
-  const detail = document.getElementById('reboot-detail');
+function startRebootReconnect(opts) {
+  // Polls /api/version until the device is reachable, then navigates back.
+  // Used by factory reset (forces http:// because HTTPS pref is wiped) and
+  // by the plain reboot (keeps the current protocol). On HTTPS, browsers
+  // block mixed-content fetch so the poll can't see a new HTTP server —
+  // hence the max-wait timer fallback.
+  opts = opts || {};
+  const target  = opts.target  || (window.location.protocol + '//' + window.location.hostname + '/');
+  const message = opts.message || 'Waiting for the device to come back online';
+  const maxWait = opts.maxWait || 60;
+  const detail  = document.getElementById('reboot-detail');
   let done = false;
   let elapsed = 0;
-  const maxWait = 60;
 
   function navigate() {
     if (done) return;
@@ -1827,7 +1830,7 @@ function startPostResetReconnect() {
   const tick = () => {
     if (done) return;
     if (elapsed >= maxWait) { navigate(); return; }
-    detail.innerHTML = 'All settings cleared.<br>Waiting for the device to come back online&hellip; (' + elapsed + 's)';
+    if (detail) detail.innerHTML = message + '&hellip; (' + elapsed + 's)';
     elapsed++;
     setTimeout(tick, 1000);
   };
@@ -1844,6 +1847,14 @@ function startPostResetReconnect() {
       await new Promise(r => setTimeout(r, 2000));
     }
   })();
+}
+
+// Backwards-compatible alias for the factory-reset call site.
+function startPostResetReconnect() {
+  startRebootReconnect({
+    target: 'http://' + window.location.hostname + '/',
+    message: 'All settings cleared.<br>Waiting for the device to come back online',
+  });
 }
 
 function openFactoryResetModal() {
@@ -3023,15 +3034,12 @@ async function reboot() {
   });
   const j = await r.json();
   if (!j.ok) { alert(j.error || 'Reboot failed'); return; }
-  setTimeout(() => {
-    const poll = setInterval(async () => {
-      try {
-        await fetch('/api/status', {signal: AbortSignal.timeout(2000)});
-        clearInterval(poll);
-        window.location.reload();
-      } catch(e) {}
-    }, 3000);
-  }, 5000);
+  const overlay = document.getElementById('rebooting-overlay');
+  overlay.style.display = 'flex';
+  document.querySelector('#rebooting-overlay > div:nth-child(2)').textContent = 'Device is rebooting…';
+  startRebootReconnect({
+    message: 'Waiting for the device to come back online',
+  });
 }
 
 async function shutdown() {
