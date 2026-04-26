@@ -166,14 +166,17 @@ chmod 700 "$CERT_DIR"
 
 if [[ ! -f "$CERT_FILE" || ! -f "$KEY_FILE" ]]; then
     echo "Generating self-signed TLS certificate..."
+    # 825 days is the maximum self-signed validity Apple platforms (iOS/macOS
+    # Safari) will accept — anything longer fails with "cert validity too long".
+    # The web UI will auto-renew when it gets close to expiry.
     openssl req -x509 -newkey rsa:2048 -nodes \
         -keyout "$KEY_FILE" -out "$CERT_FILE" \
-        -days 3650 -subj "/CN=gatecrash" \
+        -days 825 -subj "/CN=gatecrash" \
         -addext "subjectAltName=DNS:gatecrash,DNS:gatecrash.local,IP:127.0.0.1" \
         2>/dev/null
     chmod 600 "$KEY_FILE"
     chmod 644 "$CERT_FILE"
-    echo "  [OK] TLS certificate generated (valid 10 years)."
+    echo "  [OK] TLS certificate generated (valid 825 days)."
 else
     echo "  [OK] TLS certificate already exists — not overwritten."
 fi

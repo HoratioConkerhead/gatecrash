@@ -16,7 +16,7 @@ import time
 import shlex
 import subprocess
 from collections import deque
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context, session, redirect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -145,6 +145,101 @@ def _mark_welcome_pending():
         os.chmod(WELCOME_PATH, 0o644)
     except OSError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# TLS certificate helpers — self-signed cert lives in CERT_DIR.
+# Apple platforms reject self-signed certs with validity > 825 days, so we
+# cap at that and renew before expiry.
+# ---------------------------------------------------------------------------
+
+CERT_VALIDITY_DAYS = 825
+CERT_RENEW_THRESHOLD_DAYS = 60  # auto-renew when fewer days remain than this
+
+
+def _cert_path():
+    return os.path.join(CERT_DIR, "gatecrash.crt")
+
+
+def _cert_key_path():
+    return os.path.join(CERT_DIR, "gatecrash.key")
+
+
+def _parse_openssl_date(line):
+    """Parse 'notAfter=Mar 14 12:00:00 2027 GMT' → aware UTC datetime, or None."""
+    if "=" not in line:
+        return None
+    try:
+        return datetime.strptime(line.split("=", 1)[1], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _cert_dates():
+    """Return (not_before, not_after) as aware UTC datetimes, or (None, None)."""
+    cert = _cert_path()
+    if not os.path.isfile(cert):
+        return (None, None)
+    try:
+        out = subprocess.run(
+            ["openssl", "x509", "-in", cert, "-noout", "-startdate", "-enddate"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode != 0:
+            return (None, None)
+        nb = na = None
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("notBefore="):
+                nb = _parse_openssl_date(line)
+            elif line.startswith("notAfter="):
+                na = _parse_openssl_date(line)
+        return (nb, na)
+    except Exception:
+        return (None, None)
+
+
+def _cert_not_after():
+    """Return the cert's expiry as an aware UTC datetime, or None if unreadable."""
+    return _cert_dates()[1]
+
+
+def _cert_total_validity_days():
+    """Return the cert's full validity span (notAfter - notBefore) in days, or None."""
+    nb, na = _cert_dates()
+    if nb is None or na is None:
+        return None
+    return int((na - nb).total_seconds() // 86400)
+
+
+def _cert_days_remaining():
+    exp = _cert_not_after()
+    if exp is None:
+        return None
+    return int((exp - datetime.now(timezone.utc)).total_seconds() // 86400)
+
+
+def _generate_self_signed_cert():
+    """(Re)generate the self-signed cert. Returns True on success."""
+    os.makedirs(CERT_DIR, mode=0o700, exist_ok=True)
+    cert = _cert_path()
+    key  = _cert_key_path()
+    try:
+        proc = subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+             "-keyout", key, "-out", cert,
+             "-days", str(CERT_VALIDITY_DAYS),
+             "-subj", "/CN=gatecrash",
+             "-addext", "subjectAltName=DNS:gatecrash,DNS:gatecrash.local,IP:127.0.0.1"],
+            capture_output=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            return False
+        os.chmod(key, 0o600)
+        os.chmod(cert, 0o644)
+        return True
+    except Exception:
+        return False
 
 
 def _schedule_webui_restart(delay=1.0):
@@ -1233,6 +1328,35 @@ def api_set_https():
     return jsonify({"ok": True, "https_on": enabled})
 
 
+@app.route("/api/cert-info")
+def api_cert_info():
+    """Return TLS cert expiry info for the Security UI."""
+    exp = _cert_not_after()
+    if exp is None:
+        return jsonify({"ok": True, "present": False})
+    days = _cert_days_remaining()
+    return jsonify({
+        "ok": True,
+        "present": True,
+        "not_after": exp.isoformat(),
+        "days_remaining": days,
+        "validity_days": CERT_VALIDITY_DAYS,
+        "renew_threshold_days": CERT_RENEW_THRESHOLD_DAYS,
+    })
+
+
+@app.route("/api/cert-renew", methods=["POST"])
+@limiter.limit("5 per minute")
+def api_cert_renew():
+    """Regenerate the self-signed TLS cert and restart the web UI so it loads."""
+    if not _generate_self_signed_cert():
+        return jsonify({"ok": False, "error": "openssl failed — check that openssl is installed"}), 500
+    audit_log.warning("CERT  TLS certificate renewed by %s — service will restart", request.remote_addr)
+    if _https_enabled():
+        _schedule_webui_restart()
+    return jsonify({"ok": True, "restart": _https_enabled()})
+
+
 @app.route("/api/factory-reset", methods=["POST"])
 @limiter.limit("5 per minute")
 def api_factory_reset():
@@ -2193,8 +2317,21 @@ if __name__ == "__main__":
     ensure_ip_watch()
     ensure_traffic_watch()
 
-    cert = os.path.join(CERT_DIR, "gatecrash.crt")
-    key  = os.path.join(CERT_DIR, "gatecrash.key")
+    cert = _cert_path()
+    key  = _cert_key_path()
+
+    # Auto-renew if cert is close to expiry, OR if it was issued by a pre-0.67
+    # setup.sh with a 10-year validity (Apple platforms reject self-signed certs
+    # with a validity span > 825 days, so old installs need a one-shot re-issue).
+    if os.path.isfile(cert) and os.path.isfile(key):
+        total = _cert_total_validity_days()
+        days  = _cert_days_remaining()
+        if total is not None and total > CERT_VALIDITY_DAYS:
+            audit_log.warning("CERT  Existing cert validity is %d days (> %d) — re-issuing for browser compatibility", total, CERT_VALIDITY_DAYS)
+            _generate_self_signed_cert()
+        elif days is not None and days < CERT_RENEW_THRESHOLD_DAYS:
+            audit_log.warning("CERT  TLS cert has %d days left — auto-renewing", days)
+            _generate_self_signed_cert()
 
     if _https_enabled() and os.path.isfile(cert) and os.path.isfile(key):
         # Start HTTP→HTTPS redirect in background

@@ -27,10 +27,15 @@ Plug it in, point it at the devices you want, and their traffic exits from
 a different country. Everything else on your network is unaffected. If the
 VPN drops, target devices fall back to the normal gateway automatically.
 
+Gatecrash has been testing on a Hyper-V VM, and Raspberry Pi 4 B.
+
 ## Quickstart
 
-See [Preparing the VM](#preparing-the-vm) first if you haven't set up your
-Linux VM yet.
+First prepare your machine
+
+ - See [Preparing the Raspberry Pi](#preparing-the-raspberry-pi) for Raspberry Pi use.
+
+ - See [Preparing the VM](#preparing-the-vm) first if you haven't set up your Linux VM yet.
 
 **1. Clone and run setup:**
 
@@ -74,6 +79,12 @@ sudo systemctl status gatecrash-webui  # web UI status
 ```
 
 ---
+
+## Preparing the Raspberry Pi
+
+These steps get teh Raspberry Pi ready before you clone the repo and run `setup.sh`.
+
+
 
 ## Preparing the VM
 

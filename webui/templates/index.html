@@ -1003,11 +1003,17 @@ document.getElementById('login-pw').focus();
       <div style="display:flex;gap:12px;align-items:flex-start;">
         <div style="flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#4caf50;color:#0f0f1a;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;">2</div>
         <div style="flex:1;font-size:13px;line-height:1.55;color:#c8c8d8;">
-          <strong style="color:#e8e8f0;">Find your devices.</strong> On the <strong>Devices</strong> tab, scan your LAN and pick the devices you want to route through the VPN.
+          <strong style="color:#e8e8f0;">Find your devices.</strong> On the <strong>Devices</strong> tab, scan your LAN and save the devices you want to route through the VPN.
         </div>
       </div>
       <div style="display:flex;gap:12px;align-items:flex-start;">
         <div style="flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#4caf50;color:#0f0f1a;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;">3</div>
+        <div style="flex:1;font-size:13px;line-height:1.55;color:#c8c8d8;">
+          <strong style="color:#e8e8f0;">Pick what to tunnel.</strong> On the <strong>Devices</strong> tab, toggle on the saved devices you want routed through the VPN.
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div style="flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#4caf50;color:#0f0f1a;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;">4</div>
         <div style="flex:1;font-size:13px;line-height:1.55;color:#c8c8d8;">
           <strong style="color:#e8e8f0;">Turn on Gatecrash.</strong> Hit the transparent power button at the bottom of the screen and the selected devices will start tunnelling through the VPN.
         </div>
@@ -1347,6 +1353,18 @@ async function dismissWelcome() {
       <button class="btn-grey" id="https-toggle-btn" onclick="toggleHttps()" style="min-width:140px;">&#128274; HTTPS</button>
     </div>
     <div class="save-status" id="https-status"></div>
+
+    <hr style="border:none;border-top:1px solid var(--border-card);margin:20px 0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:200px;">
+        <div style="font-weight:600;font-size:14px;color:var(--text-primary);margin-bottom:4px;">TLS Certificate</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+          <span id="cert-state-text">Loading certificate&hellip;</span>
+        </div>
+      </div>
+      <button class="btn-grey" id="cert-renew-btn" onclick="renewCert()" style="min-width:140px;">&#128257; Renew</button>
+    </div>
+    <div class="save-status" id="cert-status"></div>
   </div>
 
   <!-- Advanced Config -->
@@ -1928,7 +1946,70 @@ async function fetchStatus() {
     // HTTPS toggle state
     _httpsOn = !!d.https_on;
     applyHttpsState();
+    refreshCertInfo();
   } catch(e) { /* ignore */ }
+}
+
+async function refreshCertInfo() {
+  const text = document.getElementById('cert-state-text');
+  if (!text) return;
+  try {
+    const r = await fetch('/api/cert-info');
+    const d = await r.json();
+    if (!d.ok || !d.present) {
+      text.innerHTML = 'No certificate found &mdash; run setup.sh on the device.';
+      return;
+    }
+    const exp = new Date(d.not_after);
+    const days = d.days_remaining;
+    const expStr = exp.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+    let colour = 'inherit';
+    if (days < 0) colour = '#f44336';
+    else if (days < d.renew_threshold_days) colour = '#ff9800';
+    const daysLabel = days < 0
+      ? '<strong style="color:#f44336;">Expired</strong>'
+      : '<strong style="color:' + colour + ';">' + days + ' days</strong> remaining';
+    text.innerHTML = 'Self-signed cert valid until <strong>' + expStr + '</strong> &mdash; ' + daysLabel +
+      '. Renewing issues a fresh cert (your browser will prompt to accept it again).';
+  } catch(e) {
+    text.textContent = 'Failed to load certificate info.';
+  }
+}
+
+async function renewCert() {
+  const status = document.getElementById('cert-status');
+  const btn = document.getElementById('cert-renew-btn');
+  status.className = 'save-status';
+  status.textContent = '';
+  if (!confirm('Renew the TLS certificate?\n\nA fresh self-signed certificate will be issued. If HTTPS is enabled the web UI will restart and your browser will prompt to accept the new certificate.\n\nContinue?')) return;
+  btn.disabled = true;
+  const original = btn.innerHTML;
+  btn.textContent = 'Renewing…';
+  try {
+    const r = await fetch('/api/cert-renew', {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok) {
+      status.textContent = d.error || 'Renewal failed.';
+      status.className = 'save-status error';
+      btn.disabled = false;
+      btn.innerHTML = original;
+      return;
+    }
+    if (d.restart) {
+      showProtocolSwitchOverlay(true);
+    } else {
+      status.textContent = 'Certificate renewed.';
+      status.className = 'save-status success';
+      btn.disabled = false;
+      btn.innerHTML = original;
+      refreshCertInfo();
+    }
+  } catch(e) {
+    status.textContent = 'Network error — try again.';
+    status.className = 'save-status error';
+    btn.disabled = false;
+    btn.innerHTML = original;
+  }
 }
 
 let _httpsOn = false;
