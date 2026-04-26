@@ -118,6 +118,37 @@ iptables -t nat -A POSTROUTING -o "$VPN_IF" -j MASQUERADE
 # ---------------------------------------------------------------------------
 
 log INFO "SERVICE  Activating per-target rules for: ${TARGET_IPS:-(none)}"
+
+# arpspoof stderr (including "couldn't arp for host" failures) goes to
+# per-target log files. The watchdog reads these when a process dies and
+# surfaces the cause to the main audit log.
+ARPSPOOF_LOG_DIR="/var/log"
+
+start_arpspoof() {
+    # $1 = target IP, $2 = direction ("fwd" tells the target we're the gateway,
+    # "rev" tells the gateway we're the target). Truncates the log file each
+    # spawn so the watchdog always sees the most recent error.
+    local ip="$1" dir="$2" target host logf
+    if [[ "$dir" == "fwd" ]]; then
+        target="$ip"; host="$GATEWAY_IP"
+    else
+        target="$GATEWAY_IP"; host="$ip"
+    fi
+    logf="$ARPSPOOF_LOG_DIR/gatecrash-arpspoof-${ip}-${dir}.log"
+    : > "$logf" 2>/dev/null || true
+    arpspoof -i "$LAN_IF" -t "$target" "$host" >/dev/null 2>"$logf" &
+}
+
+log_arpspoof_death() {
+    # $1 = target IP, $2 = direction. Pulls the last non-empty stderr line
+    # from arpspoof's log and appends it to the audit log so users can see
+    # WHY it died (typically: "couldn't arp for host <ip>").
+    local ip="$1" dir="$2" logf last
+    logf="$ARPSPOOF_LOG_DIR/gatecrash-arpspoof-${ip}-${dir}.log"
+    last=$(grep -v '^$' "$logf" 2>/dev/null | tail -1)
+    log WARN "ARPSPOOF $ip ($dir) exited — ${last:-no stderr captured}"
+}
+
 for ip in $TARGET_IPS; do
     echo "Activating target: $ip"
 
@@ -140,8 +171,8 @@ for ip in $TARGET_IPS; do
     pkill -f "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true
     pkill -f "arpspoof -i $LAN_IF -t $GATEWAY_IP $ip" 2>/dev/null || true
 
-    arpspoof -i "$LAN_IF" -t "$ip" "$GATEWAY_IP" > /dev/null 2>&1 &
-    arpspoof -i "$LAN_IF" -t "$GATEWAY_IP" "$ip" > /dev/null 2>&1 &
+    start_arpspoof "$ip" fwd
+    start_arpspoof "$ip" rev
 done
 
 # ---------------------------------------------------------------------------
@@ -162,24 +193,28 @@ echo "========================="
 echo ""
 
 # Keep the process alive and watch for arpspoof processes that have exited
-# (e.g. target device was offline at start or rebooted). Restart them as needed.
+# (e.g. target device was offline at start or rebooted). Restart only the
+# direction that died — killing the surviving one too would briefly take the
+# device fully offline.
 # Re-reads TARGET_IPS from config each cycle so hot-reload changes (added/removed
 # devices via the web UI) are picked up without a full service restart.
 # SIGTERM from systemd kills this loop and all children via KillMode=control-group.
 while true; do
-    sleep 30
-    # Re-read config to pick up hot-reload changes
+    sleep 10
     # shellcheck source=/dev/null
     source "$CONF"
     for ip in $TARGET_IPS; do
         fwd=$(pgrep -cf "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true)
         rev=$(pgrep -cf "arpspoof -i $LAN_IF -t $GATEWAY_IP $ip" 2>/dev/null || true)
-        if [[ "${fwd:-0}" -eq 0 ]] || [[ "${rev:-0}" -eq 0 ]]; then
-            echo "arpspoof for $ip exited — restarting"
-            pkill -f "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true
-            pkill -f "arpspoof -i $LAN_IF -t $GATEWAY_IP $ip" 2>/dev/null || true
-            arpspoof -i "$LAN_IF" -t "$ip" "$GATEWAY_IP" > /dev/null 2>&1 &
-            arpspoof -i "$LAN_IF" -t "$GATEWAY_IP" "$ip" > /dev/null 2>&1 &
+        if [[ "${fwd:-0}" -eq 0 ]]; then
+            log_arpspoof_death "$ip" fwd
+            echo "arpspoof for $ip (fwd) exited — restarting"
+            start_arpspoof "$ip" fwd
+        fi
+        if [[ "${rev:-0}" -eq 0 ]]; then
+            log_arpspoof_death "$ip" rev
+            echo "arpspoof for $ip (rev) exited — restarting"
+            start_arpspoof "$ip" rev
         fi
     done
 done
