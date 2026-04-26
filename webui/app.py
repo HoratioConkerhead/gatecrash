@@ -1413,7 +1413,19 @@ def api_factory_reset():
 
 @app.route("/api/version")
 def api_version():
-    return jsonify({"version": get_version()})
+    return jsonify({"version": get_version(), "boot_id": _boot_id()})
+
+
+def _boot_id():
+    """Return the kernel's boot ID — a UUID that changes on every reboot.
+    Used by the post-reboot reconnect to confirm the device actually rebooted
+    rather than just briefly hiccupping (which the polling loop would otherwise
+    misinterpret as 'back up')."""
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
 
 
 @app.route("/api/status")

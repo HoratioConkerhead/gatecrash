@@ -1807,24 +1807,35 @@ async function changePassword() {
   }
 }
 
-function startRebootReconnect(opts) {
-  // Polls /api/version until the device is reachable, then navigates back.
+async function startRebootReconnect(opts) {
+  // Polls /api/version until the device has actually rebooted, then navigates
+  // back. "Actually rebooted" = the kernel's boot_id changed compared to the
+  // one we capture here BEFORE the request. This sidesteps the race where the
+  // server is still up for a few seconds after the reboot was requested
+  // (shutdown -r takes time to tear down networking) — without a boot_id
+  // check we'd see the server still responding and navigate prematurely.
   // Used by factory reset (forces http:// because HTTPS pref is wiped) and
   // by the plain reboot (keeps the current protocol). On HTTPS, browsers
   // block mixed-content fetch so the poll can't see a new HTTP server —
   // hence the max-wait timer fallback.
-  // gracePeriod: seconds to wait before starting to poll. Without this we
-  // catch the still-up server (shutdown -r takes a few seconds to actually
-  // tear down networking) and "reconnect" before the device has even gone
-  // down.
   opts = opts || {};
-  const target      = opts.target       || (window.location.protocol + '//' + window.location.hostname + '/');
-  const message     = opts.message      || 'Waiting for the device to come back online';
-  const maxWait     = opts.maxWait      || 60;
-  const gracePeriod = opts.gracePeriod  || 0;
-  const detail      = document.getElementById('reboot-detail');
+  const target  = opts.target  || (window.location.protocol + '//' + window.location.hostname + '/');
+  const message = opts.message || 'Waiting for the device to come back online';
+  const maxWait = opts.maxWait || 120;  // longer cap — boot_id check makes false-positives impossible
+  const detail  = document.getElementById('reboot-detail');
   let done = false;
   let elapsed = 0;
+
+  // Capture the current boot_id before polling. If the API doesn't return one
+  // (older device, network failure), fall back to "any successful response".
+  let oldBootId = '';
+  try {
+    const r0 = await fetch('/api/version', {cache: 'no-store'});
+    if (r0.ok) {
+      const j = await r0.json();
+      oldBootId = j.boot_id || '';
+    }
+  } catch(e) { /* ignore — we'll work without baseline */ }
 
   function navigate() {
     if (done) return;
@@ -1842,13 +1853,22 @@ function startRebootReconnect(opts) {
   tick();
 
   (async () => {
-    if (gracePeriod > 0) await new Promise(r => setTimeout(r, gracePeriod * 1000));
     while (!done) {
       try {
         const ctl = new AbortController();
         setTimeout(() => ctl.abort(), 2000);
         const r = await fetch('/api/version', {signal: ctl.signal, cache: 'no-store'});
-        if (r.ok) { navigate(); return; }
+        if (r.ok) {
+          const j = await r.json();
+          const newBootId = j.boot_id || '';
+          // If we have a baseline and it differs → real reboot completed.
+          // If we have no baseline (or device doesn't expose boot_id) →
+          // any response means up, just navigate.
+          if (!oldBootId || (newBootId && newBootId !== oldBootId)) {
+            navigate();
+            return;
+          }
+        }
       } catch(e) { /* still down */ }
       await new Promise(r => setTimeout(r, 2000));
     }
@@ -1860,7 +1880,6 @@ function startPostResetReconnect() {
   startRebootReconnect({
     target: 'http://' + window.location.hostname + '/',
     message: 'All settings cleared.<br>Waiting for the device to come back online',
-    gracePeriod: 10,
   });
 }
 
@@ -3046,7 +3065,6 @@ async function reboot() {
   document.querySelector('#rebooting-overlay > div:nth-child(2)').textContent = 'Device is rebooting…';
   startRebootReconnect({
     message: 'Waiting for the device to come back online',
-    gracePeriod: 10,
   });
 }
 
