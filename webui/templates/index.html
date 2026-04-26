@@ -841,7 +841,7 @@ function showHttpsSwitchOverlay() {
 async function doSkipSetupAuth() {
   const err = document.getElementById('setup-err');
   err.style.display = 'none';
-  if (!confirm('Skip password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. You can enable a password later in the Security section of the Config tab.\n\nThe UI will then switch to HTTPS — you\'ll see a self-signed certificate warning, just accept it.\n\nContinue?')) return;
+  if (!confirm('Skip password protection?\n\nAnyone on your LAN (local network) will be able to view and change Gatecrash settings without logging in. You can enable a password later in the Security section of the Config tab.\n\nThe UI will then switch to HTTPS — you\'ll see a self-signed certificate warning, just accept it.\n\nContinue?')) return;
   try {
     const r = await fetch('/api/skip-setup-auth', {method: 'POST'});
     const d = await r.json();
@@ -988,7 +988,8 @@ document.getElementById('login-pw').focus();
 <div id="rebooting-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.85);flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;padding:32px;">
   <div class="spinner" style="width:36px;height:36px;border-width:4px;"></div>
   <div style="color:#fff;font-size:18px;font-weight:700;">Device is rebooting&hellip;</div>
-  <div style="color:#aaa;font-size:14px;max-width:300px;line-height:1.6;">All settings have been cleared.<br>Refresh this page (or reload the app) once the device comes back online.</div>
+  <div id="reboot-detail" style="color:#aaa;font-size:14px;max-width:340px;line-height:1.6;">All settings have been cleared.<br>Waiting for the device to come back online&hellip;</div>
+  <button onclick="window.location.replace('http://' + window.location.hostname + '/')" style="background:transparent;border:1px solid #555;color:#aaa;padding:8px 18px;border-radius:6px;font-size:13px;cursor:pointer;">Reload now</button>
 </div>
 
 <!-- Upgrade modal -->
@@ -1270,7 +1271,7 @@ document.getElementById('login-pw').focus();
   <div class="card">
     <h2>Security</h2>
     <div id="pw-noauth-banner" style="display:none;font-size:13px;color:var(--text-secondary);background:var(--bg-subtle);border-radius:6px;padding:10px 12px;margin-bottom:14px;line-height:1.5;">
-      Password protection is currently <strong>disabled</strong>. Set a password below to enable it — anyone on the LAN will then need it to access the web UI.
+      Password protection is currently <strong>disabled</strong>. Set a password below to enable it — anyone on the LAN (local network) will then need it to access the web UI.
     </div>
     <div class="field">
       <label>Current Password</label>
@@ -1666,7 +1667,7 @@ async function removePassword() {
   const status  = document.getElementById('pw-status');
   status.className = 'save-status';
   status.textContent = '';
-  if (!confirm('Remove password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. This is strongly discouraged on shared or untrusted networks.\n\nContinue?')) return;
+  if (!confirm('Remove password protection?\n\nAnyone on your LAN (local network) will be able to view and change Gatecrash settings without logging in. This is strongly discouraged on shared or untrusted networks.\n\nContinue?')) return;
   const current = document.getElementById('pw-current').value;
   if (!current) {
     status.textContent = 'Enter your current password to confirm removal.';
@@ -1721,6 +1722,45 @@ async function changePassword() {
   }
 }
 
+function startPostResetReconnect() {
+  // After factory reset the device reboots and comes back as a fresh HTTP-only
+  // install (HTTPS pref is wiped). On HTTP, polling /api/version detects the
+  // device being back within ~2s. On HTTPS, browsers block mixed-content fetch
+  // so the poll can't see the new HTTP server — fall back to a max-wait timer.
+  const target = 'http://' + window.location.hostname + '/';
+  const detail = document.getElementById('reboot-detail');
+  let done = false;
+  let elapsed = 0;
+  const maxWait = 60;
+
+  function navigate() {
+    if (done) return;
+    done = true;
+    window.location.replace(target);
+  }
+
+  const tick = () => {
+    if (done) return;
+    if (elapsed >= maxWait) { navigate(); return; }
+    detail.innerHTML = 'All settings cleared.<br>Waiting for the device to come back online&hellip; (' + elapsed + 's)';
+    elapsed++;
+    setTimeout(tick, 1000);
+  };
+  tick();
+
+  (async () => {
+    while (!done) {
+      try {
+        const ctl = new AbortController();
+        setTimeout(() => ctl.abort(), 2000);
+        const r = await fetch('/api/version', {signal: ctl.signal, cache: 'no-store'});
+        if (r.ok) { navigate(); return; }
+      } catch(e) { /* still down */ }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  })();
+}
+
 function openFactoryResetModal() {
   document.getElementById('reset-pw').value = '';
   document.getElementById('reset-err').style.display = 'none';
@@ -1753,6 +1793,7 @@ async function doFactoryReset() {
     closeFactoryResetModal();
     const overlay = document.getElementById('rebooting-overlay');
     overlay.style.display = 'flex';
+    startPostResetReconnect();
   } else {
     err.textContent = d.error || 'Reset failed.';
     err.style.display = '';
