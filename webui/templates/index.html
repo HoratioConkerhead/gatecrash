@@ -751,6 +751,9 @@
         You'll be prompted for it on each login.
       </p>
     </div>
+    <div style="font-size:12px;color:#9090a8;background:#252535;border-radius:6px;padding:10px 12px;margin-bottom:18px;line-height:1.5;">
+      <strong style="color:#e8e8f0;">After setup:</strong> the web UI switches to HTTPS. Your browser will warn about a self-signed certificate &mdash; that's normal, just accept it. You can disable HTTPS later in Security if you prefer.
+    </div>
     <div style="margin-bottom:16px;">
       <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">PASSWORD</label>
       <input id="setup-pw" type="password" placeholder="At least 8 characters" autocomplete="new-password"
@@ -801,8 +804,11 @@ async function doSetupAuth() {
     });
     const d = await r.json();
     if (d.ok) {
-      // Setup also logs us in server-side; just reload to show the app
-      window.location.reload();
+      if (d.switch_to_https) {
+        showHttpsSwitchOverlay();
+      } else {
+        window.location.reload();
+      }
     } else {
       err.textContent = d.error || 'Failed to save password.';
       err.style.display = '';
@@ -816,15 +822,33 @@ async function doSetupAuth() {
     btn.textContent = 'Set Password';
   }
 }
+
+function showHttpsSwitchOverlay() {
+  // Replace the setup screen with a "switching to HTTPS" message.
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0f0f1a;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;color:#e0e0e0;font-family:inherit;';
+  overlay.innerHTML =
+    '<div class="spinner" style="width:36px;height:36px;border:4px solid #3d3d54;border-top-color:#4caf50;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:20px;"></div>' +
+    '<div style="font-size:18px;font-weight:700;margin-bottom:10px;">Switching to HTTPS&hellip;</div>' +
+    '<div style="font-size:13px;color:#9090a8;max-width:340px;line-height:1.6;">Your browser will show a self-signed certificate warning. Click <strong style="color:#e0e0e0;">Advanced</strong> &rarr; <strong style="color:#e0e0e0;">Proceed</strong> (or your browser\'s equivalent) to continue. You\'ll be redirected automatically.</div>';
+  document.body.appendChild(overlay);
+  // Give the service ~3s to restart, then redirect to HTTPS.
+  setTimeout(() => {
+    const url = 'https://' + window.location.hostname + (window.location.pathname || '/');
+    window.location.replace(url);
+  }, 3000);
+}
 async function doSkipSetupAuth() {
   const err = document.getElementById('setup-err');
   err.style.display = 'none';
-  if (!confirm('Skip password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. You can enable a password later in the Security section of the Config tab.\n\nContinue?')) return;
+  if (!confirm('Skip password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. You can enable a password later in the Security section of the Config tab.\n\nThe UI will then switch to HTTPS — you\'ll see a self-signed certificate warning, just accept it.\n\nContinue?')) return;
   try {
     const r = await fetch('/api/skip-setup-auth', {method: 'POST'});
     const d = await r.json();
-    if (d.ok) { window.location.reload(); }
-    else { err.textContent = d.error || 'Failed to skip setup.'; err.style.display = ''; }
+    if (d.ok) {
+      if (d.switch_to_https) showHttpsSwitchOverlay();
+      else window.location.reload();
+    } else { err.textContent = d.error || 'Failed to skip setup.'; err.style.display = ''; }
   } catch(e) {
     err.textContent = 'Network error — try again.'; err.style.display = '';
   }
@@ -1266,6 +1290,18 @@ document.getElementById('login-pw').focus();
       <button class="btn-red" id="pw-remove-btn" onclick="removePassword()">&#128275; Remove Password</button>
     </div>
     <div class="save-status" id="pw-status"></div>
+
+    <hr style="border:none;border-top:1px solid var(--border-card);margin:20px 0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:200px;">
+        <div style="font-weight:600;font-size:14px;color:var(--text-primary);margin-bottom:4px;">HTTPS</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+          <span id="https-state-text">Encrypts traffic between your browser and Gatecrash. Strongly recommended.</span>
+        </div>
+      </div>
+      <button class="btn-grey" id="https-toggle-btn" onclick="toggleHttps()" style="min-width:140px;">&#128274; HTTPS</button>
+    </div>
+    <div class="save-status" id="https-status"></div>
   </div>
 
   <!-- Advanced Config -->
@@ -1803,7 +1839,73 @@ async function fetchStatus() {
     // Security card mode: no-auth → "Set Password" with greyed current field
     _noAuth = !!d.no_auth;
     applyNoAuthMode();
+    // HTTPS toggle state
+    _httpsOn = !!d.https_on;
+    applyHttpsState();
   } catch(e) { /* ignore */ }
+}
+
+let _httpsOn = false;
+function applyHttpsState() {
+  const btn  = document.getElementById('https-toggle-btn');
+  const text = document.getElementById('https-state-text');
+  if (!btn || !text) return;
+  if (_httpsOn) {
+    btn.innerHTML = '&#128275; Disable HTTPS';
+    btn.className = 'btn-red';
+    text.innerHTML = '&#9989; HTTPS is <strong>enabled</strong>. Encrypts traffic between your browser and Gatecrash.';
+  } else {
+    btn.innerHTML = '&#128274; Enable HTTPS';
+    btn.className = 'btn-blue';
+    text.innerHTML = '&#9888; HTTPS is <strong>disabled</strong>. Traffic (including your password) is sent in plaintext over the LAN. Strongly recommended to enable.';
+  }
+}
+
+async function toggleHttps() {
+  const status = document.getElementById('https-status');
+  status.className = 'save-status';
+  status.textContent = '';
+  const willEnable = !_httpsOn;
+  let msg;
+  if (willEnable) {
+    msg = 'Enable HTTPS?\n\nThe service will restart and your browser will show a self-signed certificate warning. Accept it to continue. You\'ll be redirected automatically.';
+  } else {
+    msg = 'Disable HTTPS?\n\nThis is strongly discouraged. Traffic (including your login password) will be sent in plaintext over the LAN. The service will restart and you\'ll be redirected to plain HTTP.\n\nContinue?';
+  }
+  if (!confirm(msg)) return;
+  try {
+    const r = await fetch('/api/set-https', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: willEnable}),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      status.textContent = d.error || 'Failed to update HTTPS.';
+      status.className = 'save-status error';
+      return;
+    }
+    showProtocolSwitchOverlay(willEnable);
+  } catch(e) {
+    status.textContent = 'Network error — try again.';
+    status.className = 'save-status error';
+  }
+}
+
+function showProtocolSwitchOverlay(toHttps) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0f0f1a;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;color:#e0e0e0;font-family:inherit;';
+  const detail = toHttps
+    ? 'Your browser will show a self-signed certificate warning. Accept it to continue.'
+    : 'Reconnecting over plain HTTP.';
+  overlay.innerHTML =
+    '<div class="spinner" style="width:36px;height:36px;border:4px solid #3d3d54;border-top-color:#4caf50;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:20px;"></div>' +
+    '<div style="font-size:18px;font-weight:700;margin-bottom:10px;">Switching to ' + (toHttps ? 'HTTPS' : 'HTTP') + '&hellip;</div>' +
+    '<div style="font-size:13px;color:#9090a8;max-width:340px;line-height:1.6;">' + detail + '</div>';
+  document.body.appendChild(overlay);
+  setTimeout(() => {
+    const url = (toHttps ? 'https://' : 'http://') + window.location.hostname + (window.location.pathname || '/');
+    window.location.replace(url);
+  }, 3000);
 }
 
 let _noAuth = false;

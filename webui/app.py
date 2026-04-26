@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Gatecrash web UI — serves HTTPS on port 443, must run as root."""
+"""Gatecrash web UI — serves HTTPS on 443 (with HTTP→HTTPS redirect on 80) or
+plain HTTP on 80, depending on the user's pref. Must run as root to bind 80/443."""
 
 import bcrypt
 import ipaddress
@@ -11,6 +12,7 @@ import json
 import secrets
 import tempfile
 import threading
+import time
 import shlex
 import subprocess
 from collections import deque
@@ -57,6 +59,8 @@ audit_log.info("Web UI started (PID %d)", os.getpid())
 WEBUI_TOKEN_PATH  = "/opt/gatecrash/webui_token"
 SECRET_KEY_PATH   = "/opt/gatecrash/webui_secret"
 NO_AUTH_PATH      = "/opt/gatecrash/webui_no_auth"
+HTTPS_PREF_PATH   = "/opt/gatecrash/https_pref"
+CERT_DIR          = "/opt/gatecrash/certs"
 
 # Endpoints always accessible without a session
 _PUBLIC_PATHS = {"/", "/api/login", "/api/setup-auth", "/api/skip-setup-auth"}
@@ -110,6 +114,36 @@ def _no_auth_enabled():
     return os.path.isfile(NO_AUTH_PATH)
 
 
+def _https_enabled():
+    """Return True if HTTPS should be served on the next service start.
+
+    No pref file → existing installs (token / no-auth marker present) keep
+    HTTPS for backward compatibility. Truly fresh installs default to HTTP
+    so the initial setup flow has no scary self-signed cert warning."""
+    try:
+        with open(HTTPS_PREF_PATH) as f:
+            return f.read().strip() == "on"
+    except FileNotFoundError:
+        return os.path.isfile(WEBUI_TOKEN_PATH) or os.path.isfile(NO_AUTH_PATH)
+
+
+def _set_https_pref(enabled):
+    with open(HTTPS_PREF_PATH, "w") as f:
+        f.write("on" if enabled else "off")
+    os.chmod(HTTPS_PREF_PATH, 0o644)
+
+
+def _schedule_webui_restart(delay=1.0):
+    """Restart the gatecrash-webui service after the current response is sent.
+
+    Used when toggling HTTPS so the new transport mode takes effect. The delay
+    gives Flask time to flush the response before systemd kills this process."""
+    def _do():
+        time.sleep(delay)
+        subprocess.Popen(["systemctl", "restart", "gatecrash-webui"])
+    threading.Thread(target=_do, daemon=True).start()
+
+
 def _store_password_exclusive(password):
     """Atomically create the token file — fails if it already exists.
 
@@ -144,8 +178,8 @@ app.secret_key = _get_or_create_secret()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SECURE"] = os.path.isfile("/opt/gatecrash/certs/gatecrash.crt")
-_TLS_ENABLED = os.path.isfile("/opt/gatecrash/certs/gatecrash.crt")
+_TLS_ENABLED = _https_enabled() and os.path.isfile(os.path.join(CERT_DIR, "gatecrash.crt"))
+app.config["SESSION_COOKIE_SECURE"] = _TLS_ENABLED
 
 
 @app.errorhandler(429)
@@ -1027,7 +1061,11 @@ def api_setup_auth():
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Initial password configured from %s", request.remote_addr)
-        return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
+        # Enable HTTPS for the next service start. Restart so the user lands
+        # on the secure transport immediately after setup.
+        _set_https_pref(True)
+        _schedule_webui_restart()
+        return jsonify({"ok": True, "csrf_token": _ensure_csrf_token(), "switch_to_https": True})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
 
@@ -1042,7 +1080,9 @@ def api_skip_setup_auth():
         fd = os.open(NO_AUTH_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         os.close(fd)
         audit_log.warning("AUTH  Authentication SKIPPED at initial setup from %s — web UI is now open to anyone on the LAN", request.remote_addr)
-        return jsonify({"ok": True})
+        _set_https_pref(True)
+        _schedule_webui_restart()
+        return jsonify({"ok": True, "switch_to_https": True})
     except FileExistsError:
         return jsonify({"ok": False, "error": "Setup is already complete"}), 403
     except Exception:
@@ -1149,6 +1189,21 @@ def api_remove_password():
     return jsonify({"ok": True})
 
 
+@app.route("/api/set-https", methods=["POST"])
+def api_set_https():
+    """Enable or disable HTTPS for the next start, then restart the service."""
+    enabled = bool((request.json or {}).get("enabled"))
+    if enabled:
+        cert = os.path.join(CERT_DIR, "gatecrash.crt")
+        key  = os.path.join(CERT_DIR, "gatecrash.key")
+        if not (os.path.isfile(cert) and os.path.isfile(key)):
+            return jsonify({"ok": False, "error": "TLS certificate is missing — run setup.sh"}), 400
+    _set_https_pref(enabled)
+    audit_log.warning("HTTPS  %s by %s — service will restart", "enabled" if enabled else "DISABLED", request.remote_addr)
+    _schedule_webui_restart()
+    return jsonify({"ok": True, "https_on": enabled})
+
+
 @app.route("/api/factory-reset", methods=["POST"])
 @limiter.limit("1 per minute")
 def api_factory_reset():
@@ -1170,6 +1225,7 @@ def api_factory_reset():
         WEBUI_TOKEN_PATH,
         SECRET_KEY_PATH,
         NO_AUTH_PATH,
+        HTTPS_PREF_PATH,
         UPDATE_SETTINGS_FILE,
         AUTO_STOP_SETTINGS_FILE,
         BOOT_STATE_FILE,
@@ -1221,6 +1277,7 @@ def api_status():
         "update": dict(update_check_state),
         "version": get_version(),
         "no_auth": _no_auth_enabled(),
+        "https_on": _TLS_ENABLED,
     })
 
 
@@ -2101,8 +2158,6 @@ def _http_redirect_server():
     redir.run(host="0.0.0.0", port=80, debug=False)
 
 
-CERT_DIR = "/opt/gatecrash/certs"
-
 if __name__ == "__main__":
     ensure_dns_thread()
     ensure_ip_watch()
@@ -2111,7 +2166,7 @@ if __name__ == "__main__":
     cert = os.path.join(CERT_DIR, "gatecrash.crt")
     key  = os.path.join(CERT_DIR, "gatecrash.key")
 
-    if os.path.isfile(cert) and os.path.isfile(key):
+    if _https_enabled() and os.path.isfile(cert) and os.path.isfile(key):
         # Start HTTP→HTTPS redirect in background
         threading.Thread(target=_http_redirect_server, daemon=True).start()
         import ssl
@@ -2119,5 +2174,6 @@ if __name__ == "__main__":
         ctx.load_cert_chain(cert, key)
         app.run(host="0.0.0.0", port=443, debug=False, ssl_context=ctx)
     else:
-        # Fallback to plain HTTP if no cert found
+        # HTTP mode — either the user disabled HTTPS, this is a fresh install
+        # mid-setup, or the cert is missing.
         app.run(host="0.0.0.0", port=80, debug=False)
