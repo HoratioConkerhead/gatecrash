@@ -1121,6 +1121,7 @@ def api_factory_reset():
         DEVICES_FILE,
         WEBUI_TOKEN_PATH,
         SECRET_KEY_PATH,
+        NO_AUTH_PATH,
         UPDATE_SETTINGS_FILE,
         AUTO_STOP_SETTINGS_FILE,
         BOOT_STATE_FILE,

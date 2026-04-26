@@ -759,6 +759,12 @@
       style="width:100%;padding:11px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;">
       Set Password
     </button>
+    <div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px solid #2d2d44;">
+      <a href="#" id="setup-skip-link" onclick="doSkipSetupAuth();return false;"
+         style="color:#888;font-size:12px;text-decoration:underline;">
+        Skip — no password (open access on LAN)
+      </a>
+    </div>
   </div>
 </div>
 <script>
@@ -793,6 +799,19 @@ async function doSetupAuth() {
     err.style.display = '';
     btn.disabled = false;
     btn.textContent = 'Set Password';
+  }
+}
+async function doSkipSetupAuth() {
+  const err = document.getElementById('setup-err');
+  err.style.display = 'none';
+  if (!confirm('Skip password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. You can re-enable a password later via Factory Reset.\n\nContinue?')) return;
+  try {
+    const r = await fetch('/api/skip-setup-auth', {method: 'POST'});
+    const d = await r.json();
+    if (d.ok) { window.location.reload(); }
+    else { err.textContent = d.error || 'Failed to skip setup.'; err.style.display = ''; }
+  } catch(e) {
+    err.textContent = 'Network error — try again.'; err.style.display = '';
   }
 }
 document.getElementById('setup-pw').focus();
