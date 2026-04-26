@@ -310,8 +310,13 @@ def set_security_headers(response):
     response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';"
     # SECURITY: HSTS tells the browser to always use HTTPS for future visits,
     # preventing SSL-stripping attacks on the LAN.  (MED-16)
-    if _TLS_ENABLED:
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Pin for 1 day rather than 1 year — this is a self-signed LAN appliance,
+    # not a public site. A short window means a misconfigured user (e.g. cert
+    # rejected on iOS, HTTPS disabled to recover) isn't locked out for a year.
+    # If the route already set Strict-Transport-Security (e.g. /api/set-https
+    # disable flow sends max-age=0 to clear the pin), do not overwrite it.
+    if _TLS_ENABLED and "Strict-Transport-Security" not in response.headers:
+        response.headers["Strict-Transport-Security"] = "max-age=86400; includeSubDomains"
     # SECURITY: mask the real server identity (Werkzeug/Python version) to
     # prevent fingerprinting the exact framework and Python version.  (LOW-3)
     response.headers["Server"] = "Gatecrash"
@@ -1331,7 +1336,14 @@ def api_set_https():
     _set_https_pref(enabled)
     audit_log.warning("HTTPS  %s by %s — service will restart", "enabled" if enabled else "DISABLED", request.remote_addr)
     _schedule_webui_restart()
-    return jsonify({"ok": True, "https_on": enabled})
+    resp = jsonify({"ok": True, "https_on": enabled})
+    # If we're DISABLING HTTPS, clear any HSTS pin so the browser doesn't keep
+    # auto-upgrading http:// → https:// after the service restarts as HTTP.
+    # max-age=0 instructs the UA to forget the pin immediately. This response
+    # is still served over HTTPS (the disable hasn't happened yet) so it counts.
+    if not enabled:
+        resp.headers["Strict-Transport-Security"] = "max-age=0"
+    return resp
 
 
 @app.route("/api/cert-info")
