@@ -1082,17 +1082,37 @@ def api_logout():
 @app.route("/api/change-password", methods=["POST"])
 def api_change_password():
     stored = _get_stored_token()
-    if stored is None:
-        return jsonify({"ok": False, "error": "No password set"}), 400
     data = request.json or {}
     current  = data.get("current", "")
     new_pw   = data.get("new", "")
+    if len(new_pw) < 8:
+        return jsonify({"ok": False, "error": "New password must be at least 8 characters"})
+    # Two flows:
+    #   1. Normal change-password — must match current.
+    #   2. Initial set from no-auth mode — no current password to verify; we
+    #      just store the new password and clear the no-auth marker so the
+    #      next request hits the auth gate.
+    if stored is None:
+        if not _no_auth_enabled():
+            return jsonify({"ok": False, "error": "No password set"}), 400
+        try:
+            _store_password_exclusive(new_pw)
+        except FileExistsError:
+            return jsonify({"ok": False, "error": "Authentication is already configured"}), 403
+        try:
+            os.remove(NO_AUTH_PATH)
+        except FileNotFoundError:
+            pass
+        # Promote this session to authenticated so the user isn't kicked out
+        session.clear()
+        session["authenticated"] = True
+        session.permanent = True
+        audit_log.info("AUTH  Initial password set from no-auth mode from %s", request.remote_addr)
+        return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
     matched, _ = _check_password(current, stored)
     if not matched:
         audit_log.warning("AUTH  Password change FAILED (wrong current password) from %s", request.remote_addr)
         return jsonify({"ok": False, "error": "Current password is incorrect"})
-    if len(new_pw) < 8:
-        return jsonify({"ok": False, "error": "New password must be at least 8 characters"})
     try:
         _store_password(new_pw)
         audit_log.info("AUTH  Password changed from %s", request.remote_addr)
@@ -1172,6 +1192,7 @@ def api_status():
         "wg": wg_stats(),
         "update": dict(update_check_state),
         "version": get_version(),
+        "no_auth": _no_auth_enabled(),
     })
 
 

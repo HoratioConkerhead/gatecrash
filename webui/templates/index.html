@@ -819,7 +819,7 @@ async function doSetupAuth() {
 async function doSkipSetupAuth() {
   const err = document.getElementById('setup-err');
   err.style.display = 'none';
-  if (!confirm('Skip password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. You can re-enable a password later via Factory Reset.\n\nContinue?')) return;
+  if (!confirm('Skip password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. You can enable a password later in the Security section of the Config tab.\n\nContinue?')) return;
   try {
     const r = await fetch('/api/skip-setup-auth', {method: 'POST'});
     const d = await r.json();
@@ -1245,6 +1245,9 @@ document.getElementById('login-pw').focus();
   <!-- Change Password -->
   <div class="card">
     <h2>Security</h2>
+    <div id="pw-noauth-banner" style="display:none;font-size:13px;color:var(--text-secondary);background:var(--bg-subtle);border-radius:6px;padding:10px 12px;margin-bottom:14px;line-height:1.5;">
+      Password protection is currently <strong>disabled</strong>. Set a password below to enable it — anyone on the LAN will then need it to access the web UI.
+    </div>
     <div class="field">
       <label>Current Password</label>
       <input type="password" id="pw-current" autocomplete="current-password">
@@ -1259,7 +1262,7 @@ document.getElementById('login-pw').focus();
       <input type="password" id="pw-confirm" autocomplete="new-password">
     </div>
     <div class="btn-row">
-      <button class="btn-blue" onclick="changePassword()">&#128274; Change Password</button>
+      <button class="btn-blue" id="pw-submit-btn" onclick="changePassword()">&#128274; Change Password</button>
     </div>
     <div class="save-status" id="pw-status"></div>
   </div>
@@ -1629,7 +1632,7 @@ async function changePassword() {
   const status   = document.getElementById('pw-status');
   status.className = 'save-status';
   status.textContent = '';
-  if (!current) { status.textContent = 'Enter your current password.'; status.className = 'save-status error'; return; }
+  if (!_noAuth && !current) { status.textContent = 'Enter your current password.'; status.className = 'save-status error'; return; }
   if (newPw !== confirm) { status.textContent = 'New passwords do not match.'; status.className = 'save-status error'; return; }
   if (newPw.length < 8) { status.textContent = 'New password must be at least 8 characters.'; status.className = 'save-status error'; return; }
   const r = await fetch('/api/change-password', {
@@ -1638,11 +1641,15 @@ async function changePassword() {
   });
   const d = await r.json();
   if (d.ok) {
-    status.textContent = 'Password updated.';
+    status.textContent = _noAuth ? 'Password set — protection enabled.' : 'Password updated.';
     status.className = 'save-status';
     document.getElementById('pw-current').value = '';
     document.getElementById('pw-new').value = '';
     document.getElementById('pw-confirm').value = '';
+    if (_noAuth) {
+      // Server now requires CSRF for state-changing requests; reload to pick up the new token.
+      setTimeout(() => window.location.reload(), 800);
+    }
   } else {
     status.textContent = d.error || 'Failed to update password.';
     status.className = 'save-status error';
@@ -1763,7 +1770,33 @@ async function fetchStatus() {
         last.textContent = 'Last checked: ' + new Date(d.update.last_checked).toLocaleString();
       }
     }
+
+    // Security card mode: no-auth → "Set Password" with greyed current field
+    _noAuth = !!d.no_auth;
+    applyNoAuthMode();
   } catch(e) { /* ignore */ }
+}
+
+let _noAuth = false;
+function applyNoAuthMode() {
+  const banner  = document.getElementById('pw-noauth-banner');
+  const current = document.getElementById('pw-current');
+  const btn     = document.getElementById('pw-submit-btn');
+  if (!banner || !current || !btn) return;
+  if (_noAuth) {
+    banner.style.display = '';
+    current.disabled = true;
+    current.value = '';
+    current.placeholder = 'No password set';
+    current.style.opacity = '0.5';
+    btn.innerHTML = '&#128274; Set Password';
+  } else {
+    banner.style.display = 'none';
+    current.disabled = false;
+    current.placeholder = '';
+    current.style.opacity = '';
+    btn.innerHTML = '&#128274; Change Password';
+  }
 }
 
 async function fetchDNS() {
