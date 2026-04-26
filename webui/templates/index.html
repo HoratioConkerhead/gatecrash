@@ -1263,6 +1263,7 @@ document.getElementById('login-pw').focus();
     </div>
     <div class="btn-row">
       <button class="btn-blue" id="pw-submit-btn" onclick="changePassword()">&#128274; Change Password</button>
+      <button class="btn-red" id="pw-remove-btn" onclick="removePassword()">&#128275; Remove Password</button>
     </div>
     <div class="save-status" id="pw-status"></div>
   </div>
@@ -1625,6 +1626,34 @@ async function doLogout() {
   window.location.reload();
 }
 
+async function removePassword() {
+  const status  = document.getElementById('pw-status');
+  status.className = 'save-status';
+  status.textContent = '';
+  if (!confirm('Remove password protection?\n\nAnyone on your LAN will be able to view and change Gatecrash settings without logging in. This is strongly discouraged on shared or untrusted networks.\n\nContinue?')) return;
+  const current = document.getElementById('pw-current').value;
+  if (!current) {
+    status.textContent = 'Enter your current password to confirm removal.';
+    status.className = 'save-status error';
+    document.getElementById('pw-current').focus();
+    return;
+  }
+  const r = await fetch('/api/remove-password', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: current}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    status.textContent = 'Password removed — web UI is now open.';
+    status.className = 'save-status';
+    document.getElementById('pw-current').value = '';
+    setTimeout(() => window.location.reload(), 800);
+  } else {
+    status.textContent = d.error || 'Failed to remove password.';
+    status.className = 'save-status error';
+  }
+}
+
 async function changePassword() {
   const current  = document.getElementById('pw-current').value;
   const newPw    = document.getElementById('pw-new').value;
@@ -1779,9 +1808,10 @@ async function fetchStatus() {
 
 let _noAuth = false;
 function applyNoAuthMode() {
-  const banner  = document.getElementById('pw-noauth-banner');
-  const current = document.getElementById('pw-current');
-  const btn     = document.getElementById('pw-submit-btn');
+  const banner    = document.getElementById('pw-noauth-banner');
+  const current   = document.getElementById('pw-current');
+  const btn       = document.getElementById('pw-submit-btn');
+  const removeBtn = document.getElementById('pw-remove-btn');
   if (!banner || !current || !btn) return;
   if (_noAuth) {
     banner.style.display = '';
@@ -1790,12 +1820,14 @@ function applyNoAuthMode() {
     current.placeholder = 'No password set';
     current.style.opacity = '0.5';
     btn.innerHTML = '&#128274; Set Password';
+    if (removeBtn) removeBtn.style.display = 'none';
   } else {
     banner.style.display = 'none';
     current.disabled = false;
     current.placeholder = '';
     current.style.opacity = '';
     btn.innerHTML = '&#128274; Change Password';
+    if (removeBtn) removeBtn.style.display = '';
   }
 }
 

@@ -1121,6 +1121,34 @@ def api_change_password():
         return jsonify({"ok": False, "error": "Internal error"})
 
 
+@app.route("/api/remove-password", methods=["POST"])
+def api_remove_password():
+    """Disable authentication: verify the current password, then drop the
+    token and create the no-auth marker. Only callable by an authenticated
+    session — require_auth() guards the route."""
+    stored = _get_stored_token()
+    if stored is None:
+        return jsonify({"ok": False, "error": "No password set"}), 400
+    password = (request.json or {}).get("password", "")
+    matched, _ = _check_password(password, stored)
+    if not matched:
+        audit_log.warning("AUTH  Password REMOVAL denied (wrong password) from %s", request.remote_addr)
+        return jsonify({"ok": False, "error": "Incorrect password"})
+    try:
+        # Create the no-auth marker first; if we removed the token first and
+        # the marker write failed, the next request would fall into setup mode.
+        fd = os.open(NO_AUTH_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+    except FileExistsError:
+        pass  # already there; harmless
+    try:
+        os.remove(WEBUI_TOKEN_PATH)
+    except FileNotFoundError:
+        pass
+    audit_log.warning("AUTH  Password REMOVED from %s — web UI is now open to anyone on the LAN", request.remote_addr)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/factory-reset", methods=["POST"])
 @limiter.limit("1 per minute")
 def api_factory_reset():
