@@ -8,8 +8,10 @@ LAN_IF="eth0"
 # WireGuard interface name (must match the .conf filename in /etc/wireguard/)
 VPN_IF="wg0"
 
-# Your LAN gateway IP (your router)
-GATEWAY_IP="192.168.1.1"
+# Your LAN gateway IP (your router).
+# Leave blank to auto-detect from the default route on every boot — recommended,
+# so the appliance works when moved between networks.
+GATEWAY_IP=""
 
 # Space-separated list of target device IPs to route through VPN
 # Example: TARGET_IPS="192.168.1.90 192.168.1.183"

@@ -374,6 +374,13 @@ def _valid_ip(addr):
     return addr
 
 
+def _valid_ip_or_empty(addr):
+    """Like _valid_ip but allows empty string (used for optional override fields)."""
+    if not addr:
+        return ""
+    return _valid_ip(addr)
+
+
 def _valid_fwmark(mark):
     """Return mark if it is a valid hex fwmark (e.g. 0x1), else raise ValueError."""
     if not _FWMARK_RE.match(mark or ""):
@@ -436,15 +443,13 @@ def write_conf(data):
         "LAN_IF": _valid_if,
         "VPN_IF": _valid_if,
         "ROUTE_TABLE": _valid_table,
-        "GATEWAY_IP": _valid_ip,
+        "GATEWAY_IP": _valid_ip_or_empty,
         "FWMARK": _valid_fwmark,
         "TARGET_IPS": _valid_target_ips,
     }
-    # Ensure GATEWAY_IP is never written empty
-    if not data.get("GATEWAY_IP"):
-        gw = _detect_gateway()
-        if gw:
-            data["GATEWAY_IP"] = gw
+    # GATEWAY_IP is intentionally allowed to be blank — start.sh auto-detects
+    # from the default route on every boot, so the appliance works when moved
+    # between networks. A non-blank value is a manual override.
     for key, value in data.items():
         if key in validators:
             validators[key](value)
@@ -1748,11 +1753,10 @@ def api_test_vpn():
 def api_config():
     if request.method == "GET":
         conf = read_conf()
-        # Fill in detected gateway only if not already set — user can override
-        # via the Advanced Config pane (e.g. when auto-detect picks a host
-        # masquerading as a gateway, like a Hyper-V virtual switch).
-        if not conf.get("GATEWAY_IP"):
-            conf["GATEWAY_IP"] = _detect_gateway()
+        # Surface the live-detected gateway alongside any saved override, so
+        # the UI can show "auto-detect: 192.168.1.254" as a hint while keeping
+        # the override field as the user actually saved it (blank = auto).
+        conf["DETECTED_GATEWAY"] = _detect_gateway()
         return jsonify(conf)
     try:
         data = request.json
@@ -1768,7 +1772,7 @@ def api_config():
             "LAN_IF": _valid_if,
             "VPN_IF": _valid_if,
             "ROUTE_TABLE": _valid_table,
-            "GATEWAY_IP": _valid_ip,
+            "GATEWAY_IP": _valid_ip_or_empty,
             "FWMARK": _valid_fwmark,
             "TARGET_IPS": _valid_target_ips,
         }
@@ -1780,11 +1784,8 @@ def api_config():
                     errors.append(str(e))
         if errors:
             return jsonify({"ok": False, "error": "; ".join(errors)}), 400
-        # Auto-detect gateway only if user left it blank
-        if not data.get("GATEWAY_IP"):
-            gw = _detect_gateway()
-            if gw:
-                data["GATEWAY_IP"] = gw
+        # Blank GATEWAY_IP is intentional — start.sh will auto-detect on every
+        # boot, so the appliance keeps working when moved between networks.
         write_conf(data)
         audit_log.info("CONFIG  Configuration updated from %s: %s", request.remote_addr, data)
         return jsonify({"ok": True})

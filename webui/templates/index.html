@@ -1248,9 +1248,9 @@ document.getElementById('login-pw').focus();
         <input type="text" id="cfg-vpn" placeholder="wg0">
       </div>
       <div class="field">
-        <label>Gateway IP</label>
-        <input type="text" id="cfg-gateway" placeholder="192.168.1.254">
-        <div class="hint">Your router's IP. Auto-detected, but override here if detection picks the wrong one (e.g. a host masquerading as a gateway).</div>
+        <label>Gateway IP <span style="font-weight:400;color:#999;">(override)</span></label>
+        <input type="text" id="cfg-gateway" placeholder="leave blank to auto-detect">
+        <div class="hint" id="cfg-gateway-hint">Leave blank to auto-detect from the default route on every boot. Only set this if auto-detect picks the wrong one (e.g. a host masquerading as a gateway).</div>
       </div>
       <div class="field">
         <label>Target IPs (manual override)</label>
@@ -1936,6 +1936,10 @@ async function loadConfig() {
   document.getElementById('cfg-targets').value = d.TARGET_IPS || '';
   document.getElementById('cfg-vpn').value     = d.VPN_IF     || 'wg0';
   document.getElementById('cfg-gateway').value = d.GATEWAY_IP || '';
+  const hint = document.getElementById('cfg-gateway-hint');
+  if (d.DETECTED_GATEWAY) {
+    hint.innerHTML = 'Auto-detected: <strong>' + d.DETECTED_GATEWAY + '</strong>. Leave blank to use this on every boot. Only set an override if auto-detect picks the wrong one.';
+  }
 }
 
 async function saveConfig() {
