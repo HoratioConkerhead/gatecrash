@@ -190,6 +190,7 @@ WEBUI_DIR="$INSTALL_DIR/webui"
 mkdir -p "$WEBUI_DIR/templates" "$WEBUI_DIR/static"
 
 cp "$SCRIPT_DIR/webui/app.py" "$WEBUI_DIR/app.py"
+cp "$SCRIPT_DIR/webui/stats.py" "$WEBUI_DIR/stats.py"
 cp "$SCRIPT_DIR/webui/templates/index.html" "$WEBUI_DIR/templates/index.html"
 cp -r "$SCRIPT_DIR/webui/static/." "$WEBUI_DIR/static/"
 
