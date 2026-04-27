@@ -572,6 +572,33 @@
     min-height: 60px;
   }
 
+  /* System Stats charts (Diagnostics tab) */
+  .stats-chart {
+    background: var(--bg-subtle);
+    border-radius: 8px;
+    padding: 10px 12px 8px;
+  }
+  .stats-chart-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+  }
+  .stats-chart-now {
+    font-family: monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .stats-chart canvas {
+    width: 100%;
+    height: 120px;
+    display: block;
+  }
+
   /* No-devices hint */
   .no-devices-hint {
     font-size: 14px;
@@ -1526,6 +1553,56 @@ async function dismissWelcome() {
     </div>
   </div>
 
+  <!-- System Stats -->
+  <div class="card full-width">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      System Stats
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;font-weight:400;">
+        <label style="display:flex;align-items:center;gap:4px;color:#aaa;">
+          Range
+          <select id="stats-range" onchange="onStatsRangeChange()" style="padding:3px 6px;font-size:12px;">
+            <option value="5m">5 min</option>
+            <option value="1h">1 hr</option>
+            <option value="6h">6 hr</option>
+            <option value="12h">12 hr</option>
+            <option value="24h">24 hr</option>
+            <option value="5d">5 days</option>
+            <option value="2w">2 weeks</option>
+            <option value="max">max</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;color:#aaa;">
+          Sample
+          <select id="stats-interval" onchange="onStatsIntervalChange()" style="padding:3px 6px;font-size:12px;">
+            <option value="1">1s</option>
+            <option value="2">2s</option>
+            <option value="3">3s</option>
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+          </select>
+        </label>
+        <button class="btn-grey" onclick="loadStats()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
+      </div>
+    </h2>
+    <div id="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
+      <div class="stats-chart">
+        <div class="stats-chart-head"><span>CPU</span><span id="stats-cpu-now" class="stats-chart-now">—</span></div>
+        <canvas id="stats-canvas-cpu" height="120"></canvas>
+      </div>
+      <div class="stats-chart">
+        <div class="stats-chart-head"><span>Memory</span><span id="stats-mem-now" class="stats-chart-now">—</span></div>
+        <canvas id="stats-canvas-mem" height="120"></canvas>
+      </div>
+      <div class="stats-chart">
+        <div class="stats-chart-head"><span>Network <span style="font-weight:400;color:#888;font-size:11px;" id="stats-net-iface"></span></span><span id="stats-net-now" class="stats-chart-now">—</span></div>
+        <canvas id="stats-canvas-net" height="120"></canvas>
+      </div>
+    </div>
+    <div id="stats-empty" style="font-size:12px;color:#888;margin-top:10px;display:none;">
+      No samples yet — the sampler builds history over time. Come back in a minute.
+    </div>
+  </div>
+
   <!-- WireGuard Config (read-only) -->
   <div class="card full-width">
     <h2 style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
@@ -1942,6 +2019,8 @@ function switchTab(name, btn) {
   tab.classList.add('active');
   tab.style.display = 'grid';
   btn.classList.add('active');
+  // Stop background timers tied to other tabs
+  if (name !== 'diagnostics' && typeof stopStats === 'function') stopStats();
   // Refresh server data for the tab being opened
   if (name === 'devices') {
     loadSavedDevices();
@@ -2887,7 +2966,241 @@ async function loadDiagnostics() {
   } catch(e) {}
 
   // Load audit log only when diagnostics tab is visible
-  if (_activeTab === 'diagnostics') loadAuditLog();
+  if (_activeTab === 'diagnostics') {
+    loadAuditLog();
+    startStats();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// System Stats — CPU / Memory / Network charts on the Diagnostics tab
+// ---------------------------------------------------------------------------
+
+var _statsTimer = null;
+var _statsRange = '5m';
+
+function _formatBps(bps) {
+  if (!bps) return '0 b/s';
+  const units = ['b/s', 'Kb/s', 'Mb/s', 'Gb/s'];
+  let i = 0, v = bps;
+  while (v >= 1000 && i < units.length - 1) { v /= 1000; i++; }
+  return v.toFixed(v < 10 ? 1 : 0) + ' ' + units[i];
+}
+
+function _drawChart(canvas, samples, opts) {
+  // opts: { extract: fn(sample)->y, fillStyle, strokeStyle, yMax, suffix, secondExtract? }
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 300;
+  const cssH = canvas.clientHeight || 120;
+  if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
+    canvas.width  = cssW * dpr;
+    canvas.height = cssH * dpr;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const padL = 32, padR = 6, padT = 6, padB = 16;
+  const w = cssW - padL - padR;
+  const h = cssH - padT - padB;
+
+  // Background grid
+  const gridColor = getComputedStyle(document.body).getPropertyValue('--text-tertiary') || '#888';
+  ctx.strokeStyle = gridColor.trim() || '#888';
+  ctx.globalAlpha = 0.18;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (h * i / 4);
+    ctx.moveTo(padL, y); ctx.lineTo(padL + w, y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  if (!samples || samples.length === 0) {
+    ctx.fillStyle = '#888';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('No data yet', padL, padT + h/2);
+    return;
+  }
+
+  // X-axis range = first to last timestamp (or 1s if single point)
+  const t0 = samples[0][0];
+  const t1 = samples[samples.length - 1][0];
+  const dt = Math.max(1, t1 - t0);
+
+  // Y-axis: fixed 0..yMax, or auto-scale if no yMax (network)
+  let yMax = opts.yMax;
+  if (!yMax) {
+    yMax = 0;
+    for (const s of samples) {
+      const v = opts.extract(s);
+      if (v > yMax) yMax = v;
+      if (opts.secondExtract) {
+        const v2 = opts.secondExtract(s);
+        if (v2 > yMax) yMax = v2;
+      }
+    }
+    yMax = yMax > 0 ? yMax * 1.15 : 1000;   // 15% headroom; min 1 Kb/s
+  }
+
+  // Y-axis labels
+  ctx.fillStyle = '#888';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = yMax * (1 - i / 4);
+    const y = padT + (h * i / 4);
+    let label;
+    if (opts.suffix === '%') label = v.toFixed(0) + '%';
+    else if (opts.suffix === 'bps') label = _formatBps(v);
+    else label = v.toFixed(0);
+    ctx.fillText(label, padL - 4, y + 3);
+  }
+  ctx.textAlign = 'left';
+
+  // Helper: draw one series as a filled area + line
+  function drawSeries(extract, stroke, fill) {
+    ctx.beginPath();
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      const x = padL + (w * (s[0] - t0) / dt);
+      const y = padT + h * (1 - Math.min(1, extract(s) / yMax));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    // Close the area down to the baseline for fill
+    const lastX = padL + w;
+    ctx.lineTo(lastX, padT + h);
+    ctx.lineTo(padL, padT + h);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    // Re-stroke just the top line (without the closing edges)
+    ctx.beginPath();
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      const x = padL + (w * (s[0] - t0) / dt);
+      const y = padT + h * (1 - Math.min(1, extract(s) / yMax));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  drawSeries(opts.extract, opts.strokeStyle, opts.fillStyle);
+  if (opts.secondExtract) {
+    drawSeries(opts.secondExtract, opts.secondStrokeStyle, opts.secondFillStyle);
+  }
+
+  // X-axis time labels (start and end)
+  ctx.fillStyle = '#888';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(_relTime(t0), padL, cssH - 3);
+  ctx.textAlign = 'right';
+  ctx.fillText('now', padL + w, cssH - 3);
+  ctx.textAlign = 'left';
+}
+
+function _relTime(epochSec) {
+  const ago = Math.max(0, Math.floor(Date.now() / 1000) - epochSec);
+  if (ago < 60) return ago + 's ago';
+  if (ago < 3600) return Math.floor(ago / 60) + 'm ago';
+  if (ago < 86400) return Math.floor(ago / 3600) + 'h ago';
+  return Math.floor(ago / 86400) + 'd ago';
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats?range=' + encodeURIComponent(_statsRange));
+    const d = await r.json();
+    const samples = d.samples || [];
+
+    document.getElementById('stats-empty').style.display = samples.length ? 'none' : '';
+
+    const cpuCanvas = document.getElementById('stats-canvas-cpu');
+    const memCanvas = document.getElementById('stats-canvas-mem');
+    const netCanvas = document.getElementById('stats-canvas-net');
+
+    _drawChart(cpuCanvas, samples, {
+      extract: s => s[1], yMax: 100, suffix: '%',
+      strokeStyle: '#4caf50', fillStyle: 'rgba(76, 175, 80, 0.18)',
+    });
+    _drawChart(memCanvas, samples, {
+      extract: s => s[2], yMax: 100, suffix: '%',
+      strokeStyle: '#2196f3', fillStyle: 'rgba(33, 150, 243, 0.18)',
+    });
+    _drawChart(netCanvas, samples, {
+      extract: s => s[3],            // rx
+      secondExtract: s => s[4],      // tx
+      suffix: 'bps',
+      strokeStyle: '#ff9800', fillStyle: 'rgba(255, 152, 0, 0.18)',
+      secondStrokeStyle: '#9c27b0', secondFillStyle: 'rgba(156, 39, 176, 0.15)',
+    });
+
+    if (samples.length) {
+      const last = samples[samples.length - 1];
+      document.getElementById('stats-cpu-now').textContent = last[1].toFixed(1) + '%';
+      document.getElementById('stats-mem-now').textContent = last[2].toFixed(1) + '%';
+      document.getElementById('stats-net-now').textContent = '↓ ' + _formatBps(last[3]) + '   ↑ ' + _formatBps(last[4]);
+    } else {
+      document.getElementById('stats-cpu-now').textContent = '—';
+      document.getElementById('stats-mem-now').textContent = '—';
+      document.getElementById('stats-net-now').textContent = '—';
+    }
+  } catch(e) {
+    // silent — sampler may not be running yet on a fresh boot
+  }
+}
+
+async function loadStatsSettings() {
+  try {
+    const r = await fetch('/api/stats-settings');
+    const d = await r.json();
+    if (d.sample_interval) {
+      const sel = document.getElementById('stats-interval');
+      // Snap to closest available option
+      const opts = Array.from(sel.options).map(o => parseInt(o.value, 10));
+      const closest = opts.reduce((a, b) => Math.abs(b - d.sample_interval) < Math.abs(a - d.sample_interval) ? b : a);
+      sel.value = String(closest);
+    }
+  } catch(e) {}
+}
+
+async function onStatsIntervalChange() {
+  const sel = document.getElementById('stats-interval');
+  const v = parseInt(sel.value, 10);
+  await fetch('/api/stats-settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sample_interval: v}),
+  });
+}
+
+function onStatsRangeChange() {
+  _statsRange = document.getElementById('stats-range').value;
+  startStats();   // restart timer with cadence appropriate to the new range
+}
+
+function startStats() {
+  loadStatsSettings();
+  // Show LAN interface label next to the network chart
+  const ifEl = document.getElementById('stats-net-iface');
+  const lanIf = document.getElementById('diag-lan-if');
+  if (ifEl && lanIf && lanIf.textContent && lanIf.textContent !== '—') {
+    ifEl.textContent = '(' + lanIf.textContent + ')';
+  }
+  loadStats();
+  if (_statsTimer) clearInterval(_statsTimer);
+  // UI refresh cadence: every 5s for live ranges, every 30s for long ranges
+  const fast = (_statsRange === '5m' || _statsRange === '1h');
+  _statsTimer = setInterval(() => {
+    if (_activeTab === 'diagnostics') loadStats();
+  }, fast ? 5000 : 30000);
+}
+
+function stopStats() {
+  if (_statsTimer) { clearInterval(_statsTimer); _statsTimer = null; }
 }
 
 var _auditAutoScroll = true;

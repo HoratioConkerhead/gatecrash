@@ -21,6 +21,8 @@ from flask import Flask, render_template, jsonify, request, Response, stream_wit
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
+import stats as sysstats
+
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
@@ -923,6 +925,35 @@ def load_auto_stop_settings():
 def save_auto_stop_settings(settings):
     with open(AUTO_STOP_SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# System stats sampler config — interval is the only thing the user can tune
+# ---------------------------------------------------------------------------
+
+STATS_SETTINGS_FILE = "/opt/gatecrash/stats_settings.json"
+_DEFAULT_STATS_SETTINGS = {"sample_interval": 2}
+
+
+def load_stats_settings():
+    try:
+        with open(STATS_SETTINGS_FILE) as f:
+            return {**_DEFAULT_STATS_SETTINGS, **json.load(f)}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_DEFAULT_STATS_SETTINGS)
+
+
+def save_stats_settings(settings):
+    with open(STATS_SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+
+def ensure_stats_sampler():
+    """Start the background sampler. Reads LAN interface from gatecrash.conf
+    so net throughput is measured on the right NIC."""
+    s = load_stats_settings()
+    lan_if = read_conf().get("LAN_IF", "eth0") or "eth0"
+    sysstats.ensure_started(lan_if=lan_if, sample_interval=s.get("sample_interval", 2))
 
 
 traffic_watch_started = False
@@ -2308,6 +2339,32 @@ def api_save_auto_stop_settings():
     return jsonify({"ok": True})
 
 
+@app.route("/api/stats")
+def api_stats():
+    """Return tier of (ts, cpu%, mem%, rx_bps, tx_bps) for the requested range."""
+    rng = request.args.get("range", "5m")
+    return jsonify(sysstats.query(rng))
+
+
+@app.route("/api/stats-settings", methods=["GET", "POST"])
+def api_stats_settings():
+    if request.method == "GET":
+        return jsonify(load_stats_settings())
+    data = request.json or {}
+    settings = load_stats_settings()
+    if "sample_interval" in data:
+        try:
+            iv = int(data["sample_interval"])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Invalid sample_interval"}), 400
+        if not 1 <= iv <= 10:
+            return jsonify({"ok": False, "error": "sample_interval must be 1..10"}), 400
+        settings["sample_interval"] = iv
+    save_stats_settings(settings)
+    sysstats.update_settings(sample_interval=settings["sample_interval"])
+    return jsonify({"ok": True, **settings})
+
+
 @app.route("/api/upgrade-log-content")
 def api_upgrade_log_content():
     try:
@@ -2362,6 +2419,7 @@ if __name__ == "__main__":
     ensure_dns_thread()
     ensure_ip_watch()
     ensure_traffic_watch()
+    ensure_stats_sampler()
 
     cert = _cert_path()
     key  = _cert_key_path()
