@@ -1092,6 +1092,16 @@ async function dismissWelcome() {
   <button onclick="window.location.replace('http://' + window.location.hostname + '/')" style="background:transparent;border:1px solid #555;color:#aaa;padding:8px 18px;border-radius:6px;font-size:13px;cursor:pointer;">Reload now</button>
 </div>
 
+<!-- Connection lost overlay — auto-dismisses when status comes back -->
+<div id="conn-lost-overlay" style="display:none;position:fixed;inset:0;z-index:190;background:rgba(0,0,0,0.78);flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:32px;">
+  <div class="spinner" style="width:32px;height:32px;border-width:4px;"></div>
+  <div style="color:#ff9800;font-size:18px;font-weight:700;">Connection lost</div>
+  <div style="color:#aaa;font-size:14px;max-width:360px;line-height:1.6;">
+    Can't reach the Gatecrash device. Will reconnect automatically when it comes back.
+  </div>
+  <div id="conn-lost-elapsed" style="color:#888;font-size:12px;font-family:monospace;">0s elapsed</div>
+</div>
+
 <!-- Upgrade modal -->
 <div class="modal-backdrop" id="upgrade-modal">
   <div class="modal" style="width:600px;">
@@ -2065,10 +2075,48 @@ function switchTab(name, btn) {
 
 const PAGE_VERSION = '{{ version }}';
 
+// Connection-loss tracking — show an overlay after N consecutive status failures
+// so transient network blips don't flash a scary modal at the user.
+const _CONN_LOSS_THRESHOLD = 3;   // missed status polls before showing overlay
+var _connFailCount = 0;
+var _connLossSince = 0;           // epoch ms of first failure in the streak
+var _connLossTimer = null;
+
+function _showConnLost() {
+  const ov = document.getElementById('conn-lost-overlay');
+  if (!ov || ov.style.display === 'flex') return;
+  // Don't compete with the reboot or upgrade overlays — they own the screen.
+  if (window._upgradeInProgress) return;
+  if (document.getElementById('rebooting-overlay').style.display === 'flex') return;
+  ov.style.display = 'flex';
+  if (_connLossTimer) clearInterval(_connLossTimer);
+  _connLossTimer = setInterval(() => {
+    if (!_connLossSince) return;
+    const secs = Math.floor((Date.now() - _connLossSince) / 1000);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    document.getElementById('conn-lost-elapsed').textContent =
+      (m ? `${m}m ${s}s` : `${s}s`) + ' elapsed';
+  }, 1000);
+}
+
+function _hideConnLost() {
+  const ov = document.getElementById('conn-lost-overlay');
+  if (!ov) return;
+  ov.style.display = 'none';
+  if (_connLossTimer) { clearInterval(_connLossTimer); _connLossTimer = null; }
+}
+
 async function fetchStatus() {
   try {
     const r = await fetch('/api/status');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
+    // Successful poll — clear any failure streak and hide the overlay
+    if (_connFailCount > 0) {
+      _connFailCount = 0;
+      _connLossSince = 0;
+      _hideConnLost();
+    }
 
     // If the server is now running a different version, the upgrade completed — reload
     // (but not while an upgrade is actively in progress — let the upgrade modal handle it)
@@ -2110,7 +2158,11 @@ async function fetchStatus() {
     _httpsOn = !!d.https_on;
     applyHttpsState();
     refreshCertInfo();
-  } catch(e) { /* ignore */ }
+  } catch(e) {
+    _connFailCount++;
+    if (_connFailCount === 1) _connLossSince = Date.now();
+    if (_connFailCount >= _CONN_LOSS_THRESHOLD) _showConnLost();
+  }
 }
 
 async function refreshCertInfo() {
