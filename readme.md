@@ -136,13 +136,7 @@ Then before starting, go into **Settings**:
 - **Security** → disable Secure Boot
 - **Network Adapter → Advanced Features** → enable MAC address spoofing
 
-Start the VM and connect to it. Once Debian is installed, go back into
-Settings and:
-- **Network Adapter → Advanced Features** → switch MAC address from Dynamic
-  to **Static** and note the value (e.g. `00:15:5d:01:51:1e`)
-
-Then on your router, create a **DHCP reservation** binding that MAC address
-to a fixed IP (e.g. `192.168.1.9`).
+Start the VM and connect to it.
 
 #### 2. Install Debian
 
@@ -225,24 +219,7 @@ Replace `YOUR_TOKEN` with the token you just created.
 
 ---
 
-### 1. Reserve a static IP for the VM on your router
-
-Gatecrash needs a stable IP on your LAN. The cleanest way is a DHCP
-reservation on your router — the VM keeps DHCP (simpler to manage) but
-always gets the same IP.
-
-Find the VM's MAC address first. In Hyper-V Manager:
-
-- **Settings → Network Adapter → Advanced Features**
-- The MAC address is listed here (you can also let Hyper-V assign one
-  dynamically — just start the VM once and read it with `ip link show`)
-
-Then on your router, add a DHCP reservation:
-- Most routers: **DHCP → Address Reservation** or **Static Leases**
-- Bind the VM's MAC address to a chosen IP (e.g. `192.168.1.100`)
-- The exact steps vary by router — consult your router's manual
-
-### 2. Create an External Virtual Switch (Hyper-V)
+### 1. Create an External Virtual Switch (Hyper-V)
 
 The VM needs to appear directly on your physical LAN, not on an isolated
 virtual network.
@@ -257,7 +234,7 @@ virtual network.
    (this keeps your Windows host connected to the LAN through the same NIC)
 7. Click **OK**
 
-### 3. Create the VM
+### 2. Create the VM
 
 - **New → Virtual Machine**
 - Generation 2 (UEFI), 1–2 vCPUs, 1 GB RAM minimum
@@ -271,7 +248,7 @@ everything except:
 - **No desktop**
 . This keeps the VM footprint small.
 
-### 4. Enable MAC Address Spoofing (Hyper-V)
+### 3. Enable MAC Address Spoofing (Hyper-V)
 
 This is required. Without it, ARP spoof packets are silently dropped by
 the Hyper-V virtual switch and nothing will work.
@@ -282,16 +259,14 @@ the Hyper-V virtual switch and nothing will work.
 2. Check **Enable MAC address spoofing**
 3. Click **OK**
 
-If you want a fixed MAC address (useful for the DHCP reservation above):
+If you want a fixed MAC address:
 
-1. In the same **Advanced Features** panel, switch MAC address from
-   **Dynamic** to **Static**
+1. In the same **Advanced Features** panel, switch MAC address from **Dynamic** to **Static**
 2. Enter a MAC address in the format `xx-xx-xx-xx-xx-xx`
    (e.g. `52-54-00-AB-CD-EF` — the `52-54-00` prefix is conventionally
    used for virtual machines)
-3. Use this MAC address for your DHCP reservation on the router
 
-### 5. First boot — confirm networking
+### 4. First boot — confirm networking
 
 Start the VM and log in. Verify it got the expected IP:
 
@@ -306,10 +281,9 @@ curl -s http://ifconfig.me
 ```
 
 This should return your ISP's IP. If networking isn't working, check the
-virtual switch assignment and that the DHCP reservation is active on your
-router.
+virtual switch assignment.
 
-### 6. SSH in and clone the repo
+### 5. SSH in and clone the repo
 
 From your Windows machine you can now SSH in:
 
