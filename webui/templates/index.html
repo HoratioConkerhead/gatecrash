@@ -1296,6 +1296,50 @@ async function dismissWelcome() {
     </div>
   </div>
 
+  <!-- OS Security Updates (unattended-upgrades) -->
+  <div class="card">
+    <h2>OS Security Updates</h2>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5;">
+      Apply Debian security patches automatically. Only the security archive is enabled — routine package upgrades are not touched.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Auto-install security updates
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Runs unattended-upgrades daily in the background</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="os-auto" onchange="saveOsUpdateSettings()">
+          <div class="track"></div><div class="knob"></div>
+        </label>
+      </div>
+      <div class="device-row" style="border:none;padding:0;">
+        <div class="device-name">
+          Auto-reboot if required
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Some kernel/glibc updates require a reboot to take effect</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="os-reboot" onchange="saveOsUpdateSettings()">
+          <div class="track"></div><div class="knob"></div>
+        </label>
+      </div>
+      <div class="device-row" style="border:none;padding:0;" id="os-reboot-time-row">
+        <div class="device-name">
+          Reboot time
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">Local time, only used when auto-reboot is enabled</div>
+        </div>
+        <input type="time" id="os-reboot-time" value="03:00" style="width:120px;border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;background:var(--input-bg);color:var(--text-primary);font-size:14px;" onchange="saveOsUpdateSettings()">
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding-top:2px;flex-wrap:wrap;">
+        <button class="btn-grey" onclick="runOsUpdateNow()" id="btn-os-run-now" style="font-size:13px;padding:7px 16px;">&#8635; Update now</button>
+        <button class="btn-grey" onclick="loadOsUpdateLog()" style="font-size:12px;padding:6px 12px;">View log</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);" id="os-last-run">—</div>
+      <div id="os-log" style="display:none;font-family:monospace;font-size:11px;background:var(--bg-subtle);color:var(--text-primary);border-radius:6px;padding:10px;white-space:pre-wrap;max-height:240px;overflow:auto;line-height:1.5;"></div>
+      <div class="save-status" id="os-status"></div>
+    </div>
+  </div>
+
   <!-- Auto-Stop -->
   <div class="card">
     <h2>Auto-Stop</h2>
@@ -2063,6 +2107,7 @@ function switchTab(name, btn) {
     loadAutostart();
     loadUpdateSettings();
     loadAutoStopSettings();
+    loadOsUpdateSettings();
     loadBranches();
   } else if (name === 'diagnostics') {
     loadDiagnostics();
@@ -3731,6 +3776,91 @@ async function saveAutoStopSettings() {
     el.textContent = '\u2713 Saved';
     setTimeout(() => { el.textContent = ''; }, 3000);
   } catch(e) {}
+}
+
+// ---------------------------------------------------------------------------
+// OS Security Updates (unattended-upgrades)
+// ---------------------------------------------------------------------------
+
+async function loadOsUpdateSettings() {
+  try {
+    const r = await fetch('/api/os-update-settings');
+    const d = await r.json();
+    document.getElementById('os-auto').checked     = !!d.auto_install;
+    document.getElementById('os-reboot').checked   = !!d.auto_reboot;
+    document.getElementById('os-reboot-time').value = d.reboot_time || '03:00';
+    _applyOsRebootRowState();
+    document.getElementById('os-last-run').textContent =
+      d.last_log_line ? 'Last activity: ' + d.last_log_line : 'No activity yet \u2014 unattended-upgrades has not run.';
+  } catch(e) {}
+}
+
+function _applyOsRebootRowState() {
+  const on = document.getElementById('os-reboot').checked;
+  const row = document.getElementById('os-reboot-time-row');
+  row.style.opacity = on ? '1' : '0.4';
+  row.style.pointerEvents = on ? '' : 'none';
+}
+
+async function saveOsUpdateSettings() {
+  _applyOsRebootRowState();
+  const settings = {
+    auto_install: document.getElementById('os-auto').checked,
+    auto_reboot:  document.getElementById('os-reboot').checked,
+    reboot_time:  document.getElementById('os-reboot-time').value || '03:00',
+  };
+  const el = document.getElementById('os-status');
+  try {
+    const r = await fetch('/api/os-update-settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(settings),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      el.className = 'save-status error';
+      el.textContent = d.error || 'Save failed';
+      return;
+    }
+    el.className = 'save-status';
+    el.textContent = '\u2713 Saved';
+    setTimeout(() => { el.textContent = ''; }, 3000);
+  } catch(e) {
+    el.className = 'save-status error';
+    el.textContent = 'Save failed';
+  }
+}
+
+async function runOsUpdateNow() {
+  const btn = document.getElementById('btn-os-run-now');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  try {
+    await fetch('/api/os-update-now', {method: 'POST'});
+    // unattended-upgrade can take a while; poll the log briefly so the user sees progress.
+    setTimeout(loadOsUpdateLog, 2000);
+    setTimeout(loadOsUpdateLog, 6000);
+    setTimeout(() => { loadOsUpdateLog(); loadOsUpdateSettings(); btn.disabled = false; btn.textContent = '\u21bb Update now'; }, 12000);
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '\u21bb Update now';
+  }
+}
+
+async function loadOsUpdateLog() {
+  const box = document.getElementById('os-log');
+  box.style.display = '';
+  try {
+    const r = await fetch('/api/os-update-log?lines=50');
+    const d = await r.json();
+    if (d.ok) {
+      box.textContent = d.lines.length ? d.lines.join('\n') : (d.note || '(empty)');
+    } else {
+      box.textContent = 'Error loading log';
+    }
+  } catch(e) {
+    box.textContent = 'Error loading log';
+  }
 }
 
 function showPwaInfo() {

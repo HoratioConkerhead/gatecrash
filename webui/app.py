@@ -942,6 +942,75 @@ def save_auto_stop_settings(settings):
 
 
 # ---------------------------------------------------------------------------
+# OS auto-updates (unattended-upgrades) — controls /etc/apt/apt.conf.d/*
+# ---------------------------------------------------------------------------
+# Two files we care about:
+#   /etc/apt/apt.conf.d/20auto-upgrades        — enables periodic + unattended
+#   /etc/apt/apt.conf.d/51gatecrash-auto-upgrade — our reboot/time overrides
+# Both are written/edited by the web UI. The toggle drives whether
+# unattended-upgrades runs at all; auto-reboot defaults off (a kernel update
+# would otherwise drop the user's session unannounced).
+
+OS_UPDATE_SETTINGS_FILE = "/opt/gatecrash/os_update_settings.json"
+APT_AUTO_UP_FILE = "/etc/apt/apt.conf.d/20auto-upgrades"
+APT_GC_UP_FILE   = "/etc/apt/apt.conf.d/51gatecrash-auto-upgrade"
+UNATTENDED_LOG   = "/var/log/unattended-upgrades/unattended-upgrades.log"
+
+_DEFAULT_OS_UPDATE_SETTINGS = {
+    "auto_install":  True,    # apply security updates automatically
+    "auto_reboot":   False,   # reboot if a package needs it
+    "reboot_time":   "03:00", # local time, HH:MM
+}
+
+# Tight regex — only valid 24h HH:MM, no shell metachars (these values land
+# inside an apt config string and a systemctl invocation if reboots happen).
+_TIME_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def load_os_update_settings():
+    try:
+        with open(OS_UPDATE_SETTINGS_FILE) as f:
+            return {**_DEFAULT_OS_UPDATE_SETTINGS, **json.load(f)}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_DEFAULT_OS_UPDATE_SETTINGS)
+
+
+def save_os_update_settings(settings):
+    with open(OS_UPDATE_SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+
+def _apply_os_update_config(settings):
+    """Write apt config files to match the user's chosen settings.
+    Idempotent — safe to call repeatedly."""
+    auto = "1" if settings.get("auto_install") else "0"
+    auto_up_body = (
+        f'APT::Periodic::Update-Package-Lists "1";\n'
+        f'APT::Periodic::Unattended-Upgrade "{auto}";\n'
+    )
+    try:
+        with open(APT_AUTO_UP_FILE, "w") as f:
+            f.write(auto_up_body)
+    except OSError as e:
+        audit_log.error("OS-UPDATE  Failed to write %s: %s", APT_AUTO_UP_FILE, e)
+
+    reboot   = "true" if settings.get("auto_reboot") else "false"
+    rt = settings.get("reboot_time", "03:00")
+    if not _TIME_HHMM_RE.match(rt):
+        rt = "03:00"
+    gc_body = (
+        '// Managed by Gatecrash web UI — edit via Config -> Updates.\n'
+        f'Unattended-Upgrade::Automatic-Reboot "{reboot}";\n'
+        f'Unattended-Upgrade::Automatic-Reboot-Time "{rt}";\n'
+    )
+    try:
+        with open(APT_GC_UP_FILE, "w") as f:
+            f.write(gc_body)
+    except OSError as e:
+        audit_log.error("OS-UPDATE  Failed to write %s: %s", APT_GC_UP_FILE, e)
+
+
+# ---------------------------------------------------------------------------
 # System stats sampler config — interval is the only thing the user can tune
 # ---------------------------------------------------------------------------
 
@@ -2399,6 +2468,69 @@ def api_update_apply():
     return jsonify({"ok": True})
 
 
+@app.route("/api/os-update-settings", methods=["GET", "POST"])
+def api_os_update_settings():
+    if request.method == "GET":
+        settings = load_os_update_settings()
+        # Surface the most recent unattended-upgrades log line so the UI can
+        # show "last run" without a separate endpoint.
+        last_line = ""
+        try:
+            with open(UNATTENDED_LOG) as f:
+                lines = [l.rstrip() for l in f if l.strip()]
+                last_line = lines[-1] if lines else ""
+        except (OSError, ValueError):
+            pass
+        return jsonify({**settings, "last_log_line": last_line})
+
+    data = request.json or {}
+    settings = load_os_update_settings()
+    if "auto_install" in data:
+        settings["auto_install"] = bool(data["auto_install"])
+    if "auto_reboot" in data:
+        settings["auto_reboot"] = bool(data["auto_reboot"])
+    if "reboot_time" in data:
+        rt = str(data["reboot_time"])
+        if not _TIME_HHMM_RE.match(rt):
+            return jsonify({"ok": False, "error": "reboot_time must be HH:MM (24h)"}), 400
+        settings["reboot_time"] = rt
+    save_os_update_settings(settings)
+    _apply_os_update_config(settings)
+    audit_log.info("OS-UPDATE  Settings updated from %s: %s", request.remote_addr, settings)
+    return jsonify({"ok": True, **settings})
+
+
+@app.route("/api/os-update-now", methods=["POST"])
+@limiter.limit("2 per minute")
+def api_os_update_now():
+    """Manually trigger an unattended-upgrades run. Returns immediately;
+    progress is visible in the unattended-upgrades log."""
+    audit_log.info("OS-UPDATE  Manual run triggered from %s", request.remote_addr)
+    # No user input goes into this command — argv list, not shell.
+    subprocess.Popen(["unattended-upgrade", "-d"],
+                     stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/os-update-log")
+def api_os_update_log():
+    """Return the last N lines of the unattended-upgrades log."""
+    try:
+        n = min(int(request.args.get("lines", 50)), 500)
+    except (ValueError, TypeError):
+        n = 50
+    try:
+        with open(UNATTENDED_LOG) as f:
+            lines = [l.rstrip() for l in f if l.strip()]
+        return jsonify({"ok": True, "lines": lines[-n:]})
+    except FileNotFoundError:
+        return jsonify({"ok": True, "lines": [], "note": "No log yet — unattended-upgrades has not run."})
+    except OSError:
+        return jsonify({"ok": False, "error": "Internal error"}), 500
+
+
 @app.route("/api/branch", methods=["GET"])
 def api_branch_get():
     """Return the current git branch and the list of available remote branches."""
@@ -2513,6 +2645,12 @@ if __name__ == "__main__":
     ensure_ip_watch()
     ensure_traffic_watch()
     ensure_stats_sampler()
+    # Re-apply OS-update apt config from saved settings on every boot — keeps
+    # the apt files in sync if they get removed by an OS upgrade or wiped.
+    try:
+        _apply_os_update_config(load_os_update_settings())
+    except Exception as e:
+        audit_log.error("OS-UPDATE  Failed to apply config at startup: %s", e)
 
     cert = _cert_path()
     key  = _cert_key_path()

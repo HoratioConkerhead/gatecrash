@@ -41,7 +41,7 @@ fi
 
 echo "Installing dependencies..."
 apt-get update -q
-apt-get install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon nmap conntrack
+apt-get install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon nmap conntrack unattended-upgrades
 
 for bin in wg-quick arpspoof iptables ip curl python3 tcpdump; do
     command -v "$bin" &>/dev/null || { echo "ERROR: $bin not found after install."; exit 1; }
@@ -70,8 +70,37 @@ EOF
 echo "  [OK] IP forwarding enabled."
 
 # ---------------------------------------------------------------------------
-# 4. Policy routing table
+# 3b. OS auto-updates (security only by default; reboot off by default)
 # ---------------------------------------------------------------------------
+# unattended-upgrades is the standard Debian way to keep the box patched.
+# Only the *security* archive is enabled by default — minimises the chance
+# of a routine update breaking Gatecrash. The web UI toggles auto-install
+# and (optional) auto-reboot via /api/os-update-settings, which rewrites
+# 20auto-upgrades and 51gatecrash-auto-upgrade.
+
+AUTO_UP_FILE="/etc/apt/apt.conf.d/20auto-upgrades"
+GC_UP_FILE="/etc/apt/apt.conf.d/51gatecrash-auto-upgrade"
+
+if [[ ! -f "$AUTO_UP_FILE" ]]; then
+    cat > "$AUTO_UP_FILE" <<EOF
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+    echo "  [OK] Enabled APT periodic update + unattended-upgrade."
+else
+    echo "  [OK] APT periodic config already present — leaving alone."
+fi
+
+if [[ ! -f "$GC_UP_FILE" ]]; then
+    cat > "$GC_UP_FILE" <<EOF
+// Managed by Gatecrash web UI — edit via Config -> Updates.
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+EOF
+    echo "  [OK] Wrote Gatecrash unattended-upgrade overrides ($GC_UP_FILE)."
+fi
+
+
 
 echo "Configuring policy routing..."
 if [[ ! -f "$RT_TABLES" ]]; then
