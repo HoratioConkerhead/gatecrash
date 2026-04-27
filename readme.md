@@ -256,12 +256,6 @@ sudo systemctl enable wg-quick@wg0
   target loses internet but no traffic leaks outside the tunnel
 - If arpspoof stops, ARP caches self-correct and traffic bypasses the VM
 
-## Tested With
-
-- Debian 12 (Bookworm) on Hyper-V (Dell Precision 7920)
-- Surfshark WireGuard (Albania endpoint)
-- LG smart TV and Windows laptop as target devices
-
 ## Known Issues
 
 - **IPv6 bypass risk** — ARP spoofing only intercepts IPv4. If a target device prefers IPv6 (most modern devices do when available), its traffic goes directly to the router via NDP, completely bypassing Gatecrash. Investigate: warn in the UI if IPv6 is active on the LAN, consider NDP spoofing, or strip AAAA records from DNS responses to force IPv4
