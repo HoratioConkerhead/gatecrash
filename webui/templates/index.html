@@ -2978,6 +2978,7 @@ async function loadDiagnostics() {
 
 var _statsTimer = null;
 var _statsRange = '5m';
+var _statsInterval = 2;   // sampler interval in seconds (1..10)
 
 function _formatBps(bps) {
   if (!bps) return '0 b/s';
@@ -3158,6 +3159,7 @@ async function loadStatsSettings() {
     const r = await fetch('/api/stats-settings');
     const d = await r.json();
     if (d.sample_interval) {
+      _statsInterval = d.sample_interval;
       const sel = document.getElementById('stats-interval');
       // Snap to closest available option
       const opts = Array.from(sel.options).map(o => parseInt(o.value, 10));
@@ -3170,11 +3172,13 @@ async function loadStatsSettings() {
 async function onStatsIntervalChange() {
   const sel = document.getElementById('stats-interval');
   const v = parseInt(sel.value, 10);
+  _statsInterval = v;
   await fetch('/api/stats-settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({sample_interval: v}),
   });
+  startStats();   // restart UI timer to match new sampler cadence
 }
 
 function onStatsRangeChange() {
@@ -3182,8 +3186,8 @@ function onStatsRangeChange() {
   startStats();   // restart timer with cadence appropriate to the new range
 }
 
-function startStats() {
-  loadStatsSettings();
+async function startStats() {
+  await loadStatsSettings();
   // Show LAN interface label next to the network chart
   const ifEl = document.getElementById('stats-net-iface');
   const lanIf = document.getElementById('diag-lan-if');
@@ -3192,11 +3196,19 @@ function startStats() {
   }
   loadStats();
   if (_statsTimer) clearInterval(_statsTimer);
-  // UI refresh cadence: every 5s for live ranges, every 30s for long ranges
-  const fast = (_statsRange === '5m' || _statsRange === '1h');
+  // UI refresh cadence:
+  //   sample interval 1/2/3s → match the sampler exactly (snappy)
+  //   otherwise          → 5s for live ranges, 30s for long ranges
+  let cadenceMs;
+  if (_statsInterval >= 1 && _statsInterval <= 3) {
+    cadenceMs = _statsInterval * 1000;
+  } else {
+    const fast = (_statsRange === '5m' || _statsRange === '1h');
+    cadenceMs = fast ? 5000 : 30000;
+  }
   _statsTimer = setInterval(() => {
     if (_activeTab === 'diagnostics') loadStats();
-  }, fast ? 5000 : 30000);
+  }, cadenceMs);
 }
 
 function stopStats() {
