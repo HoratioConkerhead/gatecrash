@@ -1,7 +1,7 @@
 # Gatecrash — Support Reference
 
 This document is a quick reference for diagnosing, maintaining, and resetting a Gatecrash appliance.
-For initial setup and a full explanation of how it works, see [readme.md](readme.md).
+For initial setup and a full explanation of how it works, see [README.md](../README.md).
 
 ---
 

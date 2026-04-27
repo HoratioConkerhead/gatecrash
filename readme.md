@@ -27,52 +27,65 @@ Plug it in, point it at the devices you want, and their traffic exits from
 a different country. Everything else on your network is unaffected. If the
 VPN drops, target devices fall back to the normal gateway automatically.
 
-Gatecrash has been testing on a Hyper-V VM, and Raspberry Pi 4 B.
+Gatecrash has been tested on a Hyper-V VM and a Raspberry Pi 4B.
 
-## Quickstart - Installing on a Raspberry Pi
+## Quickstart — Installing on a Raspberry Pi
 
-Using a Raspberry Pi may be the simpliest way to get Gatecrash running.
->You don't need to plug into a monitor, keyboard, or mouse to set it up, as the Raspberry Pi Imager sets up all the remote access.  You may want to plug into a monitor if there are issues.
+A Raspberry Pi running Pi OS Lite is the simplest way to get Gatecrash running.
 
-We use Raspberry Pi OS Lite, the command line only version.  This should work on a 4GB card, but hasn't been tested.
+> You don't need a monitor, keyboard, or mouse — the Raspberry Pi Imager sets up
+> all the remote access. You may want to plug into a monitor if there are issues.
 
-**1. Prepare the SD Card**
+We use **Raspberry Pi OS Lite**, the command-line-only version. This should work
+on a 4 GB card, but hasn't been tested at that size.
 
-On a computer, use Raspberry PI Imager from https://www.raspberrypi.com/software/ to install and confgure the OS:
+**1. Prepare the SD card**
 
-1. Pick  OS : Raspberry Pi OS (other) : Raspberry Pi OS Lite (64-bt)
-2. Set up with hostname of gatecrash
+On a computer, use Raspberry Pi Imager from https://www.raspberrypi.com/software/ to install and configure the OS:
+
+1. Pick OS → Raspberry Pi OS (other) → Raspberry Pi OS Lite (64-bit)
+2. Set hostname to `gatecrash`
 3. Create a username and password
-4. Enable SSH, with password or public key - but password is easiest
-5. If you wish, enable raspberry Pi Connect.  This shouldn't be needed.
+4. Enable SSH (password or public key — password is easiest)
+5. Optionally enable Raspberry Pi Connect (not required)
 
-**2. Boot and logon**
-1. Insert SD card into the Pi
+**2. Boot and log on**
+
+1. Insert the SD card into the Pi
 2. Plug into ethernet
-3. Turn on.  it will take a few of minutes the first time to set up
-4. Logon to it remotely using SSH.  e.g. on Windows
-   1. Load terminal (or cmd.exe)
-   2. Run **ssh gatecrash -l <user_you_specified>**
-   3. Accept fingerprint
-   4. Enter password
+3. Turn on — first boot takes a few minutes to set up
+4. SSH in remotely from another computer (e.g. on Windows):
+   1. Open a terminal (or `cmd.exe`)
+   2. Run `ssh gatecrash -l <user_you_specified>`
+   3. Accept the fingerprint
+   4. Enter the password
 
 **3. Install Git**
-1. run **sudo apt -y install git-all**
-2. Enter password
 
-**4. Get GitHub Token if still in private repo**
+```bash
+sudo apt -y install git-all
+```
 
-If Gatecrash is still in a private repo then you'll need an invite to the repo, and a git token to access it
-1. Go to GitHub : Settingst : Developer settings,
-2. Add token to just this repo with 
-    * finegrained security of Contents:Read-Only
-		* No expiry
-3. Make a note of it, e.g.**github_pat_[long string of random letters and numbers]**
+**4. Get a GitHub token (only if the repo is still private)**
+
+If Gatecrash is still in a private repo, you'll need a personal access token to
+clone it. **The token must be provided by the repo owner** (you can't create
+one yourself unless you're a collaborator on the repo).
+
+If you are the repo owner setting this up for someone else, generate a token
+on GitHub → **Settings → Developer settings → Fine-grained tokens → Generate
+new token**, scoped to just this repo with:
+
+- Contents: **Read-only**
+- No expiry (fine for a dedicated device)
+
+The token looks like `github_pat_<long string of random letters and numbers>`.
+Copy it once — GitHub won't show it again.
 
 **5. Install Gatecrash**
 
-This installs dependencies, clones the report, and runs the setup script.
-it  starts the web UI,  It does not start Gatecrash itself.
+This installs dependencies, clones the repo, and runs the setup script.
+It starts the web UI but does not start Gatecrash itself.
 
 ```bash
 sudo apt install -y git
@@ -81,24 +94,22 @@ cd gatecrash
 sudo bash setup.sh
 ```
 
+**6. Open the web UI**
 
-**6. Open the web UI:**
+On a computer or mobile device:
 
-On a computer or mobile device
 ```
 http://gatecrash.local
 ```
 
-Now follow the prompts to configure your WireGuard (NPN) config and target devices.
+Now follow the prompts to configure your WireGuard (VPN) config and target devices.
 
 **7. Test WireGuard first**
 
 Using the **Start WireGuard** and **Check VPN IP**
 buttons in the web UI before starting Gatecrash.
 
-**4. Start Gatecrash** using the **Start Gatecrash** button in the web UI.
-
-
+**8. Start Gatecrash** using the **Start Gatecrash** button in the web UI.
 
 ---
 
@@ -113,216 +124,50 @@ sudo systemctl status gatecrash-webui  # web UI status
 
 ---
 
+## Other platforms
 
-## Preparing the VM
+Not running a Raspberry Pi? Gatecrash will also run on:
 
-If you are using a VM, then these steps get the VM ready before you run `setup.sh`. The instructions
-cover Hyper-V on Windows specifically.
+- A **Hyper-V VM** on Windows (Debian guest)
+- **Bare-metal Debian** on any small machine
+- **DietPi** (untested but expected to work)
 
-> **Note:** This process is more involved than it needs to be. Streamlining
-> it (ideally into a flashable image) is on the roadmap.
-
-### Hyper-V VM Setup (Detailed)
-
-#### 1. Create the VM in Hyper-V Manager
-
-- **New → Virtual Machine**
-- Memory: 2 GB
-- Network: select your **External** virtual switch
-- Disk: 8 GB, stored wherever you keep your VMs
-- ISO: **Debian 13 netinstall** — use the small installation image from [debian.org](https://www.debian.org/distrib/)
-
-Then before starting, go into **Settings**:
-- **Security** → disable Secure Boot
-- **Network Adapter → Advanced Features** → enable MAC address spoofing
-
-Start the VM and connect to it.
-
-#### 2. Install Debian
-
-Choose **graphical install** or plain **install** — either works.
-
-- Language: English, location: UK, locale: British English
-- Hostname: `gatecrash`, domain: leave blank
-- Set a root password (keep a note of it)
-- Create a user account with a username and password of your choice
-- Disk: **Guided — use entire disk**, partitioning scheme: **all files in one partition**
-- Extra media: No
-- Mirror: pick any
-
-**Software selection** — uncheck everything except:
-- **SSH server**
-- **Standard system utilities**
-
-No desktop environment.
-
-#### 3. Post-install: enable sudo
-
-Log in as your user. You'll need to use `su` to run root commands until
-`sudo` is set up:
-
-```bash
-su -
-/usr/sbin/usermod -aG sudo yourusername
-exit
-```
-
-Log out and back in, then verify:
-
-```bash
-sudo apt update
-```
-
-#### 4. Enable SSH password authentication
-
-```bash
-sudo nano /etc/ssh/sshd_config
-```
-
-Make sure these lines are set to `yes`:
-
-```
-PasswordAuthentication yes
-KbdInteractiveAuthentication yes
-```
-
-Then:
-
-```bash
-sudo systemctl restart ssh
-```
-
-You can now SSH in from Windows: `ssh yourusername@192.168.1.x`
-
-#### 5. Create a GitHub token
-
-You need a read-only token to clone the (private) repo.  This can be provded by the repo owner (horatioconkerhead)
-
-1. GitHub → profile picture → **Settings → Developer settings**
-2. Personal Access token **Fine-grained tokens → Generate new token**
-3. Repository access: **Only select repositories** → pick `gatecrash`
-4. Permissions → **Contents: Read-only**
-5. Expiry: your preference (No expiry is fine for a dedicated device)
-6. Add a name for the token
-7. Copy the token — you won't see it again
-
-#### 6. Clone and run setup
-
-```bash
-sudo apt install -y git
-git clone https://YOUR_TOKEN@github.com/HoratioConkerhead/gatecrash
-cd gatecrash
-sudo bash setup.sh
-```
-
-Replace `YOUR_TOKEN` with the token you just created.
-
----
-
-### 1. Create an External Virtual Switch (Hyper-V)
-
-The VM needs to appear directly on your physical LAN, not on an isolated
-virtual network.
-
-1. Open **Hyper-V Manager**
-2. **Action → Virtual Switch Manager**
-3. Select **External** → **Create Virtual Switch**
-4. Name it (e.g. `LAN Bridge`)
-5. Under **Connection type**, select **External network** and choose your
-   physical NIC from the dropdown
-6. Leave **Allow management OS to share this network adapter** checked
-   (this keeps your Windows host connected to the LAN through the same NIC)
-7. Click **OK**
-
-### 2. Create the VM
-
-- **New → Virtual Machine**
-- Generation 2 (UEFI), 1–2 vCPUs, 1 GB RAM minimum
-- Attach the **External Virtual Switch** you created above as the network adapter
-- Install **Debian 12 (Bookworm)** — use the netinstall ISO for a minimal install
-
-During Debian installation, when you reach **Software selection**, uncheck
-everything except:
-- **SSH server**
-- **Standard system utilities**
-- **No desktop**
-. This keeps the VM footprint small.
-
-### 3. Enable MAC Address Spoofing (Hyper-V)
-
-This is required. Without it, ARP spoof packets are silently dropped by
-the Hyper-V virtual switch and nothing will work.
-
-**Shut the VM down first**, then:
-
-1. **Hyper-V Manager → VM Settings → Network Adapter → Advanced Features**
-2. Check **Enable MAC address spoofing**
-3. Click **OK**
-
-If you want a fixed MAC address:
-
-1. In the same **Advanced Features** panel, switch MAC address from **Dynamic** to **Static**
-2. Enter a MAC address in the format `xx-xx-xx-xx-xx-xx`
-   (e.g. `52-54-00-AB-CD-EF` — the `52-54-00` prefix is conventionally
-   used for virtual machines)
-
-### 4. First boot — confirm networking
-
-Start the VM and log in. Verify it got the expected IP:
-
-```bash
-ip addr show
-```
-
-Confirm internet access works:
-
-```bash
-curl -s http://ifconfig.me
-```
-
-This should return your ISP's IP. If networking isn't working, check the
-virtual switch assignment.
-
-### 5. SSH in and clone the repo
-
-From your Windows machine you can now SSH in:
-
-```bash
-ssh username@192.168.x.x
-```
-
-Then install git and clone:
-
-```bash
-sudo apt update
-sudo apt install -y git
-git clone https://github.com/HoratioConkerhead/gatecrash
-cd gatecrash
-sudo bash setup.sh
-```
+See [docs/INSTALL-OTHER.md](docs/INSTALL-OTHER.md) for instructions.
 
 ---
 
 ## How It Works
 
+Gatecrash spoofs ARP **in both directions** so it sits invisibly between the
+target device and the real gateway. Neither end realises:
+
 ```
-Target Device (e.g. 192.168.1.90)
-    │
-    │  ARP spoofed — thinks the VM is the default gateway
-    │
-    ▼
-Gatecrash VM (gatecrash.local)
-    │
-    ├── Marks target traffic with fwmark → policy routes into WireGuard
-    │
-    ├── wg0 ──► VPN Provider ──► Internet (target's traffic exits here)
-    │
-    └── eth0 ──► Real Gateway ──► Internet (VM's own traffic, unaffected)
+   ┌──────────────┐         ┌──────────────────┐         ┌──────────────┐
+   │   Target     │ ◄─ARP─► │    Gatecrash     │ ◄─ARP─► │ Real Gateway │
+   │ 192.168.1.90 │  spoof  │ (gatecrash.local)│  spoof  │ 192.168.1.1  │
+   └──────────────┘         └────────┬─────────┘         └──────┬───────┘
+                                     │                          │
+                                wg0  │                          │  eth0
+                                     ▼                          ▼
+                              VPN Provider                  Internet
+                                     │                 (Gatecrash's own
+                                     ▼                  traffic, unaffected)
+                                 Internet
+                            (target's exit IP)
 ```
 
+- **Forward spoof** (target → Gatecrash): the target sees Gatecrash's MAC
+  when it ARPs for the gateway, so all its outbound traffic comes to Gatecrash.
+- **Reverse spoof** (gateway → Gatecrash): the real gateway sees Gatecrash's
+  MAC when it ARPs for the target, so any return traffic destined for the
+  target also flows through Gatecrash. (Most return traffic for VPN-routed
+  flows comes back via WireGuard, but the reverse spoof keeps the
+  man-in-the-middle complete for any LAN-side packets the gateway might send
+  to the target — DHCP renewals, ICMP, etc.)
+
 The target device needs zero configuration changes. It doesn't know anything
-has changed. If Gatecrash stops, the device's ARP cache self-corrects within
-a couple of minutes and traffic flows normally again.
+has changed. If Gatecrash stops, both ARP caches self-correct within a couple
+of minutes and traffic flows normally again.
 
 ### Device tracking
 
@@ -351,178 +196,6 @@ After setup, the web UI is available at **http://gatecrash.local**. It provides:
 - **Audit log** — persistent log of all service actions, auth events, config changes (Diagnostics tab)
 - **Updates** — check for and apply updates from GitHub in one click
 - **PWA** — install as an app on iPhone, Android, or desktop
-
-## Manual Setup
-
-> The `setup.sh` script handles all of the steps below automatically.
-> This section is a reference for understanding what it does, or for
-> setting things up by hand.
-
-### 1. Install Dependencies
-
-```bash
-sudo apt update
-sudo apt install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon
-```
-
-`dsniff` provides `arpspoof`.
-
-### 2. Configure WireGuard
-
-Get a WireGuard config from your VPN provider. For Surfshark: log in at
-https://my.surfshark.com → VPN → Manual setup → Desktop or mobile →
-WireGuard → generate a key pair → choose a location → download the .conf.
-
-Create `/etc/wireguard/wg0.conf` using the values from the downloaded config,
-but with two critical changes:
-
-```ini
-[Interface]
-PrivateKey = <your-private-key>
-Address = <address-from-config>
-Table = off
-MTU = 1280
-
-[Peer]
-PublicKey = <server-public-key>
-Endpoint = <server-endpoint>
-AllowedIPs = 0.0.0.0/0
-PersistentKeepalive = 25
-```
-
-**`Table = off`** — Prevents WireGuard from installing a default route. Without
-this, the VM's own traffic (and everything else on the network) tries to go
-through the tunnel. We handle routing ourselves with policy routing so only
-marked target traffic uses the tunnel.
-
-**`MTU = 1280`** — WireGuard's default MTU of 1420 causes silent packet drops
-with many ISPs and devices, especially smart TVs. TCP handshakes work (small
-packets) but actual data transfer hangs. 1280 is conservative but reliable.
-You can try increasing it later once everything is working.
-
-**No DNS line** — DNS is handled separately (see below).
-
-```bash
-sudo wg-quick up wg0
-sudo wg show    # Verify tunnel is up — look for a recent handshake
-```
-
-### 3. Verify the Tunnel
-
-Before setting up any routing, confirm the tunnel itself works:
-
-```bash
-curl --interface wg0 -m 10 http://ifconfig.me
-```
-
-This should return your VPN provider's IP (not your ISP's). If this doesn't
-work, nothing else will — fix the tunnel first.
-
-Note: `curl http://ifconfig.me` (without `--interface wg0`) will correctly
-return your ISP's IP. The VM's own traffic deliberately bypasses the tunnel.
-
-### 4. Enable IP Forwarding
-
-```bash
-sudo sysctl -w net.ipv4.ip_forward=1
-echo "net.ipv4.ip_forward = 1" | sudo tee /etc/sysctl.d/99-gatecrash.conf
-```
-
-### 5. Policy Routing
-
-Create a separate routing table that only marked packets will use:
-
-```bash
-# Add the routing table (only needed once)
-grep -q "vpntarget" /etc/iproute2/rt_tables || \
-    echo "100 vpntarget" >> /etc/iproute2/rt_tables
-
-# Add default route via WireGuard in that table
-sudo ip route add default dev wg0 table vpntarget
-
-# Packets with fwmark 0x1 use the vpntarget table
-sudo ip rule add fwmark 0x1 table vpntarget
-```
-
-**Important:** `wg-quick down/up` wipes the vpntarget routing table. You must
-re-run `ip route add default dev wg0 table vpntarget` after any WireGuard
-restart. `start.sh` handles this automatically.
-
-### 6. iptables Rules
-
-```bash
-TARGET_IP="192.168.1.90"
-LAN_IF="eth0"
-VPN_IF="wg0"
-
-# Mark traffic from the target
-sudo iptables -t mangle -A PREROUTING -s $TARGET_IP -i $LAN_IF -j MARK --set-mark 0x1
-
-# MSS clamping — critical for preventing TCP hangs
-sudo iptables -t mangle -A FORWARD -o $VPN_IF -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-
-# NAT out through WireGuard
-sudo iptables -t nat -A POSTROUTING -o $VPN_IF -j MASQUERADE
-
-# Allow forwarding both directions
-sudo iptables -A FORWARD -i $LAN_IF -o $VPN_IF -s $TARGET_IP -j ACCEPT
-sudo iptables -A FORWARD -i $VPN_IF -o $LAN_IF -d $TARGET_IP -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# DNS — redirect to local resolver (see DNS section below)
-sudo iptables -t nat -A PREROUTING -s $TARGET_IP -p udp --dport 53 -j REDIRECT --to-port 53
-sudo iptables -t nat -A PREROUTING -s $TARGET_IP -p tcp --dport 53 -j REDIRECT --to-port 53
-```
-
-### 7. DNS
-
-DNS queries from the target device are redirected to the VM's local resolver
-using REDIRECT rules (see above). Debian runs `systemd-resolved` by default,
-which handles this automatically.
-
-**Why not route DNS through the tunnel?**
-
-During testing, we found that UDP traffic through the WireGuard tunnel can be
-unreliable (DNS queries sent but no responses received), while TCP works fine.
-Since DNS is just name resolution and doesn't reveal the target device's
-apparent location (the actual traffic still exits through the VPN), resolving
-DNS locally is simpler and more reliable.
-
-**Do not install dnsmasq** — it conflicts with `systemd-resolved` on port 53.
-The default `systemd-resolved` setup works out of the box.
-
-### 8. ARP Spoofing
-
-```bash
-TARGET_IP="192.168.1.90"
-GATEWAY_IP="192.168.1.254"
-LAN_IF="eth0"
-
-# Tell the target "I am the gateway"
-sudo arpspoof -i $LAN_IF -t $TARGET_IP $GATEWAY_IP > /dev/null 2>&1 &
-
-# Tell the gateway "I am the target"
-sudo arpspoof -i $LAN_IF -t $GATEWAY_IP $TARGET_IP > /dev/null 2>&1 &
-```
-
-Both directions are required. `arpspoof` sends periodic gratuitous ARP replies
-to keep the spoofed entries fresh in both ARP caches.
-
-### 9. Verify
-
-```bash
-# Check WireGuard is passing traffic
-sudo wg show
-# Look for "latest handshake" and increasing transfer bytes
-
-# Watch target traffic flowing through the tunnel
-sudo tcpdump -i wg0 -n host 192.168.1.90
-
-# Check iptables counters
-sudo iptables -t mangle -L PREROUTING -v -n
-```
-
-On the target device, visit https://whatismyip.com — it should show the VPN
-exit IP, not your ISP's IP.
 
 ## Auto-Stop (Idle Device Timeout)
 
@@ -593,19 +266,18 @@ sudo systemctl enable wg-quick@wg0
 
 - **IPv6 bypass risk** — ARP spoofing only intercepts IPv4. If a target device prefers IPv6 (most modern devices do when available), its traffic goes directly to the router via NDP, completely bypassing Gatecrash. Investigate: warn in the UI if IPv6 is active on the LAN, consider NDP spoofing, or strip AAAA records from DNS responses to force IPv4
 
-## Documenation To Write
+## Documentation
 
-- **User Guide** user friendly, including all methods - simple, auto, inc dns etc.  
-- **Admin Guide** how it works, 
-
-## Fixes
-
-- **bottom tab alignment** - on load, bottom tabs are not at the bottom.  fixes when switching tab or scrolling screen.
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for planned features and future ideas.
+| Doc | Audience |
+|-----|----------|
+| [docs/INSTALL-OTHER.md](docs/INSTALL-OTHER.md) | Installing on Hyper-V, bare-metal Debian, or DietPi |
+| [docs/MANUAL-SETUP.md](docs/MANUAL-SETUP.md) | What `setup.sh` does under the hood — for setting up by hand |
+| [docs/SUPPORT.md](docs/SUPPORT.md) | Diagnosing, maintaining, and resetting an installed appliance |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Planned features, open issues, future ideas |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branching and release workflow (developer docs) |
+| [docs/vulnerabilities.md](docs/vulnerabilities.md) | Security audit (round 1, March 2026) |
+| [docs/vulnerabilities_2.md](docs/vulnerabilities_2.md) | Security audit (round 2, April 2026) |
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
