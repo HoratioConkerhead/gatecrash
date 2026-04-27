@@ -2423,6 +2423,9 @@ def api_branch_get():
             continue
         if ref.startswith("origin/"):
             ref = ref[len("origin/"):]
+        # Skip the symbolic HEAD pointer — not a real branch
+        if ref in ("HEAD", "origin"):
+            continue
         branches.append(ref)
     branches = sorted(set(branches))
     return jsonify({"ok": True, "current": current, "branches": branches})
