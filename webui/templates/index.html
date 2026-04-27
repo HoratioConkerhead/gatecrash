@@ -2108,7 +2108,9 @@ function _hideConnLost() {
 
 async function fetchStatus() {
   try {
-    const r = await fetch('/api/status');
+    // 2.5s timeout — without this, an unplugged network will hang the fetch
+    // for 30+ seconds (TCP timeout) and the connection-lost overlay never fires.
+    const r = await fetch('/api/status', {signal: AbortSignal.timeout(2500)});
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     // Successful poll — clear any failure streak and hide the overlay
