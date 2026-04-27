@@ -1261,6 +1261,28 @@ async function dismissWelcome() {
         <span id="upd-last-checked" style="font-size:12px;color:var(--text-muted);"></span>
       </div>
       <div class="save-status" id="upd-status"></div>
+
+      <!-- Branch picker — temporary dev tool until proper release process is in place -->
+      <div style="border-top:1px solid var(--border-input);padding-top:14px;margin-top:6px;">
+        <div class="device-name" style="margin-bottom:8px;">
+          Git branch <span style="font-size:11px;font-weight:400;color:#ff9800;">(advanced)</span>
+          <div style="font-size:12px;font-weight:400;color:var(--text-muted);">
+            Switch the device to a different branch. Switching runs <code>setup.sh</code> just like an update — the web UI will reload.
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="font-size:13px;color:var(--text-tertiary);">Current:</span>
+          <span id="branch-current" style="font-family:monospace;font-size:13px;font-weight:700;">—</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+          <select id="branch-select" style="border:1px solid var(--border-input);border-radius:6px;padding:6px 10px;background:var(--input-bg);color:var(--text-primary);font-size:13px;cursor:pointer;min-width:160px;">
+            <option value="">Loading...</option>
+          </select>
+          <button class="btn-grey" onclick="loadBranches()" style="font-size:12px;padding:6px 12px;">&#8635; Refresh</button>
+          <button class="btn-blue" onclick="switchBranch()" id="btn-switch-branch" style="font-size:13px;padding:7px 16px;" disabled>Switch branch</button>
+        </div>
+        <div class="save-status" id="branch-status"></div>
+      </div>
     </div>
   </div>
 
@@ -2031,6 +2053,7 @@ function switchTab(name, btn) {
     loadAutostart();
     loadUpdateSettings();
     loadAutoStopSettings();
+    loadBranches();
   } else if (name === 'diagnostics') {
     loadDiagnostics();
   }
@@ -3717,21 +3740,91 @@ function appendLogLine(text, color) {
   logLines.scrollTop = logLines.scrollHeight;
 }
 
-async function applyUpdate() {
-  const modal    = document.getElementById('upgrade-modal');
-  const logLines = document.getElementById('upgrade-log-lines');
-  const status   = document.getElementById('upgrade-modal-status');
-  const reloadBtn = document.getElementById('btn-upgrade-reload');
+// ---------------------------------------------------------------------------
+// Branch picker — temporary dev tool until proper release process is in place
+// ---------------------------------------------------------------------------
 
+async function loadBranches() {
+  const sel = document.getElementById('branch-select');
+  const cur = document.getElementById('branch-current');
+  const btn = document.getElementById('btn-switch-branch');
+  const status = document.getElementById('branch-status');
+  status.textContent = '';
+  sel.innerHTML = '<option value="">Loading...</option>';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/branch');
+    const d = await r.json();
+    if (!d.ok) {
+      cur.textContent = '—';
+      sel.innerHTML = '<option value="">' + h(d.error || 'Error') + '</option>';
+      return;
+    }
+    cur.textContent = d.current || '—';
+    sel.innerHTML = '';
+    if (!d.branches || !d.branches.length) {
+      sel.innerHTML = '<option value="">(no remote branches)</option>';
+      return;
+    }
+    for (const b of d.branches) {
+      const opt = document.createElement('option');
+      opt.value = b;
+      opt.textContent = b + (b === d.current ? '  (current)' : '');
+      sel.appendChild(opt);
+    }
+    sel.value = d.current || d.branches[0];
+    btn.disabled = false;
+  } catch(e) {
+    cur.textContent = '—';
+    sel.innerHTML = '<option value="">Error loading</option>';
+  }
+}
+
+async function switchBranch() {
+  const sel = document.getElementById('branch-select');
+  const cur = document.getElementById('branch-current').textContent;
+  const target = sel.value;
+  if (!target) return;
+  if (target === cur) {
+    document.getElementById('branch-status').textContent = 'Already on ' + target;
+    return;
+  }
+  if (!confirm(`Switch from "${cur}" to "${target}"?\n\nThe device will run setup.sh and the web UI will reload. This will pull and deploy whatever is on origin/${target}.`)) {
+    return;
+  }
+  // Reuse the upgrade modal — the script writes to the same log file and
+  // setup.sh's "=== Setup complete ===" marker will trigger the auto-reload.
+  const modal     = document.getElementById('upgrade-modal');
+  const logLines  = document.getElementById('upgrade-log-lines');
+  const status    = document.getElementById('upgrade-modal-status');
+  const reloadBtn = document.getElementById('btn-upgrade-reload');
   logLines.textContent = '';
   reloadBtn.style.display = 'none';
   window._upgradeInProgress = true;
   modal.classList.add('open');
+  status.textContent = 'switching to ' + target + '...';
 
-  await fetch('/api/update/apply', {method: 'POST'});
+  const r = await fetch('/api/branch', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({branch: target}),
+  });
+  const d = await r.json();
+  if (!d.ok) {
+    appendLogLine('Error: ' + (d.error || 'unknown'), '#f44336');
+    status.textContent = 'failed';
+    return;
+  }
+  // The same poll loop applyUpdate uses will pick up the log lines.
+  pollUpgradeLog();
+}
 
-  // Poll the log file. When we see the web UI restart message, we know setup.sh
-  // is done and the service is coming back up — just reload the page after a short delay.
+// Shared upgrade-log poller used by /api/update/apply AND /api/branch — the
+// upgrade script writes to /var/log/gatecrash-upgrade.log; we tail it into the
+// modal and trigger an auto-reload when setup.sh finishes.
+function pollUpgradeLog() {
+  const status   = document.getElementById('upgrade-modal-status');
+  const reloadBtn = document.getElementById('btn-upgrade-reload');
   let lastLineCount = 0;
   let reloadScheduled = false;
 
@@ -3759,7 +3852,6 @@ async function applyUpdate() {
 
   async function pollOnce() {
     if (reloadScheduled) return;
-
     try {
       const lr = await fetch('/api/upgrade-log-content', {signal: AbortSignal.timeout(3000)});
       const ld = await lr.json();
@@ -3768,23 +3860,33 @@ async function applyUpdate() {
         for (let i = lastLineCount; i < allLines.length; i++) {
           appendLogLine(allLines[i]);
           // setup.sh prints this just before restarting the web UI service — reload after it comes back up
-          if (allLines[i].includes('Restarting web UI service')) {
-            scheduleReload(3);
-          }
-          // Fallback: explicit completion marker
-          if (allLines[i].includes('=== Upgrade complete ===') || allLines[i].includes('=== Setup complete ===')) {
+          if (allLines[i].includes('Restarting web UI service')) scheduleReload(3);
+          // Fallback: explicit completion markers (also fired by branch switches)
+          if (allLines[i].includes('=== Upgrade complete ===') ||
+              allLines[i].includes('=== Setup complete ===')   ||
+              allLines[i].includes('=== Branch switch complete ===')) {
             scheduleReload(3);
           }
         }
         lastLineCount = allLines.length;
       }
     } catch(e) { /* log temporarily unavailable during restart — ignore */ }
-
     setTimeout(pollOnce, 1500);
   }
 
-  // Start polling after a short delay to let the upgrade script kick off
   setTimeout(pollOnce, 1500);
+}
+
+async function applyUpdate() {
+  const modal    = document.getElementById('upgrade-modal');
+  const logLines = document.getElementById('upgrade-log-lines');
+  const reloadBtn = document.getElementById('btn-upgrade-reload');
+  logLines.textContent = '';
+  reloadBtn.style.display = 'none';
+  window._upgradeInProgress = true;
+  modal.classList.add('open');
+  await fetch('/api/update/apply', {method: 'POST'});
+  pollUpgradeLog();
 }
 
 // Load on page open

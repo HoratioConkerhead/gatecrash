@@ -565,6 +565,20 @@ def _valid_repo(path):
     return path
 
 
+# Git ref names: alphanumerics plus a small set of safe punctuation.
+# Deliberately excludes shell metacharacters and git's own special chars (~ ^ : ?).
+_BRANCH_RE = re.compile(r'^[A-Za-z0-9._/-]{1,128}$')
+
+
+def _valid_branch(name):
+    """Return name if it's a safe git branch name, else raise ValueError."""
+    if not _BRANCH_RE.match(name or ""):
+        raise ValueError("Invalid branch name")
+    if name.startswith("-") or ".." in name or name.endswith(".lock"):
+        raise ValueError("Invalid branch name")
+    return name
+
+
 def _strip_wg_hooks(content):
     """Remove PostUp/PostDown/PreUp/PreDown lines from a WireGuard config string."""
     return "".join(
@@ -2383,6 +2397,82 @@ def api_update_apply():
     audit_log.info("UPGRADE  Update apply requested from %s", request.remote_addr)
     _trigger_upgrade(repo)
     return jsonify({"ok": True})
+
+
+@app.route("/api/branch", methods=["GET"])
+def api_branch_get():
+    """Return the current git branch and the list of available remote branches."""
+    repo = get_repo_path()
+    if not repo:
+        return jsonify({"ok": False, "error": "Repo path not set"})
+    try:
+        repo = _valid_repo(repo)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid repo path"})
+    cur_out, cur_rc = run(f"git -c safe.directory={repo} -C {repo} rev-parse --abbrev-ref HEAD 2>&1")
+    if cur_rc != 0:
+        return jsonify({"ok": False, "error": "Could not read current branch"})
+    current = cur_out.strip()
+    # Refresh remote refs so the list is current — quiet on failure (offline OK)
+    run(f"git -c safe.directory={repo} -C {repo} fetch origin --prune 2>&1")
+    branches_out, _ = run(f"git -c safe.directory={repo} -C {repo} branch -r --format='%(refname:short)' 2>&1")
+    branches = []
+    for line in (branches_out or "").splitlines():
+        ref = line.strip().strip("'")
+        if not ref or "->" in ref:           # skip "origin/HEAD -> origin/master"
+            continue
+        if ref.startswith("origin/"):
+            ref = ref[len("origin/"):]
+        branches.append(ref)
+    branches = sorted(set(branches))
+    return jsonify({"ok": True, "current": current, "branches": branches})
+
+
+@app.route("/api/branch", methods=["POST"])
+@limiter.limit("3 per minute")
+def api_branch_set():
+    """Switch the working tree to a different branch, then trigger setup.sh
+    to redeploy. Used during dev to point a device at a feature branch
+    without breaking other users on master."""
+    repo = get_repo_path()
+    if not repo:
+        return jsonify({"ok": False, "error": "Repo path not set"}), 400
+    try:
+        repo = _valid_repo(repo)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid repo path"}), 400
+    branch = (request.json or {}).get("branch", "")
+    try:
+        branch = _valid_branch(branch)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    q_repo = shlex.quote(repo)
+    q_branch = shlex.quote(branch)
+    q_origin = shlex.quote("origin/" + branch)
+    audit_log.warning("UPGRADE  Branch switch to '%s' requested from %s", branch, request.remote_addr)
+    # Generate the same kind of background script as _trigger_upgrade so the
+    # Flask process can return its response before the service restarts.
+    script = f"""#!/bin/bash
+trap 'rm -f -- "$0"' EXIT
+> /var/log/gatecrash-upgrade.log
+echo "=== Switching to branch {branch} ===" >> /var/log/gatecrash-upgrade.log
+sleep 1
+cd {q_repo}
+git -c safe.directory={q_repo} fetch origin >> /var/log/gatecrash-upgrade.log 2>&1
+git -c safe.directory={q_repo} checkout -B {q_branch} {q_origin} >> /var/log/gatecrash-upgrade.log 2>&1
+git -c safe.directory={q_repo} pull >> /var/log/gatecrash-upgrade.log 2>&1
+bash setup.sh >> /var/log/gatecrash-upgrade.log 2>&1
+echo "=== Branch switch complete ===" >> /var/log/gatecrash-upgrade.log
+"""
+    fd, path = tempfile.mkstemp(suffix=".sh", prefix="gatecrash-branch-")
+    with os.fdopen(fd, "w") as f:
+        f.write(script)
+    os.chmod(path, 0o700)
+    subprocess.Popen(["bash", path],
+                     stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    return jsonify({"ok": True, "branch": branch})
 
 
 @app.route("/api/audit-log")
