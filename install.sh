@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Gatecrash one-shot installer — clones the repo into /opt and runs setup.sh.
+# Designed to be invoked by DietPi's AUTO_SETUP_CUSTOM_SCRIPT_EXEC, but works
+# anywhere as a fresh install.
+#
+# Usage on DietPi: set in /boot/dietpi.txt (one line, no continuations):
+#   AUTO_SETUP_CUSTOM_SCRIPT_EXEC=https://raw.githubusercontent.com/HoratioConkerhead/gatecrash/master/install.sh
+#
+# For private repos, set GATECRASH_GIT_TOKEN before running:
+#   GATECRASH_GIT_TOKEN=ghp_xxx bash install.sh
+
+set -euo pipefail
+
+REPO_OWNER="HoratioConkerhead"
+REPO_NAME="gatecrash"
+INSTALL_DIR="/opt/gatecrash"
+BRANCH="${GATECRASH_BRANCH:-master}"
+
+if [[ $EUID -ne 0 ]]; then
+    echo "ERROR: run as root (sudo bash install.sh)." >&2
+    exit 1
+fi
+
+echo "=== Gatecrash installer ==="
+
+# Build clone URL — embed token if provided so private repos work
+if [[ -n "${GATECRASH_GIT_TOKEN:-}" ]]; then
+    CLONE_URL="https://${GATECRASH_GIT_TOKEN}@github.com/${REPO_OWNER}/${REPO_NAME}.git"
+    echo "Using authenticated clone (token from GATECRASH_GIT_TOKEN)."
+else
+    CLONE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
+fi
+
+# git is required — install if missing
+if ! command -v git >/dev/null 2>&1; then
+    echo "Installing git..."
+    apt-get update -q
+    apt-get install -y git
+fi
+
+# Clone (or update) into /opt
+if [[ -d "$INSTALL_DIR/.git" ]]; then
+    echo "Repo already exists at $INSTALL_DIR — pulling latest."
+    git -C "$INSTALL_DIR" fetch --depth=1 origin "$BRANCH"
+    git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
+else
+    echo "Cloning $REPO_OWNER/$REPO_NAME ($BRANCH) into $INSTALL_DIR..."
+    git clone --depth=1 -b "$BRANCH" "$CLONE_URL" "$INSTALL_DIR"
+fi
+
+# Hand off to setup.sh
+echo "Running setup.sh..."
+bash "$INSTALL_DIR/setup.sh"
+
+echo ""
+echo "=== Gatecrash install complete ==="
+echo "Open the web UI at http://gatecrash.local to finish configuration."
