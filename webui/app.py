@@ -1218,7 +1218,7 @@ def resolve_mac(ip):
         ipaddress.ip_address(ip)  # reject anything that isn't a valid IP
     except ValueError:
         return ""
-    out, _ = run(f"ip neigh show {ip} 2>/dev/null")
+    out, _ = run_argv(["ip", "neigh", "show", ip])
     m = re.search(r"lladdr\s+([0-9a-f:]+)", out)
     return m.group(1).lower() if m else ""
 
@@ -1580,7 +1580,7 @@ def api_status():
         conf = read_conf()
         try:
             rt = _valid_table(conf.get("ROUTE_TABLE", "vpntarget"))
-            run(f"ip route replace default dev wg0 table {rt} metric 100")
+            run_argv(["ip", "route", "replace", "default", "dev", "wg0", "table", rt, "metric", "100"])
         except ValueError:
             pass  # invalid table name — skip route restore
         vpn_route_missing = False  # fixed
@@ -1633,7 +1633,7 @@ def api_wg_start():
     conf = read_conf()
     try:
         rt = _valid_table(conf.get("ROUTE_TABLE", "vpntarget"))
-        run(f"ip route replace default dev wg0 table {rt} metric 100")
+        run_argv(["ip", "route", "replace", "default", "dev", "wg0", "table", rt, "metric", "100"])
     except ValueError:
         pass  # invalid table name — skip route restore
     if rc == 0:
@@ -1688,12 +1688,12 @@ def api_autostart():
         results["mode"] = new_mode
     if "wg" in data:
         cmd = "enable" if data["wg"] else "disable"
-        _, rc = run(f"systemctl {cmd} wg-quick@wg0 2>&1")
+        _, rc = run_argv(["systemctl", cmd, "wg-quick@wg0"], merge_stderr=True)
         results["wg"] = rc == 0
         audit_log.info("CONFIG  WireGuard autostart %sd from %s", cmd, request.remote_addr)
     if "gatecrash" in data:
         cmd = "enable" if data["gatecrash"] else "disable"
-        _, rc = run(f"systemctl {cmd} gatecrash 2>&1")
+        _, rc = run_argv(["systemctl", cmd, "gatecrash"], merge_stderr=True)
         results["gatecrash"] = rc == 0
         audit_log.info("CONFIG  Gatecrash autostart %sd from %s", cmd, request.remote_addr)
     return jsonify({"ok": True, "results": results})
@@ -1922,22 +1922,24 @@ def _hot_reload_targets(old_ips, new_ips):
             _valid_ip(ip)
         except ValueError:
             continue
-        # Kill arpspoof processes for this target (both directions)
+        # Kill arpspoof processes for this target (both directions).
+        # pkill -f matches against the full command line; with shell=False the
+        # pattern is one argv, so the space-separated string still works.
         if gw:
-            run(f"pkill -f 'arpspoof -i {lan_if} -t {ip} {gw}'", timeout=5)
-            run(f"pkill -f 'arpspoof -i {lan_if} -t {gw} {ip}'", timeout=5)
+            run_argv(["pkill", "-f", f"arpspoof -i {lan_if} -t {ip} {gw}"], timeout=5)
+            run_argv(["pkill", "-f", f"arpspoof -i {lan_if} -t {gw} {ip}"], timeout=5)
 
         # Remove per-target iptables rules (ignore errors if already gone)
-        run(f"iptables -t mangle -D PREROUTING -s {ip} -i {lan_if} -j MARK --set-mark {fwmark}")
-        run(f"iptables -D FORWARD -i {lan_if} -s {ip} -j ACCEPT")
-        run(f"iptables -D FORWARD -d {ip} -o {lan_if} -m state --state RELATED,ESTABLISHED -j ACCEPT")
-        run(f"iptables -D FORWARD -i {vpn_if} -o {lan_if} -d {ip} -m state --state RELATED,ESTABLISHED -j ACCEPT")
-        run(f"iptables -t nat -D PREROUTING -s {ip} -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
-        run(f"iptables -t nat -D PREROUTING -s {ip} -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
+        run_argv(["iptables", "-t", "mangle", "-D", "PREROUTING", "-s", ip, "-i", lan_if, "-j", "MARK", "--set-mark", fwmark])
+        run_argv(["iptables", "-D", "FORWARD", "-i", lan_if, "-s", ip, "-j", "ACCEPT"])
+        run_argv(["iptables", "-D", "FORWARD", "-d", ip, "-o", lan_if, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+        run_argv(["iptables", "-D", "FORWARD", "-i", vpn_if, "-o", lan_if, "-d", ip, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+        run_argv(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "udp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
+        run_argv(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
 
         # Flush conntrack for this target
-        run(f"conntrack -D -s {ip}")
-        run(f"conntrack -D -d {ip}")
+        run_argv(["conntrack", "-D", "-s", ip])
+        run_argv(["conntrack", "-D", "-d", ip])
         lines.append(f"Removed target: {ip}")
 
     # --- Add targets that were enabled ---
@@ -1948,21 +1950,21 @@ def _hot_reload_targets(old_ips, new_ips):
             continue
 
         # Per-target iptables rules (same as start.sh)
-        run(f"iptables -t mangle -A PREROUTING -s {ip} -i {lan_if} -j MARK --set-mark {fwmark}")
-        run(f"iptables -A FORWARD -i {lan_if} -s {ip} -j ACCEPT")
-        run(f"iptables -A FORWARD -d {ip} -o {lan_if} -m state --state RELATED,ESTABLISHED -j ACCEPT")
-        run(f"iptables -A FORWARD -i {vpn_if} -o {lan_if} -d {ip} -m state --state RELATED,ESTABLISHED -j ACCEPT")
-        run(f"iptables -t nat -A PREROUTING -s {ip} -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
-        run(f"iptables -t nat -A PREROUTING -s {ip} -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53")
+        run_argv(["iptables", "-t", "mangle", "-A", "PREROUTING", "-s", ip, "-i", lan_if, "-j", "MARK", "--set-mark", fwmark])
+        run_argv(["iptables", "-A", "FORWARD", "-i", lan_if, "-s", ip, "-j", "ACCEPT"])
+        run_argv(["iptables", "-A", "FORWARD", "-d", ip, "-o", lan_if, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+        run_argv(["iptables", "-A", "FORWARD", "-i", vpn_if, "-o", lan_if, "-d", ip, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
+        run_argv(["iptables", "-t", "nat", "-A", "PREROUTING", "-s", ip, "-p", "udp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
+        run_argv(["iptables", "-t", "nat", "-A", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
 
         # Flush conntrack so existing connections get re-routed
-        run(f"conntrack -D -s {ip}")
-        run(f"conntrack -D -d {ip}")
+        run_argv(["conntrack", "-D", "-s", ip])
+        run_argv(["conntrack", "-D", "-d", ip])
 
         # Kill any stale arpspoof for this target before starting
         if gw:
-            run(f"pkill -f 'arpspoof -i {lan_if} -t {ip} {gw}'", timeout=5)
-            run(f"pkill -f 'arpspoof -i {lan_if} -t {gw} {ip}'", timeout=5)
+            run_argv(["pkill", "-f", f"arpspoof -i {lan_if} -t {ip} {gw}"], timeout=5)
+            run_argv(["pkill", "-f", f"arpspoof -i {lan_if} -t {gw} {ip}"], timeout=5)
 
             # Launch arpspoof as detached processes (Popen so they don't block)
             subprocess.Popen(
@@ -2042,45 +2044,57 @@ def api_diagnostics_dump():
 
     sections = []
 
-    def section(title, cmd):
-        out, _ = run(cmd, timeout=10)
+    def section(title, args):
+        # args is an argv list (shell=False). The displayed `$ ...` line joins
+        # them with spaces so the dump still reads like a transcript.
+        out, _ = run_argv(args, timeout=10, merge_stderr=True)
         # SECURITY: redact WireGuard private keys from diagnostics output — the
         # dump is downloadable as a text file and may be shared for support.  (HIGH-1, HIGH-9)
         redacted = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', out or '')
-        sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd}\n\n{redacted or '(empty)'}\n")
+        cmd_display = " ".join(args)
+        sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd_display}\n\n{redacted or '(empty)'}\n")
+
+    # GATEWAY_IP from config is validated via _valid_ip_or_empty when written,
+    # so it's safe to use directly here. Falls back to a literal default.
+    gw_for_dig = conf.get("GATEWAY_IP") or "192.168.1.254"
+    try:
+        _valid_ip(gw_for_dig)
+    except ValueError:
+        gw_for_dig = "192.168.1.254"
 
     sections.append(f"Gatecrash Diagnostics Dump\nGenerated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nVersion: {get_version()}\n")
 
-    section("Gatecrash Config", f"cat {CONF_PATH}")
-    section("Gatecrash Service Status", "systemctl status gatecrash --no-pager -l 2>&1")
-    section("Web UI Service Status", "systemctl status gatecrash-webui --no-pager -l 2>&1")
+    section("Gatecrash Config", ["cat", CONF_PATH])
+    section("Gatecrash Service Status", ["systemctl", "status", "gatecrash", "--no-pager", "-l"])
+    section("Web UI Service Status", ["systemctl", "status", "gatecrash-webui", "--no-pager", "-l"])
 
-    section(f"LAN Interface ({lan_if})", f"ip addr show {lan_if} 2>&1")
-    section("WireGuard Interface", f"ip addr show {vpn_if} 2>&1")
-    section("WireGuard Status", f"wg show {vpn_if} 2>&1")
-    section("Default Route", "ip route show default 2>&1")
-    section(f"vpntarget Routing Table ({rt})", f"ip route show table {rt} 2>&1")
-    section("IP Policy Rules", "ip rule show 2>&1")
+    section(f"LAN Interface ({lan_if})", ["ip", "addr", "show", lan_if])
+    section("WireGuard Interface", ["ip", "addr", "show", vpn_if])
+    section("WireGuard Status", ["wg", "show", vpn_if])
+    section("Default Route", ["ip", "route", "show", "default"])
+    section(f"vpntarget Routing Table ({rt})", ["ip", "route", "show", "table", rt])
+    section("IP Policy Rules", ["ip", "rule", "show"])
 
     section("iptables — mangle PREROUTING (packet marks)",
-            "iptables -t mangle -L PREROUTING -n -v --line-numbers 2>&1")
+            ["iptables", "-t", "mangle", "-L", "PREROUTING", "-n", "-v", "--line-numbers"])
     section("iptables — nat PREROUTING (DNS DNAT)",
-            "iptables -t nat -L PREROUTING -n -v --line-numbers 2>&1")
+            ["iptables", "-t", "nat", "-L", "PREROUTING", "-n", "-v", "--line-numbers"])
     section("iptables — nat POSTROUTING (MASQUERADE)",
-            "iptables -t nat -L POSTROUTING -n -v --line-numbers 2>&1")
+            ["iptables", "-t", "nat", "-L", "POSTROUTING", "-n", "-v", "--line-numbers"])
     section("iptables — FORWARD",
-            "iptables -L FORWARD -n -v --line-numbers 2>&1")
+            ["iptables", "-L", "FORWARD", "-n", "-v", "--line-numbers"])
     section("iptables — mangle FORWARD (MSS clamp)",
-            "iptables -t mangle -L FORWARD -n -v --line-numbers 2>&1")
+            ["iptables", "-t", "mangle", "-L", "FORWARD", "-n", "-v", "--line-numbers"])
 
-    section("Active arpspoof Processes", "ps -eo pid,args | grep arpspoof | grep -v grep 2>&1")
-    section("VPN Exit IP Test", f"curl --interface {vpn_if} -m 10 -s http://ifconfig.me 2>&1")
-    section("DNS Resolution via 1.1.1.1", "dig @1.1.1.1 google.com +short 2>&1")
-    section("DNS Resolution via Gateway", f"dig @{conf.get('GATEWAY_IP', '192.168.1.254')} google.com +short 2>&1")
+    # pgrep -af replaces shell-pipeline `ps -eo pid,args | grep arpspoof | grep -v grep`
+    section("Active arpspoof Processes", ["pgrep", "-af", "arpspoof"])
+    section("VPN Exit IP Test", ["curl", "--interface", vpn_if, "-m", "10", "-s", "http://ifconfig.me"])
+    section("DNS Resolution via 1.1.1.1", ["dig", "@1.1.1.1", "google.com", "+short"])
+    section("DNS Resolution via Gateway", ["dig", f"@{gw_for_dig}", "google.com", "+short"])
 
-    section("IPv6 Addresses", "ip -6 addr show 2>&1")
-    section("ARP Table", "ip neigh show 2>&1")
-    section("Listening on Port 53", "ss -ulnp sport = :53 2>&1")
+    section("IPv6 Addresses", ["ip", "-6", "addr", "show"])
+    section("ARP Table", ["ip", "neigh", "show"])
+    section("Listening on Port 53", ["ss", "-ulnp", "sport", "=", ":53"])
 
     body = "\n\n".join(sections)
     return Response(body, mimetype="text/plain",
@@ -2110,21 +2124,21 @@ def api_diagnostics():
         return jsonify({"ok": False, "error": "Invalid interface name in config"}), 400
 
     # MAC address of the LAN interface
-    mac_out, _ = run(f"ip link show {lan_if} 2>/dev/null")
+    mac_out, _ = run_argv(["ip", "link", "show", lan_if])
     mac = ""
     m = re.search(r"link/ether ([0-9a-f:]+)", mac_out)
     if m:
         mac = m.group(1)
 
     # IP address of the LAN interface
-    ip_out, _ = run(f"ip -4 addr show {lan_if} 2>/dev/null")
+    ip_out, _ = run_argv(["ip", "-4", "addr", "show", lan_if])
     lan_ip = ""
     m = re.search(r"inet (\S+)", ip_out)
     if m:
         lan_ip = m.group(1)
 
-    # Active arpspoof processes
-    arps_out, _ = run("ps -eo pid,args | grep arpspoof | grep -v grep")
+    # Active arpspoof processes — pgrep -af replaces shell-pipeline `ps | grep arpspoof | grep -v grep`
+    arps_out, _ = run_argv(["pgrep", "-af", "arpspoof"])
     arps = [line.strip() for line in arps_out.splitlines() if line.strip()] if arps_out else []
 
     # iptables mangle PREROUTING rules
