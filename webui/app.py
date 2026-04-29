@@ -650,7 +650,7 @@ def write_conf(data):
 
 
 def wg_stats():
-    out, rc = run("wg show wg0 2>/dev/null")
+    out, rc = run_argv(["wg", "show", "wg0"])
     if rc != 0 or not out:
         return None
     result = {}
@@ -739,7 +739,7 @@ def ip_watch_loop():
             if not any(d.get("enabled") for d in devices):
                 continue
 
-            arp_out, _ = run("ip neigh show 2>/dev/null")
+            arp_out, _ = run_argv(["ip", "neigh", "show"])
             changed = False
             for dev in devices:
                 if not dev.get("enabled") or not dev.get("mac"):
@@ -763,7 +763,7 @@ def ip_watch_loop():
                     audit_log.info("SERVICE  Hot-reloaded after IP change: %s", out)
                 else:
                     audit_log.error("SERVICE  Hot reload failed after IP change, restarting: %s", out)
-                    out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+                    out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
                     if rc == 0:
                         _record_service_state("gatecrash", True)
                     else:
@@ -1071,7 +1071,7 @@ def _fmt_bytes(b):
 
 def _parse_mangle_counters():
     """Parse per-device byte counters (upload + download) from iptables FORWARD chain."""
-    out, rc = run("iptables -L FORWARD -n -v -x 2>/dev/null")
+    out, rc = run_argv(["iptables", "-L", "FORWARD", "-n", "-v", "-x"])
     if rc != 0:
         return {}
     result = {}
@@ -1163,7 +1163,7 @@ def _traffic_watch_loop():
                             audit_log.info("AUTO-STOP  Hot-reloaded: %s", out)
                         else:
                             audit_log.error("AUTO-STOP  Hot reload failed, restarting: %s", out)
-                            out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+                            out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
                             if rc == 0:
                                 _record_service_state("gatecrash", True)
                             else:
@@ -1234,7 +1234,7 @@ def sync_targets_from_devices():
     updated = False
 
     # Read ARP table once for all devices
-    arp_out, _ = run("ip neigh show 2>/dev/null")
+    arp_out, _ = run_argv(["ip", "neigh", "show"])
     arp_lines = arp_out.splitlines()
 
     for dev in devices:
@@ -1518,8 +1518,8 @@ def api_factory_reset():
             return jsonify({"ok": False, "error": "Incorrect password"})
     # Stop running services before wiping config
     audit_log.warning("SYSTEM  Factory reset initiated from %s", request.remote_addr)
-    run("systemctl stop gatecrash 2>/dev/null", timeout=10)
-    run("wg-quick down wg0 2>/dev/null", timeout=10)
+    run_argv(["systemctl", "stop", "gatecrash"], timeout=10)
+    run_argv(["wg-quick", "down", "wg0"], timeout=10)
     # Delete all user data and credentials
     for path in [
         CONF_PATH,
@@ -1563,16 +1563,16 @@ def _boot_id():
 @app.route("/api/status")
 def api_status():
     ensure_dns_thread()  # auto-recover if thread died
-    out, _ = run("systemctl is-active gatecrash 2>/dev/null")
+    out, _ = run_argv(["systemctl", "is-active", "gatecrash"])
     gc_running = out.strip() == "active"
 
-    _, rc = run("ip link show wg0 2>/dev/null")
+    _, rc = run_argv(["ip", "link", "show", "wg0"])
     wg_up = rc == 0
 
     arp_out, _ = run("pgrep -c arpspoof 2>/dev/null || echo 0")
 
     # Check if vpntarget has a VPN route (not just the fallback gateway)
-    vt_out, _ = run("ip route show table vpntarget 2>/dev/null")
+    vt_out, _ = run_argv(["ip", "route", "show", "table", "vpntarget"])
     vpn_route_missing = wg_up and gc_running and "dev wg0" not in (vt_out or "")
 
     # Auto-fix: restore VPN route if WireGuard is up but route is missing
@@ -1601,7 +1601,7 @@ def api_status():
 @app.route("/api/start", methods=["POST"])
 def api_start():
     audit_log.info("SERVICE  Gatecrash START requested from %s", request.remote_addr)
-    out, rc = run("systemctl start gatecrash 2>&1", timeout=30)
+    out, rc = run_argv(["systemctl", "start", "gatecrash"], timeout=30, merge_stderr=True)
     if rc == 0:
         _record_service_state("gatecrash", True)
         audit_log.info("SERVICE  Gatecrash started successfully")
@@ -1613,7 +1613,7 @@ def api_start():
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     audit_log.info("SERVICE  Gatecrash STOP requested from %s", request.remote_addr)
-    out, rc = run("systemctl stop gatecrash 2>&1", timeout=30)
+    out, rc = run_argv(["systemctl", "stop", "gatecrash"], timeout=30, merge_stderr=True)
     if rc == 0:
         _record_service_state("gatecrash", False)
         audit_log.info("SERVICE  Gatecrash stopped successfully")
@@ -1628,7 +1628,7 @@ def api_wg_start():
     if not os.path.isfile(WG_CONF_PATH):
         return jsonify({"ok": False, "error": "no_config",
                         "output": "No WireGuard config — upload one on the Config tab first."})
-    out, rc = run("wg-quick up wg0 2>&1", timeout=20)
+    out, rc = run_argv(["wg-quick", "up", "wg0"], timeout=20, merge_stderr=True)
     # Restore vpntarget VPN route (wg-quick wipes it on down/up)
     conf = read_conf()
     try:
@@ -1647,7 +1647,7 @@ def api_wg_start():
 @app.route("/api/wg/stop", methods=["POST"])
 def api_wg_stop():
     audit_log.info("SERVICE  WireGuard STOP requested from %s", request.remote_addr)
-    out, rc = run("wg-quick down wg0 2>&1", timeout=20)
+    out, rc = run_argv(["wg-quick", "down", "wg0"], timeout=20, merge_stderr=True)
     if rc == 0:
         _record_service_state("wg", False)
         audit_log.info("SERVICE  WireGuard stopped successfully")
@@ -1659,8 +1659,8 @@ def api_wg_stop():
 @app.route("/api/autostart", methods=["GET", "POST"])
 def api_autostart():
     if request.method == "GET":
-        wg_out, _ = run("systemctl is-enabled wg-quick@wg0 2>/dev/null")
-        gc_out, _ = run("systemctl is-enabled gatecrash 2>/dev/null")
+        wg_out, _ = run_argv(["systemctl", "is-enabled", "wg-quick@wg0"])
+        gc_out, _ = run_argv(["systemctl", "is-enabled", "gatecrash"])
         state = _read_boot_state()
         return jsonify({
             "mode": state["mode"],
@@ -1676,11 +1676,11 @@ def api_autostart():
         state["mode"] = new_mode
         if new_mode == "resume":
             # Disable manual systemd enable — the resume service handles it
-            run("systemctl disable wg-quick@wg0 2>&1")
-            run("systemctl disable gatecrash 2>&1")
+            run_argv(["systemctl", "disable", "wg-quick@wg0"], merge_stderr=True)
+            run_argv(["systemctl", "disable", "gatecrash"], merge_stderr=True)
             # Snapshot current running state
-            wg_out, _ = run("systemctl is-active wg-quick@wg0 2>/dev/null")
-            gc_out, _ = run("systemctl is-active gatecrash 2>/dev/null")
+            wg_out, _ = run_argv(["systemctl", "is-active", "wg-quick@wg0"])
+            gc_out, _ = run_argv(["systemctl", "is-active", "gatecrash"])
             state["wg_running"] = wg_out.strip() == "active"
             state["gc_running"] = gc_out.strip() == "active"
         _write_boot_state(state)
@@ -1776,7 +1776,7 @@ def api_devices_scan_stream():
 
             # Augment with ARP entries nmap missed
             import re as _re
-            arp_out, _ = run("ip neigh show")
+            arp_out, _ = run_argv(["ip", "neigh", "show"])
             nmap_macs = {d["mac"] for d in devices if d["mac"]}
             for line in arp_out.splitlines():
                 m = _re.match(r"(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(\w+)", line)
@@ -1991,7 +1991,7 @@ def api_sync_devices():
                    active_ips or "(none)", request.remote_addr)
 
     # Check if gatecrash is currently running
-    status_out, _ = run("systemctl is-active gatecrash 2>/dev/null")
+    status_out, _ = run_argv(["systemctl", "is-active", "gatecrash"])
     gc_running = status_out.strip() == "active"
 
     if gc_running and set(old_ips) != set(active_ips):
@@ -2001,7 +2001,7 @@ def api_sync_devices():
             audit_log.info("SERVICE  Gatecrash hot-reloaded: %s", out)
         else:
             audit_log.error("SERVICE  Hot reload failed (%s), falling back to restart", out)
-            out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+            out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
             ok = rc == 0
             if ok:
                 audit_log.info("SERVICE  Gatecrash restarted (hot reload fallback)")
@@ -2014,7 +2014,7 @@ def api_sync_devices():
         return jsonify({"ok": True, "active_ips": active_ips, "output": "No target changes"})
     else:
         # Gatecrash not running — full restart
-        out, rc = run("systemctl restart gatecrash 2>&1", timeout=30)
+        out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
         if rc == 0:
             _record_service_state("gatecrash", True)
             audit_log.info("SERVICE  Gatecrash restarted after device sync")
@@ -2128,20 +2128,20 @@ def api_diagnostics():
     arps = [line.strip() for line in arps_out.splitlines() if line.strip()] if arps_out else []
 
     # iptables mangle PREROUTING rules
-    ipt_out, _ = run("iptables -t mangle -L PREROUTING -n --line-numbers 2>/dev/null")
+    ipt_out, _ = run_argv(["iptables", "-t", "mangle", "-L", "PREROUTING", "-n", "--line-numbers"])
 
     # IP policy rules
-    iprules_out, _ = run("ip rule show 2>/dev/null")
+    iprules_out, _ = run_argv(["ip", "rule", "show"])
 
     # vpntarget routing table
-    vt_out, _ = run("ip route show table vpntarget 2>/dev/null")
+    vt_out, _ = run_argv(["ip", "route", "show", "table", "vpntarget"])
 
     # WireGuard interface
-    wg_out, wg_rc = run("ip link show wg0 2>/dev/null")
+    wg_out, wg_rc = run_argv(["ip", "link", "show", "wg0"])
     wg_if = wg_out.strip() if wg_rc == 0 else "wg0 not found"
 
     # Hostname
-    hostname_out, _ = run("hostname 2>/dev/null")
+    hostname_out, _ = run_argv(["hostname"])
 
     return jsonify({
         "lan_if": lan_if,
@@ -2205,7 +2205,7 @@ def api_shutdown():
 
 @app.route("/api/test-vpn")
 def api_test_vpn():
-    ip, rc = run("curl --interface wg0 -m 10 -s http://ifconfig.me 2>&1")
+    ip, rc = run_argv(["curl", "--interface", "wg0", "-m", "10", "-s", "http://ifconfig.me"], merge_stderr=True)
     return jsonify({"ok": rc == 0, "ip": ip})
 
 
