@@ -2797,6 +2797,8 @@ async function renameDevice(mac, idx) {
   if (d.ok) {
     _savedDevices = d.devices;
     renderSavedDevices();
+  } else {
+    alert(d.error || 'Could not rename device.');
   }
 }
 
@@ -2813,6 +2815,8 @@ async function removeDevice(mac) {
     _savedDevices = d.devices;
     renderSavedDevices();
     if (wasEnabled) autoRestart();
+  } else {
+    alert(d.error || 'Could not remove device.');
   }
 }
 
@@ -3003,6 +3007,8 @@ async function saveScannedDevice(mac, ip, hostname, btn) {
     btn.textContent = 'Saved';
     btn.classList.add('added');
     btn.disabled = true;
+  } else {
+    alert(d.error || 'Could not save device.');
   }
 }
 

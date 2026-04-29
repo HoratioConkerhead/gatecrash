@@ -1823,10 +1823,14 @@ def api_save_device():
             return jsonify({"ok": False, "error": "Invalid IP address"})
     if data.get("nickname"):
         nick = str(data["nickname"])
-        # SECURITY: reject HTML/shell-significant characters in nicknames —
-        # these are displayed in the UI and logged to the audit log.  (MED-5)
-        if len(nick) > _NICK_MAX or re.search(r'[<>"\'&;]', nick):
-            return jsonify({"ok": False, "error": "Nickname contains invalid characters or is too long"})
+        # SECURITY: cap length and reject ASCII control chars only.
+        # The frontend renders nicknames via textContent (no HTML parsing),
+        # so quotes/apostrophes/ampersands are safe; control chars stay
+        # blocked because they could forge fake lines in the audit log.  (MED-5)
+        if len(nick) > _NICK_MAX:
+            return jsonify({"ok": False, "error": f"Nickname too long (max {_NICK_MAX} chars)"})
+        if re.search(r'[\x00-\x1f\x7f]', nick):
+            return jsonify({"ok": False, "error": "Nickname contains control characters"})
 
     devices = load_devices()
 
