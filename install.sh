@@ -13,7 +13,10 @@ set -euo pipefail
 
 REPO_OWNER="HoratioConkerhead"
 REPO_NAME="gatecrash"
-INSTALL_DIR="/opt/gatecrash"
+# Repo lives separately from /opt/gatecrash (the install target). setup.sh
+# copies runtime bits from REPO_DIR into /opt/gatecrash; if they were the
+# same path, cp would fail with "are the same file".
+REPO_DIR="/opt/gatecrash-src"
 BRANCH="${GATECRASH_BRANCH:-master}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -38,19 +41,19 @@ if ! command -v git >/dev/null 2>&1; then
     apt-get install -y git
 fi
 
-# Clone (or update) into /opt
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-    echo "Repo already exists at $INSTALL_DIR — pulling latest."
-    git -C "$INSTALL_DIR" fetch --depth=1 origin "$BRANCH"
-    git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
+# Clone (or update) the repo
+if [[ -d "$REPO_DIR/.git" ]]; then
+    echo "Repo already exists at $REPO_DIR — pulling latest."
+    git -C "$REPO_DIR" fetch --depth=1 origin "$BRANCH"
+    git -C "$REPO_DIR" reset --hard "origin/$BRANCH"
 else
-    echo "Cloning $REPO_OWNER/$REPO_NAME ($BRANCH) into $INSTALL_DIR..."
-    git clone --depth=1 -b "$BRANCH" "$CLONE_URL" "$INSTALL_DIR"
+    echo "Cloning $REPO_OWNER/$REPO_NAME ($BRANCH) into $REPO_DIR..."
+    git clone --depth=1 -b "$BRANCH" "$CLONE_URL" "$REPO_DIR"
 fi
 
-# Hand off to setup.sh
+# Hand off to setup.sh — it copies the runtime bits into /opt/gatecrash
 echo "Running setup.sh..."
-bash "$INSTALL_DIR/setup.sh"
+bash "$REPO_DIR/setup.sh"
 
 echo ""
 echo "=== Gatecrash install complete ==="
