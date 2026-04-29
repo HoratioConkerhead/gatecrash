@@ -474,6 +474,23 @@ def run(cmd, timeout=15):
         return str(e), 1
 
 
+def run_argv(args, timeout=15, merge_stderr=False):
+    # Shell-free counterpart to run() — args is a list, no shell parsing.
+    # merge_stderr=True replaces `2>&1`; default replaces `2>/dev/null`.
+    # Adopt this in preference to run() for new code; HIGH-14 migrates the rest.
+    try:
+        r = subprocess.run(
+            args, shell=False, text=True, timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
+        )
+        return (r.stdout or "").strip(), r.returncode
+    except subprocess.TimeoutExpired:
+        return "timed out", 1
+    except Exception as e:
+        return str(e), 1
+
+
 def _detect_gateway():
     """Return the default gateway IP from the routing table, or empty string."""
     gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
@@ -848,22 +865,23 @@ def run_update_check(allow_auto_upgrade=False):
         with _state_lock:
             update_check_state["error"] = "Repo path contains unsafe characters"
         return
-    fetch_out, rc = run(f"git -c safe.directory={repo} -C {repo} fetch origin 2>&1")
+    git_base = ["git", "-c", f"safe.directory={repo}", "-C", repo]
+    fetch_out, rc = run_argv(git_base + ["fetch", "origin"], merge_stderr=True)
     now = datetime.now(timezone.utc).isoformat()
     if rc != 0:
         with _state_lock:
             update_check_state = {**update_check_state, "error": fetch_out.strip(), "last_checked": now}
         return
-    behind_out, _ = run(f"git -c safe.directory={repo} -C {repo} rev-list HEAD..@{{upstream}} --count 2>/dev/null")
+    behind_out, _ = run_argv(git_base + ["rev-list", "HEAD..@{upstream}", "--count"])
     try:
         behind = int(behind_out.strip())
     except ValueError:
         behind = 0
-    commit_msg, _    = run(f"git -c safe.directory={repo} -C {repo} log @{{upstream}} -1 --pretty=format:%s 2>/dev/null")
-    remote_ver, _    = run(f"git -c safe.directory={repo} -C {repo} show @{{upstream}}:VERSION 2>/dev/null")
+    commit_msg, _    = run_argv(git_base + ["log", "@{upstream}", "-1", "--pretty=format:%s"])
+    remote_ver, _    = run_argv(git_base + ["show", "@{upstream}:VERSION"])
     # Full subject list of every commit the user would gain by upgrading,
     # newest first. Capped at 50 to keep the payload sane.
-    commit_log_out, _ = run(f"git -c safe.directory={repo} -C {repo} log HEAD..@{{upstream}} --pretty=format:%s -n 50 2>/dev/null")
+    commit_log_out, _ = run_argv(git_base + ["log", "HEAD..@{upstream}", "--pretty=format:%s", "-n", "50"])
     commit_log = [l for l in (commit_log_out or "").splitlines() if l.strip()] if behind > 0 else []
     with _state_lock:
         update_check_state = {
@@ -2541,13 +2559,14 @@ def api_branch_get():
         repo = _valid_repo(repo)
     except ValueError:
         return jsonify({"ok": False, "error": "Invalid repo path"})
-    cur_out, cur_rc = run(f"git -c safe.directory={repo} -C {repo} rev-parse --abbrev-ref HEAD 2>&1")
+    git_base = ["git", "-c", f"safe.directory={repo}", "-C", repo]
+    cur_out, cur_rc = run_argv(git_base + ["rev-parse", "--abbrev-ref", "HEAD"], merge_stderr=True)
     if cur_rc != 0:
         return jsonify({"ok": False, "error": "Could not read current branch"})
     current = cur_out.strip()
     # Refresh remote refs so the list is current — quiet on failure (offline OK)
-    run(f"git -c safe.directory={repo} -C {repo} fetch origin --prune 2>&1")
-    branches_out, _ = run(f"git -c safe.directory={repo} -C {repo} branch -r --format='%(refname:short)' 2>&1")
+    run_argv(git_base + ["fetch", "origin", "--prune"], merge_stderr=True)
+    branches_out, _ = run_argv(git_base + ["branch", "-r", "--format=%(refname:short)"], merge_stderr=True)
     branches = []
     for line in (branches_out or "").splitlines():
         ref = line.strip().strip("'")
