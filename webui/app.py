@@ -1579,12 +1579,25 @@ def api_set_https():
     audit_log.warning("HTTPS  %s by %s — service will restart", "enabled" if enabled else "DISABLED", request.remote_addr)
     _schedule_webui_restart()
     resp = jsonify({"ok": True, "https_on": enabled})
-    # If we're DISABLING HTTPS, clear any HSTS pin so the browser doesn't keep
-    # auto-upgrading http:// → https:// after the service restarts as HTTP.
-    # max-age=0 instructs the UA to forget the pin immediately. This response
-    # is still served over HTTPS (the disable hasn't happened yet) so it counts.
     if not enabled:
+        # Clear any HSTS pin so the browser doesn't keep auto-upgrading
+        # http:// → https:// after the service restarts as HTTP.  This
+        # response is still served over HTTPS so the directive sticks.
         resp.headers["Strict-Transport-Security"] = "max-age=0"
+        # Evict the Secure-flagged session cookie that was set during this
+        # HTTPS session.  Chrome's "Leave Secure Cookies Alone" protection
+        # blocks a non-Secure cookie from overwriting a Secure one with the
+        # same name — without this delete, the user lands on the new HTTP
+        # site, the browser refuses every Set-Cookie the HTTP server sends
+        # (because the Secure cookie still occupies that slot in the jar),
+        # and they're stuck with no session and CSRF rejections on every
+        # POST.  We have the authority to delete the Secure cookie here
+        # because we're still serving over HTTPS at this moment.  The user
+        # will need to log in again on HTTP, which is the correct UX
+        # signal anyway: "you are now on a less-secure transport."
+        resp.set_cookie(app.config.get("SESSION_COOKIE_NAME", "session"),
+                        "", expires=0, path="/", secure=True, httponly=True,
+                        samesite="Strict")
     return resp
 
 
@@ -1661,6 +1674,13 @@ def api_factory_reset():
     threading.Thread(target=_do_reboot, daemon=True).start()
     resp = jsonify({"ok": True})
     resp.headers["Strict-Transport-Security"] = "max-age=0"
+    # Same Secure-cookie eviction as /api/set-https disable: the box is
+    # rebooting onto HTTP and a Secure cookie left in the browser would
+    # block every non-Secure Set-Cookie the post-reboot HTTP server tries
+    # to issue, leaving the user stuck with CSRF failures.
+    resp.set_cookie(app.config.get("SESSION_COOKIE_NAME", "session"),
+                    "", expires=0, path="/", secure=True, httponly=True,
+                    samesite="Strict")
     return resp
 
 
