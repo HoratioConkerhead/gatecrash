@@ -530,6 +530,27 @@ def _iface_addr(lan_if):
     return {}
 
 
+def _iface_addr6(lan_if):
+    """Return the first global IPv6 address on lan_if, or "" if none.
+
+    Skips link-local (fe80::/10) addresses — those exist on every IPv6-capable
+    interface and aren't useful to display. Same JSON-parse pattern as
+    _iface_addr; same shell=False rationale. (HIGH-14)
+    """
+    out, rc = run_argv(["ip", "-j", "-6", "addr", "show", lan_if])
+    if rc != 0 or not out:
+        return ""
+    try:
+        data = json.loads(out)
+        if data and isinstance(data, list):
+            for a in data[0].get("addr_info", []):
+                if a.get("family") == "inet6" and a.get("scope") == "global":
+                    return a.get("local", "")
+    except (json.JSONDecodeError, AttributeError, IndexError, KeyError):
+        pass
+    return ""
+
+
 def _detect_gateway():
     """Return the default gateway IP from the routing table, or empty string."""
     return _default_route().get("gateway", "")
@@ -2222,6 +2243,7 @@ def api_diagnostics():
         "lan_if": lan_if,
         "lan_mac": mac,
         "lan_ip": lan_ip,
+        "lan_ip6": _iface_addr6(lan_if),
         "hostname": hostname_out.strip(),
         "gateway": _detect_gateway(),
         "arpspoof_procs": arps,

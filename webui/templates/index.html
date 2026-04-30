@@ -1597,6 +1597,7 @@ async function dismissWelcome() {
         <div style="font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin-bottom:8px;">
           <span style="color:var(--text-tertiary);">Interface</span><span id="diag-lan-if" style="font-family:monospace;"></span>
           <span style="color:var(--text-tertiary);">IP Address</span><span id="diag-lan-ip" style="font-family:monospace;"></span>
+          <span style="color:var(--text-tertiary);">IPv6 Address</span><span id="diag-lan-ip6" style="font-family:monospace;">—</span>
           <span style="color:var(--text-tertiary);">MAC Address</span><span id="diag-lan-mac" style="font-family:monospace;font-weight:700;">—</span>
           <span style="color:var(--text-tertiary);">Hostname</span><span id="diag-hostname" style="font-family:monospace;">—</span>
           <span style="color:var(--text-tertiary);">Gateway</span><span id="diag-gateway" style="font-family:monospace;">—</span>
@@ -3065,6 +3066,7 @@ async function loadDiagnostics() {
     document.getElementById('diag-lan-if').textContent  = d.lan_if  || '—';
     document.getElementById('diag-lan-ip').textContent  = d.lan_ip  || '—';
     document.getElementById('diag-lan-mac').textContent = d.lan_mac || '— (check LAN interface in config)';
+    document.getElementById('diag-lan-ip6').textContent = d.lan_ip6 || '— (none)';
     document.getElementById('diag-hostname').textContent = d.hostname || '—';
     document.getElementById('diag-gateway').textContent = d.gateway || '—';
 
