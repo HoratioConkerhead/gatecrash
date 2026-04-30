@@ -120,19 +120,19 @@ def _no_auth_enabled():
 def _https_enabled():
     """Return True if HTTPS should be served on the next service start.
 
-    No pref file → default to HTTPS whenever the cert exists.  setup.sh
-    always generates a cert, so this means every fresh install comes up
-    on TLS — closing the window where the first-boot /api/setup-auth
-    POST would carry the user's chosen password in cleartext over a
-    hostile LAN. (vulnerabilities_3.md #2 / MED-17)  Users who want
-    HTTP can still opt in explicitly via /api/set-https; that
-    preference is honoured."""
+    No pref file → fresh install in pre-setup state.  We come up on
+    HTTP so the user lands on the friendly welcome / TLS-choice screen
+    without an upfront self-signed cert warning.  That screen forces
+    an explicit choice (HTTPS recommended; HTTP only on trusted
+    networks) BEFORE the password is set, which is what closes the
+    first-boot cleartext-password window. (vulnerabilities_3.md #2 /
+    MED-17.)  Existing installs (token or no-auth marker present)
+    without a pref file are treated as HTTPS-on for backward compat."""
     try:
         with open(HTTPS_PREF_PATH) as f:
             return f.read().strip() == "on"
     except FileNotFoundError:
-        return os.path.isfile(os.path.join(CERT_DIR, "gatecrash.crt")) \
-           and os.path.isfile(os.path.join(CERT_DIR, "gatecrash.key"))
+        return os.path.isfile(WEBUI_TOKEN_PATH) or os.path.isfile(NO_AUTH_PATH)
 
 
 def _set_https_pref(enabled):
@@ -341,10 +341,11 @@ def require_auth():
         return
     stored = _get_stored_token()
     if stored is None:
-        # SECURITY: setup mode locks down ALL endpoints except / and
-        # /api/setup-auth.  Without this, an attacker on the LAN could call
-        # /api/config, /api/wg-config, etc. before a password is set.  (CRIT-7)
-        if request.path in ("/", "/api/setup-auth", "/api/skip-setup-auth"):
+        # SECURITY: setup mode locks down ALL endpoints except / and the
+        # three setup endpoints (TLS choice, set password, skip password).
+        # Without this, an attacker on the LAN could call /api/config,
+        # /api/wg-config, etc. before a password is set.  (CRIT-7)
+        if request.path in ("/", "/api/setup-tls", "/api/setup-auth", "/api/skip-setup-auth"):
             return
         if request.path.startswith("/api/"):
             return Response(
@@ -373,7 +374,7 @@ def require_auth():
 # ---------------------------------------------------------------------------
 
 # Paths exempt from CSRF (login/setup need to work before a token exists)
-_CSRF_EXEMPT = {"/api/login", "/api/setup-auth", "/api/skip-setup-auth"}
+_CSRF_EXEMPT = {"/api/login", "/api/setup-auth", "/api/skip-setup-auth", "/api/setup-tls"}
 
 
 def _ensure_csrf_token():
@@ -1359,6 +1360,10 @@ def sync_targets_from_devices():
 def index():
     no_auth = _no_auth_enabled()
     setup_required = not no_auth and _get_stored_token() is None
+    # First boot only: until the user has explicitly picked HTTPS or HTTP,
+    # show the welcome / TLS-choice screen instead of jumping straight to
+    # the password form.  (MED-17)
+    tls_choice_required = setup_required and not os.path.isfile(HTTPS_PREF_PATH)
     login_required = not no_auth and not setup_required and not session.get("authenticated")
     if not setup_required and not login_required:
         ensure_dns_thread()
@@ -1374,8 +1379,36 @@ def index():
         and os.path.isfile(WELCOME_PATH)
     )
     return render_template("index.html", version=version,
-                           setup_required=setup_required, login_required=login_required,
+                           setup_required=setup_required,
+                           tls_choice_required=tls_choice_required,
+                           login_required=login_required,
                            show_welcome=show_welcome, csrf_token=csrf)
+
+
+@app.route("/api/setup-tls", methods=["POST"])
+def api_setup_tls():
+    """First-boot TLS choice — write HTTPS_PREF before the password is set
+    so the credential-bearing /api/setup-auth POST runs over the chosen
+    transport.  Only usable in pre-setup state (no token, no no-auth
+    marker, no pref yet).  Idempotent: rejects re-submission once the
+    pref exists, so a fresh choice requires a factory reset."""
+    if _get_stored_token() is not None or _no_auth_enabled():
+        return jsonify({"ok": False, "error": "Setup is already complete"}), 403
+    if os.path.isfile(HTTPS_PREF_PATH):
+        return jsonify({"ok": False, "error": "TLS choice already made"}), 403
+    enable = bool((request.json or {}).get("enable"))
+    if enable:
+        cert = os.path.join(CERT_DIR, "gatecrash.crt")
+        key  = os.path.join(CERT_DIR, "gatecrash.key")
+        if not (os.path.isfile(cert) and os.path.isfile(key)):
+            return jsonify({"ok": False, "error": "TLS certificate is missing — run setup.sh"}), 500
+        _set_https_pref(True)
+        audit_log.info("AUTH  Initial TLS choice: HTTPS enabled from %s", request.remote_addr)
+        _schedule_webui_restart()
+        return jsonify({"ok": True, "switch_to_https": True})
+    _set_https_pref(False)
+    audit_log.warning("AUTH  Initial TLS choice: HTTP (no TLS) from %s — credentials will be sent in cleartext", request.remote_addr)
+    return jsonify({"ok": True, "switch_to_https": False})
 
 
 @app.route("/api/setup-auth", methods=["POST"])
@@ -1398,12 +1431,10 @@ def api_setup_auth():
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Initial password configured from %s", request.remote_addr)
-        # Enable HTTPS for the next service start. Restart so the user lands
-        # on the secure transport immediately after setup.
-        _set_https_pref(True)
+        # HTTPS / HTTP was already chosen at the welcome screen via
+        # /api/setup-tls, so we do NOT touch HTTPS_PREF or restart here.
         _mark_welcome_pending()
-        _schedule_webui_restart()
-        return jsonify({"ok": True, "csrf_token": _ensure_csrf_token(), "switch_to_https": True})
+        return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
     except Exception:
         return jsonify({"ok": False, "error": "Internal error"})
 
@@ -1418,10 +1449,8 @@ def api_skip_setup_auth():
         fd = os.open(NO_AUTH_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         os.close(fd)
         audit_log.warning("AUTH  Authentication SKIPPED at initial setup from %s — web UI is now open to anyone on the LAN", request.remote_addr)
-        _set_https_pref(True)
         _mark_welcome_pending()
-        _schedule_webui_restart()
-        return jsonify({"ok": True, "switch_to_https": True})
+        return jsonify({"ok": True})
     except FileExistsError:
         return jsonify({"ok": False, "error": "Setup is already complete"}), 403
     except Exception:

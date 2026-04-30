@@ -758,7 +758,100 @@
 </head>
 <body>
 
-{% if setup_required %}
+{% if tls_choice_required %}
+<div id="tls-choice-screen" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#0f0f1a;
+  display:flex;align-items:center;justify-content:center;
+  font-family:inherit;
+">
+  <div style="
+    background:#1a1a2e;border-radius:16px;padding:36px 32px;
+    width:420px;max-width:92vw;
+    box-shadow:0 8px 40px rgba(0,0,0,0.6);
+  ">
+    <div style="text-align:center;margin-bottom:24px;">
+      <img src="/static/icon-192.svg" style="width:52px;height:52px;margin-bottom:12px;" alt="">
+      <h1 style="color:#e0e0e0;font-size:20px;font-weight:700;margin-bottom:6px;">Welcome to Gatecrash</h1>
+      <p style="color:#888;font-size:13px;line-height:1.5;">
+        Before you set a password, let's secure the connection.
+      </p>
+    </div>
+    <div style="font-size:13px;color:#c8c8d8;background:#252535;border-radius:6px;padding:12px 14px;margin-bottom:18px;line-height:1.6;">
+      Anything you type in the Gatecrash UI &mdash; including the password you're about to set &mdash; travels over your local network. <strong style="color:#e8e8f0;">HTTPS encrypts it.</strong> Strongly recommended.
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #3a3a52;font-size:12px;color:#9090a8;">
+        When you click below, your browser will warn about a self-signed certificate &mdash; that's normal for an appliance like this. Click <strong style="color:#e8e8f0;">Advanced</strong> &rarr; <strong style="color:#e8e8f0;">Proceed</strong> (or your browser's equivalent) to continue.
+      </div>
+    </div>
+    <div id="tls-err" style="display:none;color:#f44336;font-size:12px;margin-bottom:12px;padding:8px 10px;background:rgba(244,67,54,0.1);border-radius:6px;"></div>
+    <button id="tls-https-btn" onclick="doSetupTls(true)" class="btn-green"
+      style="width:100%;padding:12px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;">
+      Continue with HTTPS &nbsp;&middot;&nbsp; recommended
+    </button>
+    <div style="text-align:center;margin-top:18px;padding-top:14px;border-top:1px solid #2d2d44;">
+      <a href="#" id="tls-skip-link" onclick="doSetupTls(false);return false;"
+         style="color:#888;font-size:12px;text-decoration:underline;">
+        Skip &mdash; continue without HTTPS (less secure)
+      </a>
+      <div style="color:#666;font-size:11px;margin-top:6px;line-height:1.5;">
+        Only safe on a fully trusted home network. Your password will be sent in cleartext.
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+async function doSetupTls(enable) {
+  const err = document.getElementById('tls-err');
+  const btn = document.getElementById('tls-https-btn');
+  err.style.display = 'none';
+  if (!enable) {
+    if (!confirm('Continue without HTTPS?\n\nYour password and everything else you do in Gatecrash will be sent in cleartext over your local network. This is only safe on a fully trusted home network.\n\nYou can enable HTTPS later in the Security tab.\n\nContinue?')) return;
+  }
+  btn.disabled = true;
+  if (enable) btn.textContent = 'Switching to HTTPS…';
+  try {
+    const r = await fetch('/api/setup-tls', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enable: enable}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      if (d.switch_to_https) showHttpsSwitchOverlay();
+      else window.location.reload();
+    } else {
+      err.textContent = d.error || 'Failed to save TLS choice.';
+      err.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Continue with HTTPS · recommended';
+    }
+  } catch(e) {
+    err.textContent = 'Network error — try again.';
+    err.style.display = '';
+    btn.disabled = false;
+    btn.textContent = 'Continue with HTTPS · recommended';
+  }
+}
+
+function showHttpsSwitchOverlay() {
+  // Replace the screen with a "switching to HTTPS" message.
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0f0f1a;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;color:#e0e0e0;font-family:inherit;';
+  overlay.innerHTML =
+    '<div class="spinner" style="width:36px;height:36px;border:4px solid #3d3d54;border-top-color:#4caf50;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:20px;"></div>' +
+    '<div style="font-size:18px;font-weight:700;margin-bottom:10px;">Switching to HTTPS&hellip;</div>' +
+    '<div style="font-size:13px;color:#9090a8;max-width:340px;line-height:1.6;">Your browser will show a self-signed certificate warning. Click <strong style="color:#e0e0e0;">Advanced</strong> &rarr; <strong style="color:#e0e0e0;">Proceed</strong> (or your browser\'s equivalent) to continue. You\'ll be redirected automatically.</div>';
+  document.body.appendChild(overlay);
+  // Give the service ~3s to restart, then redirect to HTTPS.
+  setTimeout(() => {
+    const url = 'https://' + window.location.hostname + (window.location.pathname || '/');
+    window.location.replace(url);
+  }, 3000);
+}
+</script>
+{% endif %}
+
+{% if setup_required and not tls_choice_required %}
 <div id="setup-screen" style="
   position:fixed;inset:0;z-index:9999;
   background:#0f0f1a;
@@ -777,9 +870,6 @@
         Create a password to protect the web UI.<br>
         You'll be prompted for it on each login.
       </p>
-    </div>
-    <div style="font-size:12px;color:#9090a8;background:#252535;border-radius:6px;padding:10px 12px;margin-bottom:18px;line-height:1.5;">
-      <strong style="color:#e8e8f0;">After setup:</strong> the web UI switches to HTTPS. Your browser will warn about a self-signed certificate &mdash; that's normal, just accept it. You can disable HTTPS later in Security if you prefer.
     </div>
     <div style="margin-bottom:16px;">
       <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">PASSWORD</label>
@@ -831,11 +921,7 @@ async function doSetupAuth() {
     });
     const d = await r.json();
     if (d.ok) {
-      if (d.switch_to_https) {
-        showHttpsSwitchOverlay();
-      } else {
-        window.location.reload();
-      }
+      window.location.reload();
     } else {
       err.textContent = d.error || 'Failed to save password.';
       err.style.display = '';
@@ -850,32 +936,15 @@ async function doSetupAuth() {
   }
 }
 
-function showHttpsSwitchOverlay() {
-  // Replace the setup screen with a "switching to HTTPS" message.
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0f0f1a;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;color:#e0e0e0;font-family:inherit;';
-  overlay.innerHTML =
-    '<div class="spinner" style="width:36px;height:36px;border:4px solid #3d3d54;border-top-color:#4caf50;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:20px;"></div>' +
-    '<div style="font-size:18px;font-weight:700;margin-bottom:10px;">Switching to HTTPS&hellip;</div>' +
-    '<div style="font-size:13px;color:#9090a8;max-width:340px;line-height:1.6;">Your browser will show a self-signed certificate warning. Click <strong style="color:#e0e0e0;">Advanced</strong> &rarr; <strong style="color:#e0e0e0;">Proceed</strong> (or your browser\'s equivalent) to continue. You\'ll be redirected automatically.</div>';
-  document.body.appendChild(overlay);
-  // Give the service ~3s to restart, then redirect to HTTPS.
-  setTimeout(() => {
-    const url = 'https://' + window.location.hostname + (window.location.pathname || '/');
-    window.location.replace(url);
-  }, 3000);
-}
 async function doSkipSetupAuth() {
   const err = document.getElementById('setup-err');
   err.style.display = 'none';
-  if (!confirm('Skip password protection?\n\nAnyone on your LAN (local network) will be able to view and change Gatecrash settings without logging in. You can enable a password later in the Security section of the Config tab.\n\nThe UI will then switch to HTTPS — you\'ll see a self-signed certificate warning, just accept it.\n\nContinue?')) return;
+  if (!confirm('Skip password protection?\n\nAnyone on your LAN (local network) will be able to view and change Gatecrash settings without logging in. You can enable a password later in the Security section of the Config tab.\n\nContinue?')) return;
   try {
     const r = await fetch('/api/skip-setup-auth', {method: 'POST'});
     const d = await r.json();
-    if (d.ok) {
-      if (d.switch_to_https) showHttpsSwitchOverlay();
-      else window.location.reload();
-    } else { err.textContent = d.error || 'Failed to skip setup.'; err.style.display = ''; }
+    if (d.ok) window.location.reload();
+    else { err.textContent = d.error || 'Failed to skip setup.'; err.style.display = ''; }
   } catch(e) {
     err.textContent = 'Network error — try again.'; err.style.display = '';
   }
