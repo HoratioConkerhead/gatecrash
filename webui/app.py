@@ -385,9 +385,13 @@ def csrf_protect():
         return
     if request.path.startswith("/static/") or request.path in _CSRF_EXEMPT:
         return
-    # Only enforce for authenticated sessions (setup-mode is locked down by require_auth)
-    if not session.get("authenticated"):
-        return
+    # SECURITY: validate for every session, authenticated or not.  In no-auth
+    # mode session["authenticated"] is never set, so a "skip when not
+    # authenticated" gate would let a malicious page the user visits in
+    # another tab POST to mutating endpoints with no token.  index() issues
+    # a token whenever it serves the UI (no-auth or authenticated); setup
+    # and login mode are short-circuited by require_auth() above.
+    # (vulnerabilities_3.md #1)
     token = request.headers.get("X-CSRF-Token", "")
     # SECURITY: both checks matter — `not token` rejects empty/missing headers,
     # the comparison rejects forged values.  Do NOT simplify to just `!=`.  (HIGH-5)
