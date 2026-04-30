@@ -531,11 +531,14 @@ def _iface_addr(lan_if):
 
 
 def _iface_addr6(lan_if):
-    """Return the first global IPv6 address on lan_if, or "" if none.
+    """Return the box's IPv6 address on lan_if, or "" if none.
 
-    Skips link-local (fe80::/10) addresses — those exist on every IPv6-capable
-    interface and aren't useful to display. Same JSON-parse pattern as
-    _iface_addr; same shell=False rationale. (HIGH-14)
+    Prefers a global address; falls back to the link-local (fe80::*) one with
+    a `%<iface>` zone suffix appended (e.g. fe80::1%eth0) so the value is
+    pingable as-shown from another LAN host. Many home setups have no IPv6
+    from the ISP, so link-local is what you actually have.
+
+    Same JSON-parse pattern as _iface_addr; same shell=False rationale. (HIGH-14)
     """
     out, rc = run_argv(["ip", "-j", "-6", "addr", "show", lan_if])
     if rc != 0 or not out:
@@ -543,9 +546,16 @@ def _iface_addr6(lan_if):
     try:
         data = json.loads(out)
         if data and isinstance(data, list):
-            for a in data[0].get("addr_info", []):
+            addrs = data[0].get("addr_info", [])
+            # Prefer global
+            for a in addrs:
                 if a.get("family") == "inet6" and a.get("scope") == "global":
                     return a.get("local", "")
+            # Fall back to link-local with zone suffix
+            for a in addrs:
+                if a.get("family") == "inet6" and a.get("scope") == "link":
+                    local = a.get("local", "")
+                    return f"{local}%{lan_if}" if local else ""
     except (json.JSONDecodeError, AttributeError, IndexError, KeyError):
         pass
     return ""
