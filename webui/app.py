@@ -1650,7 +1650,14 @@ def api_factory_reset():
             pass
     session.clear()
     subprocess.Popen(["systemctl", "reboot"])
-    return jsonify({"ok": True})
+    # Factory reset wipes HTTPS_PREF, so the box will come back on plain HTTP.
+    # Clear any HSTS pin the browser cached from this session — without
+    # max-age=0 the browser would keep auto-upgrading http://gatecrash.local
+    # to https:// for up to 24 hours and the post-reset page would never load.
+    # Mirrors the same trick used by the disable path of /api/set-https.
+    resp = jsonify({"ok": True})
+    resp.headers["Strict-Transport-Security"] = "max-age=0"
+    return resp
 
 
 @app.route("/api/version")
