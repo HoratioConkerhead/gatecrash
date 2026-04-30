@@ -2031,34 +2031,28 @@ async function changePassword() {
 }
 
 async function startRebootReconnect(opts) {
-  // Polls /api/version until the device has actually rebooted, then navigates
-  // back. "Actually rebooted" = the kernel's boot_id changed compared to the
-  // one we capture here BEFORE the request. This sidesteps the race where the
-  // server is still up for a few seconds after the reboot was requested
-  // (shutdown -r takes time to tear down networking) — without a boot_id
-  // check we'd see the server still responding and navigate prematurely.
-  // Used by factory reset (forces http:// because HTTPS pref is wiped) and
-  // by the plain reboot (keeps the current protocol). On HTTPS, browsers
-  // block mixed-content fetch so the poll can't see a new HTTP server —
-  // hence the max-wait timer fallback.
+  // Polls `/` until the device has actually rebooted, then navigates back.
+  // "Actually rebooted" = we observed at least one connection failure
+  // followed by a successful page load. The down-then-up transition
+  // sidesteps the race where the server is still up for a few seconds
+  // after the reboot was requested.
+  //
+  // We probe `/` rather than /api/version because after a factory reset
+  // the box comes up in setup mode where /api/version returns 403; `/`
+  // is always served regardless of auth state.
+  //
+  // Used by factory reset (forces http:// because HTTPS pref is wiped)
+  // and by the plain reboot (keeps the current protocol). On HTTPS,
+  // browsers block mixed-content fetch so the poll can't see a new HTTP
+  // server — hence the max-wait timer fallback.
   opts = opts || {};
   const target  = opts.target  || (window.location.protocol + '//' + window.location.hostname + '/');
   const message = opts.message || 'Waiting for the device to come back online';
-  const maxWait = opts.maxWait || 120;  // longer cap — boot_id check makes false-positives impossible
+  const maxWait = opts.maxWait || 120;
   const detail  = document.getElementById('reboot-detail');
   let done = false;
   let elapsed = 0;
-
-  // Capture the current boot_id before polling. If the API doesn't return one
-  // (older device, network failure), fall back to "any successful response".
-  let oldBootId = '';
-  try {
-    const r0 = await fetch('/api/version', {cache: 'no-store'});
-    if (r0.ok) {
-      const j = await r0.json();
-      oldBootId = j.boot_id || '';
-    }
-  } catch(e) { /* ignore — we'll work without baseline */ }
+  let sawDown = false;  // flips true the first time the probe fails
 
   function navigate() {
     if (done) return;
@@ -2080,19 +2074,16 @@ async function startRebootReconnect(opts) {
       try {
         const ctl = new AbortController();
         setTimeout(() => ctl.abort(), 2000);
-        const r = await fetch('/api/version', {signal: ctl.signal, cache: 'no-store'});
-        if (r.ok) {
-          const j = await r.json();
-          const newBootId = j.boot_id || '';
-          // If we have a baseline and it differs → real reboot completed.
-          // If we have no baseline (or device doesn't expose boot_id) →
-          // any response means up, just navigate.
-          if (!oldBootId || (newBootId && newBootId !== oldBootId)) {
-            navigate();
-            return;
-          }
+        const r = await fetch('/', {signal: ctl.signal, cache: 'no-store'});
+        if (r.ok && sawDown) {
+          // Confirmed: the box went unreachable and is now serving again.
+          navigate();
+          return;
         }
-      } catch(e) { /* still down */ }
+      } catch(e) {
+        // Unreachable — reboot in progress.
+        sawDown = true;
+      }
       await new Promise(r => setTimeout(r, 2000));
     }
   })();
