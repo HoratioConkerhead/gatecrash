@@ -464,20 +464,11 @@ def _record_service_state(service, running):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def run(cmd, timeout=15):
-    try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
-        return r.stdout.strip(), r.returncode
-    except subprocess.TimeoutExpired:
-        return "timed out", 1
-    except Exception as e:
-        return str(e), 1
-
-
 def run_argv(args, timeout=15, merge_stderr=False):
-    # Shell-free counterpart to run() — args is a list, no shell parsing.
-    # merge_stderr=True replaces `2>&1`; default replaces `2>/dev/null`.
-    # Adopt this in preference to run() for new code; HIGH-14 migrates the rest.
+    # Shell-free subprocess helper — args is a list, no shell parsing.
+    # merge_stderr=True merges stderr into stdout (replaces shell `2>&1`);
+    # default drops stderr (replaces `2>/dev/null`).
+    # The old shell=True `run()` helper was retired in v0.73.12-dev (HIGH-14).
     try:
         r = subprocess.run(
             args, shell=False, text=True, timeout=timeout,
@@ -491,10 +482,57 @@ def run_argv(args, timeout=15, merge_stderr=False):
         return str(e), 1
 
 
+def _default_route():
+    """Return the first default route as {gateway, dev}, or {} on failure.
+
+    SECURITY: replaces the shell pipeline
+        run("ip route show default | awk '/default/ {print $3}' | head -1")
+    and the parallel `awk '{print $5}'` form for the dev. Both were `shell=True`
+    sites that we kept only because awk-extracting a field is verbose in Python.
+    Once HIGH-14 forced shell=False, parsing `ip -j` JSON became the cleanest
+    option. DO NOT regress to a shell pipeline for "simplicity" — the helper
+    exists to keep the rest of the file shell-free. (HIGH-14)
+    """
+    out, rc = run_argv(["ip", "-j", "route", "show", "default"])
+    if rc != 0 or not out:
+        return {}
+    try:
+        routes = json.loads(out)
+        if routes and isinstance(routes, list):
+            r = routes[0]
+            return {"gateway": r.get("gateway", ""), "dev": r.get("dev", "")}
+    except (json.JSONDecodeError, AttributeError, IndexError, KeyError):
+        pass
+    return {}
+
+
+def _iface_addr(lan_if):
+    """Return {ip, cidr} for the first IPv4 address on lan_if, or {} on failure.
+
+    SECURITY: replaces three shell pipelines that all extracted fields from
+    `ip -o -f inet addr show ...` via `awk '{print $4}' [| cut -d/ -f1] | head -1`.
+    Same rationale as _default_route — JSON parse beats awk-pipe under shell=False.
+    DO NOT regress to a shell pipeline. (HIGH-14)
+    """
+    out, rc = run_argv(["ip", "-j", "-4", "addr", "show", lan_if])
+    if rc != 0 or not out:
+        return {}
+    try:
+        data = json.loads(out)
+        if data and isinstance(data, list):
+            for a in data[0].get("addr_info", []):
+                if a.get("family") == "inet":
+                    local = a.get("local", "")
+                    prefix = a.get("prefixlen", 0)
+                    return {"ip": local, "cidr": f"{local}/{prefix}" if local else ""}
+    except (json.JSONDecodeError, AttributeError, IndexError, KeyError):
+        pass
+    return {}
+
+
 def _detect_gateway():
     """Return the default gateway IP from the routing table, or empty string."""
-    gw, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
-    return gw.strip()
+    return _default_route().get("gateway", "")
 
 
 # ---------------------------------------------------------------------------
@@ -615,11 +653,13 @@ def read_conf():
                     conf[k.strip()] = v.strip().strip('"')
     except FileNotFoundError:
         pass
-    # Auto-detect LAN interface from the default route if not set
+    # Auto-detect LAN interface from the default route if not set.
+    # Was: run("ip route show default | awk '{print $5}' | head -1") — replaced
+    # by _default_route() to keep this file shell=False. (HIGH-14)
     if not conf["LAN_IF"]:
-        detected, rc = run("ip route show default | awk '{print $5}' | head -1")
-        if rc == 0 and detected.strip():
-            conf["LAN_IF"] = detected.strip()
+        dev = _default_route().get("dev", "")
+        if dev:
+            conf["LAN_IF"] = dev
     return conf
 
 
@@ -674,9 +714,10 @@ def capture_dns():
         lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
     except ValueError:
         return  # unsafe interface name — exit thread safely
-    # Get our own LAN IP so we can exclude Gatecrash's own DNS queries
-    own_ip_out, _ = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")
-    own_ip = own_ip_out.strip()
+    # Get our own LAN IP so we can exclude Gatecrash's own DNS queries.
+    # Was: run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")
+    # Replaced by _iface_addr() (JSON parse, shell=False). (HIGH-14)
+    own_ip = _iface_addr(lan_if).get("ip", "")
     try:
         proc = subprocess.Popen(
             ["tcpdump", "-i", lan_if, "-n", "-l", "udp dst port 53"],
@@ -1569,7 +1610,12 @@ def api_status():
     _, rc = run_argv(["ip", "link", "show", "wg0"])
     wg_up = rc == 0
 
-    arp_out, _ = run("pgrep -c arpspoof 2>/dev/null || echo 0")
+    # Was: run("pgrep -c arpspoof 2>/dev/null || echo 0") — the `|| echo 0`
+    # fallback masked pgrep's exit-1-when-no-match behaviour. Under shell=False
+    # we just take stdout (pgrep -c prints "0" even when no matches) and fall
+    # back to "0" if pgrep itself failed to run. (HIGH-14)
+    arp_count_out, _ = run_argv(["pgrep", "-c", "arpspoof"])
+    arp_out = arp_count_out.strip() or "0"
 
     # Check if vpntarget has a VPN route (not just the fallback gateway)
     vt_out, _ = run_argv(["ip", "route", "show", "table", "vpntarget"])
@@ -1742,24 +1788,28 @@ def api_devices_scan_stream():
                         mimetype="text/event-stream")
 
     def generate():
-        subnet, rc = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | head -1")
-        if rc != 0 or not subnet.strip():
+        # Was: two separate shell pipelines —
+        #   run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | head -1")    # subnet (CIDR)
+        #   run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")  # own IP
+        # Both folded into one _iface_addr() call (JSON parse, shell=False). (HIGH-14)
+        addr = _iface_addr(lan_if)
+        subnet = addr.get("cidr", "")
+        if not subnet:
             yield f"data: ERROR: Could not detect subnet for {lan_if}\n\n"
             yield "event: done\ndata: []\n\n"
             return
 
         # IPs to exclude from scan results: ourselves and the gateway
-        own_ip_out, _ = run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")
-        exclude_ips = {own_ip_out.strip()}
+        exclude_ips = {addr.get("ip", "")}
         gw = _detect_gateway()
         if gw:
             exclude_ips.add(gw)
 
-        yield f"data: Scanning {subnet.strip()} ...\n\n"
+        yield f"data: Scanning {subnet} ...\n\n"
 
         try:
             proc = subprocess.Popen(
-                ["nmap", "-sn", "--stats-every", "3s", subnet.strip()],
+                ["nmap", "-sn", "--stats-every", "3s", subnet],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -1914,11 +1964,10 @@ def _hot_reload_targets(old_ips, new_ips):
     lines = []
     DEVNULL = open(os.devnull, "w")
 
-    # Resolve gateway once — needed for both add and remove
-    gw = conf.get("GATEWAY_IP", "")
-    if not gw:
-        gw_out, _ = run("ip route show default | awk '/default/ {print $3}' | head -1")
-        gw = gw_out.strip()
+    # Resolve gateway once — needed for both add and remove.
+    # Was: an inline `run("ip route show default | awk ... | head -1")` —
+    # collapsed to _detect_gateway() so the shell pipeline lives in one place. (HIGH-14)
+    gw = conf.get("GATEWAY_IP", "") or _detect_gateway()
 
     # --- Remove targets that were disabled ---
     for ip in removed:
@@ -2113,8 +2162,16 @@ def api_dns_test():
         lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
     except ValueError:
         return jsonify({"ok": False, "error": "Invalid interface name in config"}), 400
-    # 'timeout 5' kills tcpdump after 5s; '|| true' so non-zero exit doesn't raise
-    out, _ = run(f"timeout 5 tcpdump -i {lan_if} -n udp dst port 53 2>/dev/null || true", timeout=8)
+    # Was: run(f"timeout 5 tcpdump -i {lan_if} -n udp dst port 53 2>/dev/null || true", timeout=8)
+    # `timeout` (coreutils) kills tcpdump after 5s; we ignore the rc since 124
+    # (timeout fired) is the normal path. The remaining filter args ("udp",
+    # "dst", "port", "53") are joined by tcpdump into a BPF expression.
+    # Keep `timeout` as argv[0] — DON'T regress to Python's run_argv timeout=
+    # because that loses tcpdump's already-printed output. (HIGH-14)
+    out, _ = run_argv(
+        ["timeout", "5", "tcpdump", "-i", lan_if, "-n", "udp", "dst", "port", "53"],
+        timeout=8,
+    )
     lines = [l for l in out.splitlines() if l.strip()]
     return jsonify({"ok": True, "interface": lan_if, "lines": lines})
 
