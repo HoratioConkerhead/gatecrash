@@ -120,14 +120,19 @@ def _no_auth_enabled():
 def _https_enabled():
     """Return True if HTTPS should be served on the next service start.
 
-    No pref file → existing installs (token / no-auth marker present) keep
-    HTTPS for backward compatibility. Truly fresh installs default to HTTP
-    so the initial setup flow has no scary self-signed cert warning."""
+    No pref file → default to HTTPS whenever the cert exists.  setup.sh
+    always generates a cert, so this means every fresh install comes up
+    on TLS — closing the window where the first-boot /api/setup-auth
+    POST would carry the user's chosen password in cleartext over a
+    hostile LAN. (vulnerabilities_3.md #2 / MED-17)  Users who want
+    HTTP can still opt in explicitly via /api/set-https; that
+    preference is honoured."""
     try:
         with open(HTTPS_PREF_PATH) as f:
             return f.read().strip() == "on"
     except FileNotFoundError:
-        return os.path.isfile(WEBUI_TOKEN_PATH) or os.path.isfile(NO_AUTH_PATH)
+        return os.path.isfile(os.path.join(CERT_DIR, "gatecrash.crt")) \
+           and os.path.isfile(os.path.join(CERT_DIR, "gatecrash.key"))
 
 
 def _set_https_pref(enabled):
@@ -2806,6 +2811,7 @@ if __name__ == "__main__":
         ctx.load_cert_chain(cert, key)
         app.run(host="0.0.0.0", port=443, debug=False, ssl_context=ctx)
     else:
-        # HTTP mode — either the user disabled HTTPS, this is a fresh install
-        # mid-setup, or the cert is missing.
+        # HTTP mode — the user explicitly disabled HTTPS, or the cert is
+        # missing (e.g. setup.sh hasn't completed).  Fresh installs with a
+        # cert default to HTTPS — see _https_enabled().
         app.run(host="0.0.0.0", port=80, debug=False)
