@@ -1649,12 +1649,16 @@ def api_factory_reset():
         except FileNotFoundError:
             pass
     session.clear()
-    subprocess.Popen(["systemctl", "reboot"])
-    # Factory reset wipes HTTPS_PREF, so the box will come back on plain HTTP.
-    # Clear any HSTS pin the browser cached from this session — without
-    # max-age=0 the browser would keep auto-upgrading http://gatecrash.local
-    # to https:// for up to 24 hours and the post-reset page would never load.
-    # Mirrors the same trick used by the disable path of /api/set-https.
+    # Defer the reboot by ~1s so Flask gets to flush the response first.
+    # The response carries Strict-Transport-Security: max-age=0 (below) to
+    # clear the browser's HSTS pin — factory reset wipes HTTPS_PREF so the
+    # box will come back on plain HTTP, and without clearing the pin the
+    # browser would keep auto-upgrading http://gatecrash.local to https://
+    # for up to 24 hours.  Same trick the /api/set-https disable path uses.
+    def _do_reboot():
+        time.sleep(1.0)
+        subprocess.Popen(["systemctl", "reboot"])
+    threading.Thread(target=_do_reboot, daemon=True).start()
     resp = jsonify({"ok": True})
     resp.headers["Strict-Transport-Security"] = "max-age=0"
     return resp
@@ -2799,14 +2803,23 @@ def api_audit_log():
 
 
 def _http_redirect_server():
-    """Tiny HTTP server on port 80 that redirects everything to HTTPS."""
+    """Tiny HTTP server on port 80 that redirects everything to HTTPS.
+
+    Uses 307 Temporary Redirect (not 301 Moved Permanently): the user can
+    toggle HTTPS off, so this redirect is NOT permanent.  301s get cached
+    on disk by Chrome/Firefox essentially forever, which traps the user
+    on https:// even after they've disabled HTTPS server-side.  307s are
+    not disk-cached.  Cache-Control: no-store is belt-and-braces."""
     from flask import Flask as _Flask
     redir = _Flask("redirect")
 
     @redir.route("/", defaults={"path": ""})
     @redir.route("/<path:path>")
     def _redir(path):
-        return redirect(request.url.replace("http://", "https://", 1).replace(":80", ""), code=301)
+        target = request.url.replace("http://", "https://", 1).replace(":80", "")
+        resp = redirect(target, code=307)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     redir.run(host="0.0.0.0", port=80, debug=False)
 
