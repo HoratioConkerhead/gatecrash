@@ -2092,25 +2092,43 @@ async function startRebootReconnect(opts) {
 // Backwards-compatible alias for the factory-reset call site.
 function startPostResetReconnect() {
   const target = 'http://' + window.location.hostname + '/';
-  // From HTTPS, the post-reset reconnect can't poll: fetch to http:// from
-  // an https:// page is mixed-content blocked, and the HTTPS server is
-  // gone after reset anyway. The /api/factory-reset response already
-  // cleared HSTS and evicted the Secure cookie, so a top-level navigation
-  // to http:// works — we just need to wait long enough for the box to
-  // finish rebooting. Fixed countdown instead of polling.
+  // From HTTPS we can't poll http:// (mixed-content blocked) and an
+  // auto-redirect to http:// has been unreliable — some browsers (HTTPS-
+  // First Mode, sticky HSTS) silently bounce it back to https://. So show
+  // a countdown estimating when the box will be back, warn against pulling
+  // power, and let the user click the http:// link themselves.
   if (window.location.protocol === 'https:') {
     const detail = document.getElementById('reboot-detail');
-    const waitSec = 75;
+    const overlay = document.getElementById('rebooting-overlay');
+    // Swap the "Reload now" button for a real <a> — a link is friendlier
+    // for HTTPS-First-Mode browsers (the user can right-click → open in a
+    // new tab if the upgrade-to-https kicks in) and clearer about the
+    // protocol switch.
+    const btn = overlay && overlay.querySelector('button');
+    if (btn) {
+      const link = document.createElement('a');
+      link.href = target;
+      link.textContent = 'Reconnect at ' + target;
+      link.style.cssText = 'background:transparent;border:1px solid #4caf50;color:#4caf50;padding:10px 22px;border-radius:6px;font-size:14px;text-decoration:none;display:inline-block;';
+      btn.replaceWith(link);
+    }
+    const waitSec = 60;
     let elapsed = 0;
     const tick = () => {
       const remaining = Math.max(0, waitSec - elapsed);
       if (detail) {
-        detail.innerHTML = 'All settings cleared.<br>Reconnecting on plain HTTP in ' + remaining + 's&hellip;';
+        if (remaining > 0) {
+          detail.innerHTML =
+            'All settings cleared. The device is rebooting.<br>' +
+            '<strong style="color:#ff9800;">Don\'t power off the device.</strong><br>' +
+            'It should be ready in about ' + remaining + 's.';
+        } else {
+          detail.innerHTML =
+            'All settings cleared. The device should be back online now.<br>' +
+            'It\'s safe to power off if you need to. Otherwise, click the link below to reconnect on plain HTTP.';
+        }
       }
-      if (elapsed >= waitSec) {
-        window.location.replace(target);
-        return;
-      }
+      if (elapsed >= waitSec) return;
       elapsed++;
       setTimeout(tick, 1000);
     };
