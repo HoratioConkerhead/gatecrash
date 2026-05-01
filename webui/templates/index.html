@@ -2091,8 +2091,34 @@ async function startRebootReconnect(opts) {
 
 // Backwards-compatible alias for the factory-reset call site.
 function startPostResetReconnect() {
+  const target = 'http://' + window.location.hostname + '/';
+  // From HTTPS, the post-reset reconnect can't poll: fetch to http:// from
+  // an https:// page is mixed-content blocked, and the HTTPS server is
+  // gone after reset anyway. The /api/factory-reset response already
+  // cleared HSTS and evicted the Secure cookie, so a top-level navigation
+  // to http:// works — we just need to wait long enough for the box to
+  // finish rebooting. Fixed countdown instead of polling.
+  if (window.location.protocol === 'https:') {
+    const detail = document.getElementById('reboot-detail');
+    const waitSec = 75;
+    let elapsed = 0;
+    const tick = () => {
+      const remaining = Math.max(0, waitSec - elapsed);
+      if (detail) {
+        detail.innerHTML = 'All settings cleared.<br>Reconnecting on plain HTTP in ' + remaining + 's&hellip;';
+      }
+      if (elapsed >= waitSec) {
+        window.location.replace(target);
+        return;
+      }
+      elapsed++;
+      setTimeout(tick, 1000);
+    };
+    tick();
+    return;
+  }
   startRebootReconnect({
-    target: 'http://' + window.location.hostname + '/',
+    target: target,
     message: 'All settings cleared.<br>Waiting for the device to come back online',
   });
 }
