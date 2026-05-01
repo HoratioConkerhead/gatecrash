@@ -291,7 +291,7 @@ def _get_or_create_secret():
 
 
 app.secret_key = _get_or_create_secret()
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 _TLS_ENABLED = _https_enabled() and os.path.isfile(os.path.join(CERT_DIR, "gatecrash.crt"))
