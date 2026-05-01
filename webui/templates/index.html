@@ -2091,26 +2091,35 @@ async function startRebootReconnect(opts) {
 
 // Backwards-compatible alias for the factory-reset call site.
 function startPostResetReconnect() {
-  const target = 'http://' + window.location.hostname + '/';
-  // From HTTPS we can't poll http:// (mixed-content blocked) and an
-  // auto-redirect to http:// has been unreliable — some browsers (HTTPS-
-  // First Mode, sticky HSTS) silently bounce it back to https://. So show
-  // a countdown estimating when the box will be back, warn against pulling
-  // power, and let the user click the http:// link themselves.
+  const cleanTarget = 'http://' + window.location.hostname + '/';
+  // Cache-bust query param — Browser HTTP cache is keyed by full URL, so a
+  // unique query bypasses any cached redirect entry for the bare path
+  // (e.g. an old 301 from a previous version that's stuck in disk cache,
+  // even though we now serve 307 + no-store). The user lands on the live
+  // HTTP server instead of being silently bounced back to https://.
+  const target = cleanTarget + '?_nc=' + Date.now();
   if (window.location.protocol === 'https:') {
+    // From HTTPS we can't poll http:// (mixed-content blocked). Show a
+    // countdown, warn against pulling power, and let the user click the
+    // http:// link themselves.
     const detail = document.getElementById('reboot-detail');
     const overlay = document.getElementById('rebooting-overlay');
-    // Swap the "Reload now" button for a real <a> — a link is friendlier
-    // for HTTPS-First-Mode browsers (the user can right-click → open in a
-    // new tab if the upgrade-to-https kicks in) and clearer about the
-    // protocol switch.
+    // Swap the "Reload now" button for a real <a> — friendlier for
+    // HTTPS-First-Mode browsers (right-click → open in new tab) and
+    // visually communicates the protocol switch.
     const btn = overlay && overlay.querySelector('button');
     if (btn) {
       const link = document.createElement('a');
       link.href = target;
-      link.textContent = 'Reconnect at ' + target;
+      link.textContent = 'Reconnect at ' + cleanTarget;
       link.style.cssText = 'background:transparent;border:1px solid #4caf50;color:#4caf50;padding:10px 22px;border-radius:6px;font-size:14px;text-decoration:none;display:inline-block;';
       btn.replaceWith(link);
+      // Hint about cached HTTP→HTTPS redirects that stubbornly bounce
+      // back to https:// even after HSTS is cleared.
+      const hint = document.createElement('div');
+      hint.style.cssText = 'color:#777;font-size:11px;max-width:340px;line-height:1.5;margin-top:4px;';
+      hint.innerHTML = 'If your browser still redirects to https://, clear your cache for this site (browser settings &rarr; clear browsing data &rarr; cached images and files) and try again.';
+      link.insertAdjacentElement('afterend', hint);
     }
     const waitSec = 60;
     let elapsed = 0;
