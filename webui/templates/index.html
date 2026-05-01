@@ -2217,6 +2217,10 @@ async function fetchStatus() {
     // 2.5s timeout — without this, an unplugged network will hang the fetch
     // for 30+ seconds (TCP timeout) and the connection-lost overlay never fires.
     const r = await fetch('/api/status', {signal: AbortSignal.timeout(2500)});
+    // 401 = session expired but the box is up and replying. Reload so the
+    // server renders the login form, instead of falling into the catch
+    // block and showing the "Connection lost" overlay.
+    if (r.status === 401) { hardReload(); return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     // Successful poll — clear any failure streak and hide the overlay
