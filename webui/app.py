@@ -599,14 +599,176 @@ _NICK_MAX = 64
 # validators below are the only thing preventing config-write → RCE.  (CRIT-4)
 _CONF_ALLOWED_KEYS = {"LAN_IF", "VPN_IF", "GATEWAY_IP", "TARGET_IPS", "ROUTE_TABLE", "FWMARK"}
 
-# SECURITY: wg-quick executes PostUp/PostDown/PreUp/PreDown as root shell
-# commands.  A malicious WireGuard config upload could embed `PostUp = rm -rf /`
-# and it would run when WireGuard starts.  _strip_wg_hooks() removes these
-# lines from every config write path.  Do NOT remove this.  (HIGH-6)
-_WG_HOOK_RE = re.compile(
-    r'^\s*(PostUp|PostDown|PreUp|PreDown)\s*=',
-    re.IGNORECASE,
-)
+# SECURITY: WireGuard config validation. Both the upload endpoint and the
+# in-browser editor go through _normalize_wg_config() below, which parses the
+# user's input, extracts only whitelisted keys per section, validates each
+# value, and re-emits a canonical config from scratch. This is stricter than
+# line-stripping and gives the same guarantees on both write paths:
+#   - PostUp/PostDown/PreUp/PreDown can never reach disk (HIGH-6) because
+#     they are not on the whitelist and so are dropped during the rebuild.
+#   - Table = off and MTU = 1280 are forced regardless of input (CLAUDE.md
+#     invariants — wg-quick would otherwise install a default route or use
+#     1420 MTU that silently drops packets on many ISPs).
+#   - DNS lines are dropped — Gatecrash handles DNS routing via DNAT, so
+#     wg-quick must not fight us by setting /etc/resolv.conf.
+#   - Endpoint, AllowedIPs, and keys are format-validated, so an attacker
+#     with a session can't pivot the tunnel to a hostile WG endpoint with
+#     a malformed Endpoint that confuses parsers downstream. (vulnerabilities_3.md)
+
+_WG_KEY_RE  = re.compile(r'^[A-Za-z0-9+/]{43}=$')
+_WG_PORT_RE = re.compile(r'^\d{1,5}$')
+# Endpoint host: hostname (RFC 1123-ish, dots and hyphens) or IPv4. IPv6 is
+# handled separately via the [v6]:port bracketed form.
+_WG_HOST_RE = re.compile(r'^[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?$')
+_WG_CIDR4_RE = re.compile(r'^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:/(?:3[0-2]|[12]?\d))?$')
+_WG_CIDR6_RE = re.compile(r'^[0-9a-fA-F:]{2,39}(?:/(?:12[0-8]|1[01]\d|[1-9]?\d))?$')
+_WG_ENDPOINT_V6_RE = re.compile(r'^\[([0-9a-fA-F:]+)\]:(\d{1,5})$')
+
+
+def _valid_wg_key(s):
+    if not _WG_KEY_RE.match(s):
+        raise ValueError("expected 44-char base64 ending with '='")
+    return s
+
+
+def _valid_wg_int_in_range(s, lo, hi):
+    if not _WG_PORT_RE.match(s):
+        raise ValueError(f"expected an integer, got {s!r}")
+    n = int(s)
+    if not (lo <= n <= hi):
+        raise ValueError(f"out of range {lo}-{hi}")
+    return str(n)
+
+
+def _valid_wg_endpoint(s):
+    s = s.strip()
+    if s.startswith("["):
+        m = _WG_ENDPOINT_V6_RE.match(s)
+        if not m:
+            raise ValueError("malformed IPv6 endpoint, expected [addr]:port")
+        _valid_wg_int_in_range(m.group(2), 1, 65535)
+        return s
+    if ":" not in s:
+        raise ValueError("missing :port")
+    host, port = s.rsplit(":", 1)
+    if not _WG_HOST_RE.match(host):
+        raise ValueError(f"invalid host {host!r}")
+    _valid_wg_int_in_range(port, 1, 65535)
+    return s
+
+
+def _valid_wg_cidr_list(s):
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    if not parts:
+        raise ValueError("empty list")
+    for p in parts:
+        if not (_WG_CIDR4_RE.match(p) or _WG_CIDR6_RE.match(p)):
+            raise ValueError(f"invalid CIDR {p!r}")
+    return ", ".join(parts)
+
+
+def _valid_wg_fwmark(s):
+    if not _FWMARK_RE.match(s):
+        raise ValueError(f"invalid FwMark {s!r}")
+    return s
+
+
+# Per-section whitelists. Keys NOT in the whitelist are dropped during
+# rebuild — that's how PostUp/PostDown/DNS/etc. get removed.
+_WG_INTERFACE_KEYS = {
+    "PrivateKey": _valid_wg_key,
+    "Address":    _valid_wg_cidr_list,
+    "ListenPort": lambda s: _valid_wg_int_in_range(s, 1, 65535),
+    "FwMark":     _valid_wg_fwmark,
+}
+_WG_PEER_KEYS = {
+    "PublicKey":           _valid_wg_key,
+    "PresharedKey":        _valid_wg_key,
+    "Endpoint":            _valid_wg_endpoint,
+    "AllowedIPs":          _valid_wg_cidr_list,
+    "PersistentKeepalive": lambda s: _valid_wg_int_in_range(s, 0, 65535),
+}
+
+
+def _normalize_wg_config(content):
+    """Parse a WireGuard config, extract whitelisted fields, force Gatecrash
+    invariants, and emit a canonical config from scratch.
+
+    Returns (canonical_content, fixes_list).
+    Raises ValueError with a user-friendly message on unrecoverable problems.
+    """
+    sections = []  # list of (section_name, [(key, value), ...])
+    current = None
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = (line[1:-1].strip(), [])
+            sections.append(current)
+            continue
+        if "=" not in line or current is None:
+            continue
+        k, v = line.split("=", 1)
+        current[1].append((k.strip(), v.strip()))
+
+    if not any(name == "Interface" for name, _ in sections):
+        raise ValueError("Missing [Interface] section")
+    if not any(name == "Peer" for name, _ in sections):
+        raise ValueError("Missing [Peer] section")
+
+    fixes = []
+    out = []
+    for name, pairs in sections:
+        if name == "Interface":
+            keep = {}
+            for k, v in pairs:
+                canon = next((wk for wk in _WG_INTERFACE_KEYS if wk.lower() == k.lower()), None)
+                if canon is None:
+                    if k.lower() in {"table", "mtu"}:
+                        # Replaced below with forced values; skip silently.
+                        continue
+                    fixes.append(f"removed [Interface] {k}")
+                    continue
+                try:
+                    keep[canon] = _WG_INTERFACE_KEYS[canon](v)
+                except ValueError as e:
+                    raise ValueError(f"[Interface] {canon}: {e}")
+            if "PrivateKey" not in keep:
+                raise ValueError("Missing PrivateKey in [Interface]")
+            if "Address" not in keep:
+                raise ValueError("Missing Address in [Interface]")
+            out.append("[Interface]")
+            for k in ("PrivateKey", "Address", "ListenPort", "FwMark"):
+                if k in keep:
+                    out.append(f"{k} = {keep[k]}")
+            out.append("Table = off")
+            out.append("MTU = 1280")
+            out.append("")
+        elif name == "Peer":
+            keep = {}
+            for k, v in pairs:
+                canon = next((wk for wk in _WG_PEER_KEYS if wk.lower() == k.lower()), None)
+                if canon is None:
+                    fixes.append(f"removed [Peer] {k}")
+                    continue
+                try:
+                    keep[canon] = _WG_PEER_KEYS[canon](v)
+                except ValueError as e:
+                    raise ValueError(f"[Peer] {canon}: {e}")
+            if "PublicKey" not in keep:
+                raise ValueError("Missing PublicKey in [Peer]")
+            if "AllowedIPs" not in keep:
+                raise ValueError("Missing AllowedIPs in [Peer]")
+            out.append("[Peer]")
+            for k in ("PublicKey", "PresharedKey", "Endpoint", "AllowedIPs", "PersistentKeepalive"):
+                if k in keep:
+                    out.append(f"{k} = {keep[k]}")
+            out.append("")
+        else:
+            fixes.append(f"removed unknown section [{name}]")
+
+    return "\n".join(out).rstrip() + "\n", fixes
 
 
 def _valid_if(name):
@@ -673,14 +835,6 @@ def _valid_branch(name):
     if name.startswith("-") or ".." in name or name.endswith(".lock"):
         raise ValueError("Invalid branch name")
     return name
-
-
-def _strip_wg_hooks(content):
-    """Remove PostUp/PostDown/PreUp/PreDown lines from a WireGuard config string."""
-    return "".join(
-        line for line in content.splitlines(keepends=True)
-        if not _WG_HOOK_RE.match(line)
-    )
 
 
 def read_conf():
@@ -2443,25 +2597,28 @@ def api_wg_config():
             return jsonify({"ok": True, "content": content})
         except Exception:
             return jsonify({"ok": False, "content": "", "error": "Internal error"})
+    content = request.json.get("content", "") or ""
+    # If the client sent back [redacted], restore the real PrivateKey from
+    # disk before validation — otherwise the whitelist validator would
+    # reject it as not-a-base64-key.
+    if "[redacted]" in content:
+        try:
+            with open(WG_CONF_PATH) as f:
+                old = f.read()
+            pk = re.search(r'(?im)^(\s*PrivateKey\s*=\s*)(.+)$', old)
+            if pk:
+                content = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*)\[redacted\]', pk.group(1) + pk.group(2), content)
+        except FileNotFoundError:
+            pass
     try:
-        # SECURITY: strip PostUp/PostDown hooks — they execute as root via wg-quick.  (HIGH-6)
-        content = _strip_wg_hooks(request.json.get("content", ""))
-        # If client sent back [redacted], restore the real PrivateKey from disk
-        if "[redacted]" in content:
-            try:
-                with open(WG_CONF_PATH) as f:
-                    old = f.read()
-                pk = re.search(r'(?im)^(\s*PrivateKey\s*=\s*)(.+)$', old)
-                if pk:
-                    content = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*)\[redacted\]', pk.group(1) + pk.group(2), content)
-            except FileNotFoundError:
-                pass
+        canonical, _fixes = _normalize_wg_config(content)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    try:
         with open(WG_CONF_PATH, "w") as f:
-            f.write(content)
-        # SECURITY: 0o600 — WireGuard config contains the VPN private key.
+            f.write(canonical)
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config updated from %s", request.remote_addr)
-        # Mark WG as wanted on boot — see /api/wg-config/upload for rationale.
         _record_service_state("wg", True)
         return jsonify({"ok": True})
     except Exception:
@@ -2471,83 +2628,17 @@ def api_wg_config():
 
 @app.route("/api/wg-config/upload", methods=["POST"])
 def api_wg_config_upload():
-    """Accept a raw WireGuard config, fix it for Gatecrash, and save."""
-    content = request.json.get("content", "")
+    """Accept a raw WireGuard config, validate-and-rebuild canonically, save."""
+    content = request.json.get("content", "") or ""
     if not content.strip():
         return jsonify({"ok": False, "error": "Empty config file"})
-
-    # Validate it looks like a WireGuard config
-    if "[Interface]" not in content and "[Peer]" not in content:
-        return jsonify({"ok": False, "error": "Not a valid WireGuard config (missing [Interface] or [Peer])"})
-
-    # Validate private key exists and looks correct (base64, 44 chars with trailing =)
-    pk_match = re.search(r"PrivateKey\s*=\s*(\S+)", content, re.IGNORECASE)
-    if not pk_match:
-        return jsonify({"ok": False, "error": "Missing PrivateKey — check your .conf file includes a PrivateKey line"})
-    pk_value = pk_match.group(1)
-    if len(pk_value) != 44 or not pk_value.endswith("="):
-        return jsonify({"ok": False, "error": f"PrivateKey doesn't look valid (expected 44-char base64 string ending with '='). Got: {pk_value[:8]}..."})
-
-    fixes = []
-    lines = content.splitlines()
-    new_lines = []
-    in_interface = False
-    has_table = False
-    has_mtu = False
-
-    for line in lines:
-        stripped = line.strip()
-
-        # Track which section we're in
-        if stripped.startswith("[Interface]"):
-            in_interface = True
-        elif stripped.startswith("["):
-            in_interface = False
-
-        # Remove DNS lines (Gatecrash handles DNS routing)
-        if in_interface and re.match(r"^\s*DNS\s*=", stripped, re.IGNORECASE):
-            fixes.append("removed DNS")
-            continue
-
-        # Check for Table and MTU
-        if in_interface and re.match(r"^\s*Table\s*=", stripped, re.IGNORECASE):
-            has_table = True
-            if "off" not in stripped.lower():
-                line = "Table = off"
-                fixes.append("set Table = off")
-        if in_interface and re.match(r"^\s*MTU\s*=", stripped, re.IGNORECASE):
-            has_mtu = True
-            if "1280" not in stripped:
-                line = "MTU = 1280"
-                fixes.append("set MTU = 1280")
-
-        new_lines.append(line)
-
-    # Add missing Table/MTU after [Interface] line
-    if not has_table or not has_mtu:
-        result = []
-        for line in new_lines:
-            result.append(line)
-            if line.strip() == "[Interface]":
-                if not has_table:
-                    result.append("Table = off")
-                    fixes.append("added Table = off")
-                if not has_mtu:
-                    result.append("MTU = 1280")
-                    fixes.append("added MTU = 1280")
-        new_lines = result
-
-    # SECURITY: strip PostUp/PostDown hooks from uploaded configs — they execute
-    # as root via wg-quick.  An uploaded .conf from a VPN provider could contain
-    # arbitrary shell commands.  (HIGH-6)
-    final_content = _strip_wg_hooks("\n".join(new_lines))
-    if not final_content.endswith("\n"):
-        final_content += "\n"
-
+    try:
+        canonical, fixes = _normalize_wg_config(content)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     try:
         with open(WG_CONF_PATH, "w") as f:
-            f.write(final_content)
-        # SECURITY: 0o600 — WireGuard config contains the VPN private key.
+            f.write(canonical)
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config uploaded from %s (fixes: %s)", request.remote_addr, fixes)
         # Saving a WireGuard config implies the user wants WG up. Mark it as
