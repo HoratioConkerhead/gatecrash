@@ -13,3 +13,7 @@ gatecrash.conf
 .DS_Store
 *.swp
 *~
+
+# Python bytecode
+__pycache__/
+*.pyc
