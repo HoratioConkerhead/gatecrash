@@ -268,10 +268,6 @@ sudo systemctl enable wg-quick@wg0
 | [docs/MANUAL-SETUP.md](docs/MANUAL-SETUP.md) | What `setup.sh` does under the hood — for setting up by hand |
 | [docs/SUPPORT.md](docs/SUPPORT.md) | Diagnosing, maintaining, and resetting an installed appliance |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branching and release workflow (developer docs) |
-| [docs/vulnerabilities.md](docs/vulnerabilities.md) | Security audit (round 1, March 2026) |
-| [docs/vulnerabilities_2.md](docs/vulnerabilities_2.md) | Security audit (round 2, April 2026) |
-| [docs/vulnerabilities_3.md](docs/vulnerabilities_3.md) | Security audit (round 3, April 2026) |
-| [docs/vulnerabilities_progress.md](docs/vulnerabilities_progress.md) | Progress tracker — every audit finding, what's fixed and what's deferred |
 
 ## License
 

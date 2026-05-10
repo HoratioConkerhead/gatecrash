@@ -17,3 +17,6 @@ gatecrash.conf
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Private dev notes — not for public repo
+CLAUDE.md
