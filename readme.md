@@ -11,6 +11,8 @@ has changed — no apps to install, no settings to configure, no profiles to
 accept. Your smart TV, games console, or streaming box just quietly gets a
 different exit IP.
 
+Can be run on a SPC (e.g. Raspberry Pi), dedicated machine, or virtual machine.
+
 ### What makes this different?
 
 - **VPN routers** (GL.iNet, Vilfo, pfSense) can route per-device — but they
@@ -27,77 +29,96 @@ Plug it in, point it at the devices you want, and their traffic exits from
 a different country. Everything else on your network is unaffected. If the
 VPN drops, target devices fall back to the normal gateway automatically.
 
-Gatecrash has been tested on a Hyper-V VM and a Raspberry Pi 4B.
+## Quickstart — DietPi on any modern SBC
 
-## Quickstart — Installing on a Raspberry Pi
+The fastest path to a working Gatecrash box is **DietPi** on a Raspberry Pi or
+any DietPi-supported SBC. DietPi has a built-in headless-install hook that runs
+Gatecrash's installer on first boot, so you flash an SD card, drop in a config
+file, plug it in, and walk away.
 
-A Raspberry Pi running Pi OS Lite is the simplest way to get Gatecrash running.
+> **Hardware:** any modern SBC and 8GB or larger SD Card. Note that a Pi Model B is too slow.
 
-> You don't need a monitor, keyboard, or mouse — the Raspberry Pi Imager sets up
-> all the remote access. You may want to plug into a monitor if there are issues.
+These instructions assume a Raspberry Pi and use the Raspberry Pi Imager. For other devices, see [How to install DietPi](https://dietpi.com/docs/install/) from the Diet Pi website.
 
-We use **Raspberry Pi OS Lite**, the command-line-only version. This should work
-on a 4 GB card, but hasn't been tested at that size.
+### 1. Flash DietPi to the SD card
 
-**1. Prepare the SD card**
+Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/), then:
 
-On a computer, use Raspberry Pi Imager from https://www.raspberrypi.com/software/ to install and configure the OS:
+1. **Choose Device** — pick your SBC
+2. **Choose OS** → *Other general-purpose OS* → **DietPi** → **DietPi OS (64-bit)**
+3. **Choose Storage** — your SD card
 
-1. Pick OS → Raspberry Pi OS (other) → Raspberry Pi OS Lite (64-bit)
-2. Set hostname to `gatecrash`
-3. Create a username and password
-4. Enable SSH (password or public key — password is easiest)
-5. Optionally enable Raspberry Pi Connect (not required)
+For more on DietPi's headless install flow, this guide is a good walkthrough:
+<https://secsys.pages.dev/posts/dietpi>
 
-**2. Boot and log on**
+### 2. Drop our `dietpi.txt` onto the SD card
 
-1. Insert the SD card into the Pi
-2. Plug into ethernet
-3. Turn on — first boot takes a few minutes to set up
-4. SSH in remotely from another computer (e.g. on Windows):
-   1. Open a terminal (or `cmd.exe`)
-   2. Run `ssh gatecrash -l <user_you_specified>`
-   3. Accept the fingerprint
-   4. Enter the password
+After flashing, the SD card's boot partition will be visible on your computer
+(usually a volume named `bootfs` or `boot`). Replace its `dietpi.txt` with
+the one from this repo:
 
-**3. Install Git**
+[dietpi.txt](dietpi.txt) — direct link:
+<https://raw.githubusercontent.com/HoratioConkerhead/gatecrash/master/dietpi.txt>
 
-```bash
-sudo apt -y install git-all
+Save it as `dietpi.txt` in the SD card's boot partition, overwriting the
+DietPi default. Then **open it and change one line**:
+
+```
+AUTO_SETUP_GLOBAL_PASSWORD=<your-password>
 ```
 
-**4. Install Gatecrash**
+This is the root + dietpi user SSH password. Pick something strong — DietPi
+removes it from the file after first boot.
 
-This installs dependencies, clones the repo, and runs the setup script.
-It starts the web UI but does not start Gatecrash itself.
+That's the only edit you need.
 
-```bash
-sudo apt install -y git
-git clone https://github.com/HoratioConkerhead/gatecrash
-cd gatecrash
-sudo bash setup.sh
-```
+#### What this file actually changes
 
-**5. Open the web UI**
+For transparency (and so you can re-apply the same edits to a fresh upstream
+`dietpi.txt` if ours ever drifts behind DietPi's), here are the lines our
+file changes from DietPi's defaults:
 
-On a computer or mobile device:
+| Key | DietPi default | Gatecrash | Why |
+|-----|----------------|-----------|-----|
+| `AUTO_SETUP_GLOBAL_PASSWORD` | `dietpi` | `<your-password>` | The SSH/root password — you must set your own |
+| `AUTO_SETUP_NET_HOSTNAME` | `DietPi` | `gatecrash` | So the box is reachable as `gatecrash.local` on the LAN |
+| `CONFIG_SERIAL_CONSOLE_ENABLE` | `1` | `0` | Appliance is accessed via SSH / web UI, not serial |
+| `AUTO_SETUP_APT_INSTALLS` | (unset) | Gatecrash dependency list | Pre-installs every package `setup.sh` needs |
+| `AUTO_SETUP_AUTOMATED` | `0` | `1` | Run DietPi's first-boot unattended |
+| `CONFIG_ENABLE_IPV6` | `1` | `0` | Gatecrash only intercepts IPv4 — leaving IPv6 on is a bypass route around the VPN |
+| `AUTO_SETUP_CUSTOM_SCRIPT_EXEC` | `0` | `install.sh` URL | Runs Gatecrash's installer at the end of first-boot |
+
+If you want to set your timezone, locale, or keyboard, they're near the top
+of the file and well-commented.
+
+### 3. Boot and wait
+
+Eject the SD card, put it in the SBC, plug into ethernet, power on.
+
+First boot does a lot: DietPi configures itself, installs the apt packages,
+clones the Gatecrash repo, and runs `setup.sh`. On a modern Pi this is ~10–20
+minutes. You don't need to log in — wait for the box to settle, then move on.
+
+### 4. Open the web UI
+
+On a computer or phone on the same LAN:
 
 ```
 http://gatecrash.local
 ```
 
-Now follow the prompts to configure your WireGuard (VPN) config and target devices.
+You'll see a welcome / TLS-choice screen, then a password setup. After that,
+configure your WireGuard config and target devices through the UI.
 
-**6. Test WireGuard first**
+### 5. Test WireGuard, then start Gatecrash
 
-Using the **Start WireGuard** and **Check VPN IP**
-buttons in the web UI before starting Gatecrash.
-
-**7. Start Gatecrash** using the **Start Gatecrash** button in the web UI.
+Use **Start WireGuard** and **Check VPN IP** in the UI to confirm the tunnel
+exits via your provider. Then hit **Start Gatecrash** to begin routing target
+devices through it.
 
 ---
 
-### CLI commands (if preferred): ###
+### CLI commands (if preferred)
 
 ```bash
 sudo /opt/gatecrash/start.sh           # start Gatecrash
@@ -110,13 +131,12 @@ sudo systemctl status gatecrash-webui  # web UI status
 
 ## Other platforms
 
-Not running a Raspberry Pi? Gatecrash will also run on:
+Not using DietPi? Gatecrash also runs on:
 
-- A **Hyper-V VM** on Windows (Debian guest)
-- **Bare-metal Debian** on any small machine
-- **DietPi** (untested but expected to work)
-
-See [docs/INSTALL-OTHER.md](docs/INSTALL-OTHER.md) for instructions.
+- [**Raspberry Pi OS Lite**](docs/INSTALL-PIOS.md) — the standard Pi OS path
+- [**Hyper-V VM on Windows**](docs/INSTALL-HYPERV.md) — Debian guest
+- [**Bare-metal Debian**](docs/INSTALL-DEBIAN.md) — any small machine you've
+  already put Debian on
 
 ---
 
@@ -248,7 +268,9 @@ sudo systemctl enable wg-quick@wg0
 
 | Doc | Audience |
 |-----|----------|
-| [docs/INSTALL-OTHER.md](docs/INSTALL-OTHER.md) | Installing on Hyper-V, bare-metal Debian, or DietPi |
+| [docs/INSTALL-PIOS.md](docs/INSTALL-PIOS.md) | Installing on Raspberry Pi OS Lite |
+| [docs/INSTALL-HYPERV.md](docs/INSTALL-HYPERV.md) | Installing in a Hyper-V VM on Windows |
+| [docs/INSTALL-DEBIAN.md](docs/INSTALL-DEBIAN.md) | Installing on bare-metal Debian |
 | [docs/MANUAL-SETUP.md](docs/MANUAL-SETUP.md) | What `setup.sh` does under the hood — for setting up by hand |
 | [docs/SUPPORT.md](docs/SUPPORT.md) | Diagnosing, maintaining, and resetting an installed appliance |
 
