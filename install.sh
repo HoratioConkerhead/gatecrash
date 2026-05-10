@@ -5,9 +5,6 @@
 #
 # Usage on DietPi: set in /boot/dietpi.txt (one line, no continuations):
 #   AUTO_SETUP_CUSTOM_SCRIPT_EXEC=https://raw.githubusercontent.com/HoratioConkerhead/gatecrash/master/install.sh
-#
-# For private repos, set GATECRASH_GIT_TOKEN before running:
-#   GATECRASH_GIT_TOKEN=ghp_xxx bash install.sh
 
 set -euo pipefail
 
@@ -26,13 +23,7 @@ fi
 
 echo "=== Gatecrash installer ==="
 
-# Build clone URL — embed token if provided so private repos work
-if [[ -n "${GATECRASH_GIT_TOKEN:-}" ]]; then
-    CLONE_URL="https://${GATECRASH_GIT_TOKEN}@github.com/${REPO_OWNER}/${REPO_NAME}.git"
-    echo "Using authenticated clone (token from GATECRASH_GIT_TOKEN)."
-else
-    CLONE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
-fi
+CLONE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
 
 # git is required — install if missing
 if ! command -v git >/dev/null 2>&1; then

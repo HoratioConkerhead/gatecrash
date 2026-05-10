@@ -66,35 +66,19 @@ On a computer, use Raspberry Pi Imager from https://www.raspberrypi.com/software
 sudo apt -y install git-all
 ```
 
-**4. Get a GitHub token (only if the repo is still private)**
-
-If Gatecrash is still in a private repo, you'll need a personal access token to
-clone it. **The token must be provided by the repo owner** (you can't create
-one yourself unless you're a collaborator on the repo).
-
-If you are the repo owner setting this up for someone else, generate a token
-on GitHub → **Settings → Developer settings → Fine-grained tokens → Generate
-new token**, scoped to just this repo with:
-
-- Contents: **Read-only**
-- No expiry (fine for a dedicated device)
-
-The token looks like `github_pat_<long string of random letters and numbers>`.
-Copy it once — GitHub won't show it again.
-
-**5. Install Gatecrash**
+**4. Install Gatecrash**
 
 This installs dependencies, clones the repo, and runs the setup script.
 It starts the web UI but does not start Gatecrash itself.
 
 ```bash
 sudo apt install -y git
-git clone https://[the_long_key_from_above]@github.com/HoratioConkerhead/gatecrash
+git clone https://github.com/HoratioConkerhead/gatecrash
 cd gatecrash
 sudo bash setup.sh
 ```
 
-**6. Open the web UI**
+**5. Open the web UI**
 
 On a computer or mobile device:
 
@@ -104,12 +88,12 @@ http://gatecrash.local
 
 Now follow the prompts to configure your WireGuard (VPN) config and target devices.
 
-**7. Test WireGuard first**
+**6. Test WireGuard first**
 
 Using the **Start WireGuard** and **Check VPN IP**
 buttons in the web UI before starting Gatecrash.
 
-**8. Start Gatecrash** using the **Start Gatecrash** button in the web UI.
+**7. Start Gatecrash** using the **Start Gatecrash** button in the web UI.
 
 ---
 
@@ -267,7 +251,6 @@ sudo systemctl enable wg-quick@wg0
 | [docs/INSTALL-OTHER.md](docs/INSTALL-OTHER.md) | Installing on Hyper-V, bare-metal Debian, or DietPi |
 | [docs/MANUAL-SETUP.md](docs/MANUAL-SETUP.md) | What `setup.sh` does under the hood — for setting up by hand |
 | [docs/SUPPORT.md](docs/SUPPORT.md) | Diagnosing, maintaining, and resetting an installed appliance |
-| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branching and release workflow (developer docs) |
 
 ## License
 
