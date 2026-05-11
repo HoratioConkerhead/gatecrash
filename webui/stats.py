@@ -1,4 +1,4 @@
-"""System stats sampler — CPU, memory, network throughput.
+"""System stats sampler — CPU, memory, network throughput, temperature.
 
 In-memory tiered ring buffers (RRD-style) keep multiple resolutions of history
 without ballooning memory or hammering the SD card. The whole state flushes to
@@ -10,9 +10,12 @@ Tiers:
     hour    1m   x 1440  = 24 hours
     day     5m   x 4032  = 14 days
 
-Each tier holds tuples of (epoch_seconds, cpu_pct, mem_pct, rx_bps, tx_bps).
+Each tier holds tuples of (epoch_seconds, cpu_pct, mem_pct, rx_bps, tx_bps, temp_c).
 Downsampling: the live tier feeds recent (mean over 10 samples), recent feeds
 hour, hour feeds day. Whole-tier averaging keeps things simple and predictable.
+
+temp_c = 0.0 means "no readable thermal sensor" (e.g. Hyper-V VMs); the UI
+treats a max of 0 across the visible range as "hide the chart".
 """
 
 import json
@@ -134,12 +137,44 @@ def _read_net_bps(iface):
     return (int(rx_bps), int(tx_bps))
 
 
+# Cached path for the thermal sensor — set on first successful read so we don't
+# stat thermal_zone* every sample. None = unknown, "" = no sensor, "<path>" = use it.
+_temp_path = None
+
+def _read_temp_c():
+    """Return CPU temperature in degrees C, or 0.0 if no sensor is available.
+
+    Pi/most ARM SBCs expose this at /sys/class/thermal/thermal_zone0/temp in
+    millidegrees C. On boards with multiple zones the first readable one wins."""
+    global _temp_path
+    if _temp_path == "":
+        return 0.0
+    if _temp_path is None:
+        for i in range(8):
+            p = f"/sys/class/thermal/thermal_zone{i}/temp"
+            try:
+                with open(p) as f:
+                    int(f.read().strip())
+                _temp_path = p
+                break
+            except (OSError, ValueError):
+                continue
+        else:
+            _temp_path = ""
+            return 0.0
+    try:
+        with open(_temp_path) as f:
+            return max(0.0, min(150.0, int(f.read().strip()) / 1000.0))
+    except (OSError, ValueError):
+        return 0.0
+
+
 # ---------------------------------------------------------------------------
 # Tiered ring buffer — downsample as samples age into higher tiers
 # ---------------------------------------------------------------------------
 
 def _avg_sample(samples):
-    """Average a list of (ts, cpu, mem, rx, tx) tuples; ts = last in window."""
+    """Average a list of (ts, cpu, mem, rx, tx, temp) tuples; ts = last in window."""
     if not samples:
         return None
     n = len(samples)
@@ -149,6 +184,7 @@ def _avg_sample(samples):
         sum(s[2] for s in samples) / n,
         sum(s[3] for s in samples) / n,
         sum(s[4] for s in samples) / n,
+        sum(s[5] for s in samples) / n,
     )
 
 
@@ -175,7 +211,7 @@ def _maybe_downsample():
         avg = _avg_sample(window)
         if avg is not None:
             # Snap timestamp to bucket boundary for stable x-axis
-            upper.append((bucket + upper_res, avg[1], avg[2], avg[3], avg[4]))
+            upper.append((bucket + upper_res, avg[1], avg[2], avg[3], avg[4], avg[5]))
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +243,14 @@ def _load_from_disk():
     with _lock:
         for name in _buffers:
             for sample in data.get(name, []):
-                if isinstance(sample, list) and len(sample) == 5:
+                if not isinstance(sample, list):
+                    continue
+                if len(sample) == 6:
                     _buffers[name].append(tuple(sample))
+                elif len(sample) == 5:
+                    # Pre-temperature data — pad with 0.0 so the UI hides the chart
+                    # for those points rather than spiking on first real reading.
+                    _buffers[name].append(tuple(sample) + (0.0,))
 
 
 # ---------------------------------------------------------------------------
@@ -228,8 +270,9 @@ def _sampler_loop():
         cpu = _read_cpu_pct()
         mem = _read_mem_pct()
         rx, tx = _read_net_bps(_settings.get("lan_if", "eth0"))
+        temp = _read_temp_c()
         with _lock:
-            _buffers["live"].append((ts, cpu, mem, rx, tx))
+            _buffers["live"].append((ts, cpu, mem, rx, tx, temp))
             _maybe_downsample()
         if time.monotonic() - _last_flush >= FLUSH_INTERVAL_SEC:
             _flush_to_disk()
@@ -282,7 +325,7 @@ RANGES = {
 
 
 def query(range_key):
-    """Return {tier, resolution, samples:[[ts,cpu,mem,rx,tx],...]} for the
+    """Return {tier, resolution, samples:[[ts,cpu,mem,rx,tx,temp],...]} for the
     requested range. Falls back to 'live' if the range is unknown."""
     if range_key not in RANGES:
         range_key = "5m"

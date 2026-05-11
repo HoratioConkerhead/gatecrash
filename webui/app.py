@@ -2709,7 +2709,7 @@ def api_save_auto_stop_settings():
 
 @app.route("/api/stats")
 def api_stats():
-    """Return tier of (ts, cpu%, mem%, rx_bps, tx_bps) for the requested range."""
+    """Return tier of (ts, cpu%, mem%, rx_bps, tx_bps, temp_c) for the requested range."""
     rng = request.args.get("range", "5m")
     return jsonify(sysstats.query(rng))
 

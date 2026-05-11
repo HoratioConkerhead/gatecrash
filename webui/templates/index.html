@@ -1743,6 +1743,10 @@ async function dismissWelcome() {
         <div class="stats-chart-head"><span>Network <span style="font-weight:400;color:#888;font-size:11px;" id="stats-net-iface"></span></span><span id="stats-net-now" class="stats-chart-now">—</span></div>
         <canvas id="stats-canvas-net" height="120"></canvas>
       </div>
+      <div class="stats-chart" id="stats-chart-temp" style="display:none;">
+        <div class="stats-chart-head"><span>Temperature</span><span id="stats-temp-now" class="stats-chart-now">—</span></div>
+        <canvas id="stats-canvas-temp" height="120"></canvas>
+      </div>
     </div>
     <div id="stats-empty" style="font-size:12px;color:#888;margin-top:10px;display:none;">
       No samples yet — the sampler builds history over time. Come back in a minute.
@@ -3309,6 +3313,7 @@ function _drawChart(canvas, samples, opts) {
     let label;
     if (opts.suffix === '%') label = v.toFixed(0) + '%';
     else if (opts.suffix === 'bps') label = _formatBps(v);
+    else if (opts.suffix === '°C') label = v.toFixed(0) + '°';
     else label = v.toFixed(0);
     ctx.fillText(label, padL - 4, y + 3);
   }
@@ -3376,6 +3381,7 @@ async function loadStats() {
     const cpuCanvas = document.getElementById('stats-canvas-cpu');
     const memCanvas = document.getElementById('stats-canvas-mem');
     const netCanvas = document.getElementById('stats-canvas-net');
+    const tempCanvas = document.getElementById('stats-canvas-temp');
 
     _drawChart(cpuCanvas, samples, {
       extract: s => s[1], yMax: 100, suffix: '%',
@@ -3392,16 +3398,31 @@ async function loadStats() {
       strokeStyle: '#ff9800', fillStyle: 'rgba(255, 152, 0, 0.18)',
       secondStrokeStyle: '#9c27b0', secondFillStyle: 'rgba(156, 39, 176, 0.15)',
     });
+    // Hide the temperature chart on hardware with no readable thermal sensor
+    // (e.g. Hyper-V VMs) — stats.py reports 0.0 in that case.
+    const maxTemp = samples.reduce((m, s) => (s[5] != null && s[5] > m) ? s[5] : m, 0);
+    const tempWrap = document.getElementById('stats-chart-temp');
+    if (maxTemp > 0) {
+      tempWrap.style.display = '';
+      _drawChart(tempCanvas, samples, {
+        extract: s => s[5] || 0, yMax: 100, suffix: '°C',
+        strokeStyle: '#f44336', fillStyle: 'rgba(244, 67, 54, 0.18)',
+      });
+    } else {
+      tempWrap.style.display = 'none';
+    }
 
     if (samples.length) {
       const last = samples[samples.length - 1];
       document.getElementById('stats-cpu-now').textContent = last[1].toFixed(1) + '%';
       document.getElementById('stats-mem-now').textContent = last[2].toFixed(1) + '%';
       document.getElementById('stats-net-now').textContent = '↓ ' + _formatBps(last[3]) + '   ↑ ' + _formatBps(last[4]);
+      document.getElementById('stats-temp-now').textContent = (last[5] && last[5] > 0) ? last[5].toFixed(1) + '°C' : '—';
     } else {
       document.getElementById('stats-cpu-now').textContent = '—';
       document.getElementById('stats-mem-now').textContent = '—';
       document.getElementById('stats-net-now').textContent = '—';
+      document.getElementById('stats-temp-now').textContent = '—';
     }
   } catch(e) {
     // silent — sampler may not be running yet on a fresh boot
