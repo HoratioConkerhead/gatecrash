@@ -2233,6 +2233,11 @@ function switchTab(name, btn) {
 // ---------------------------------------------------------------------------
 
 const PAGE_VERSION = '{{ version }}';
+// True only when the server rendered the authenticated app (not the
+// login/setup/TLS-choice screens). Gates all polling and API calls so
+// they don't fire — and crucially don't trigger fetchStatus's 401-reload
+// path, which on the login screen would loop forever.
+const _AUTH_READY = {% if not setup_required and not login_required %}true{% else %}false{% endif %};
 
 // Connection-loss tracking — show an overlay after N consecutive status failures
 // so transient network blips don't flash a scary modal at the user.
@@ -2503,20 +2508,22 @@ async function fetchDNS() {
   } catch(e) { /* ignore */ }
 }
 
-setInterval(fetchStatus, 3000);
-setInterval(fetchDNS, 5000);
-setInterval(function() { if (_activeTab === 'devices') loadSavedDevices(); }, 5000);
-setInterval(function() { if (_activeTab === 'diagnostics') loadDiagnostics(); }, 10000);
-fetchStatus();
-
-// Reload if version has changed when the user switches back to the app
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
-  // fetchStatus() already checks version and triggers hardReload() if changed
+if (_AUTH_READY) {
+  setInterval(fetchStatus, 3000);
+  setInterval(fetchDNS, 5000);
+  setInterval(function() { if (_activeTab === 'devices') loadSavedDevices(); }, 5000);
+  setInterval(function() { if (_activeTab === 'diagnostics') loadDiagnostics(); }, 10000);
   fetchStatus();
-  if (_activeTab === 'devices') loadSavedDevices();
-  else if (_activeTab === 'diagnostics') loadDiagnostics();
-});
+
+  // Reload if version has changed when the user switches back to the app
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    // fetchStatus() already checks version and triggers hardReload() if changed
+    fetchStatus();
+    if (_activeTab === 'devices') loadSavedDevices();
+    else if (_activeTab === 'diagnostics') loadDiagnostics();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Controls
@@ -4199,9 +4206,11 @@ async function applyUpdate() {
 }
 
 // Load on page open
-loadConfig();
-loadWGConfigSummary();
-loadSavedDevices();
+if (_AUTH_READY) {
+  loadConfig();
+  loadWGConfigSummary();
+  loadSavedDevices();
+}
 initThemeUI();
 initPwaButton();
 
