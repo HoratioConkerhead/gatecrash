@@ -1175,7 +1175,7 @@ def ensure_update_check_thread():
 AUTO_STOP_SETTINGS_FILE = "/opt/gatecrash/auto_stop_settings.json"
 
 _DEFAULT_AUTO_STOP_SETTINGS = {
-    "enabled":           False,
+    "enabled":           True,
     "threshold_kb_min":  250,     # KB/min — streaming is ~5-50 MB/min
     "idle_timeout_min":  30,      # minutes below threshold before auto-stop
     "min_active_min":    5,       # don't auto-stop within first N minutes

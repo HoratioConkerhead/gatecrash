@@ -121,7 +121,7 @@ If you have selected HTTPS, you'll need to accepts the browser warning
 
 ![image](docs/setup-2-https-warning.png)
 
-### 7. Configure  Password
+### 7. Configure Password
 
 ![image](docs/setup-3-password.png)
 
@@ -137,7 +137,11 @@ Follow the Configure steps:
 3. **Pick what to tunnel.** On the **Devices** tab, toggle on the saved devices you want routed through the VPN.
 
 4. **Turn on Gatecrash.** Hit the transparent power button at the bottom of the screen and the selected devices will start tunnelling through the VPN.
-    
+
+### 9. Add As App and Finish!
+
+You can add Gatecrash as an app on your phone.  Click 4035
+
 
 ---
 

@@ -15,7 +15,7 @@
 # the 8 lines marked "# Gatecrash:" — search the file to see each change.
 #
 # Lines changed from DietPi defaults:
-#   AUTO_SETUP_GLOBAL_PASSWORD       dietpi    ->  <your-password>
+#   AUTO_SETUP_GLOBAL_PASSWORD       dietpi    ->  <your-password> (set theis BELOW, not in this line!)
 #   AUTO_SETUP_NET_HOSTNAME          DietPi    ->  gatecrash
 #   CONFIG_SERIAL_CONSOLE_ENABLE     1         ->  0
 #   AUTO_SETUP_APT_INSTALLS          (unset)   ->  Gatecrash dependency list

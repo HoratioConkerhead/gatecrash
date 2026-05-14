@@ -49,3 +49,16 @@ bash "$REPO_DIR/setup.sh"
 echo ""
 echo "=== Gatecrash install complete ==="
 echo "Open the web UI at http://gatecrash.local to finish configuration."
+
+# On DietPi first-boot, AUTO_SETUP_CUSTOM_SCRIPT_EXEC runs this script as root,
+# and DietPi's automated install leaves an auto-login root session on tty1.
+# Reboot to close that session. Only fires on DietPi (detected by /boot/dietpi.txt)
+# so manual invocations on other systems don't get a surprise reboot.
+# Override with GATECRASH_NO_REBOOT=1.
+if [[ -f /boot/dietpi.txt && "${GATECRASH_NO_REBOOT:-0}" != "1" ]]; then
+    echo ""
+    echo "DietPi first-boot detected — rebooting in 10s to clear the root auto-login."
+    echo "Set GATECRASH_NO_REBOOT=1 to skip. Ctrl+C to cancel."
+    sleep 10
+    systemctl reboot
+fi
