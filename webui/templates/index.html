@@ -808,7 +808,7 @@ function showTlsOverlay() {
   const el = document.getElementById('tls-choice-screen');
   if (el) el.style.display = 'flex';
   const cm = document.getElementById('http-confirm-modal');
-  if (cm) cm.setAttribute('hidden', '');
+  if (cm) cm.style.display = 'none';
 }
 function hideTlsOverlay() {
   const el = document.getElementById('tls-choice-screen');
@@ -931,11 +931,14 @@ function showHttpsSwitchOverlay() {
 
 <!-- Soft-confirm modal: explicit acknowledgment before submitting a
      password over plain HTTP (preserves the MED-17 "user has consciously
-     chosen the transport" property when the banner is ignored). -->
-<div id="http-confirm-modal" hidden style="
+     chosen the transport" property when the banner is ignored).
+     NOTE: must start with display:none, not the `hidden` attribute —
+     the inline `display:flex` we toggle in to show it would otherwise
+     override the user-agent `[hidden] { display:none }` rule. -->
+<div id="http-confirm-modal" style="
   position:fixed;inset:0;z-index:10001;
   background:rgba(15,15,26,0.92);
-  align-items:center;justify-content:center;display:flex;
+  align-items:center;justify-content:center;display:none;
   font-family:inherit;
 ">
   <div style="
@@ -958,8 +961,11 @@ function showHttpsSwitchOverlay() {
   </div>
 </div>
 <script>
+function showHttpConfirmModal() {
+  document.getElementById('http-confirm-modal').style.display = 'flex';
+}
 function hideHttpConfirmModal() {
-  document.getElementById('http-confirm-modal').setAttribute('hidden', '');
+  document.getElementById('http-confirm-modal').style.display = 'none';
 }
 
 async function doSetupAuth(forceHttp) {
@@ -973,7 +979,7 @@ async function doSetupAuth(forceHttp) {
   // On HTTP with no explicit TLS choice yet, show the soft-confirm modal.
   // The "Send anyway" button calls doSetupAuth(true) to bypass this check.
   if (window._onHttp && !window._httpsPrefRecorded && !forceHttp) {
-    document.getElementById('http-confirm-modal').removeAttribute('hidden');
+    showHttpConfirmModal();
     return;
   }
   btn.disabled = true;
