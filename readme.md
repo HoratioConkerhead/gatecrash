@@ -32,15 +32,21 @@ VPN drops, target devices fall back to the normal gateway automatically.
 ## Quickstart — DietPi on any modern SBC
 
 The fastest path to a working Gatecrash box is **DietPi** on a Raspberry Pi or
-any DietPi-supported SBC. DietPi has a built-in headless-install hook that runs
+any DietPi-supported SBC.
+
+DietPi has a built-in headless-install hook that runs
 Gatecrash's installer on first boot, so you flash an SD card, drop in a config
 file, plug it in, and walk away.
 
-> **Hardware:** any modern SBC and 8GB or larger SD Card. Note that a Pi Model B is too slow.
+Quickstart Hardware Requirements:
 
-These instructions assume a Raspberry Pi and use the Raspberry Pi Imager. For other devices, see [How to install DietPi](https://dietpi.com/docs/install/) from the Diet Pi website.
+* **Supported Single Board Computer** which supports Diet Pi, with Ethernet, e.g. Raspberry Pi 4. *Pi Model B is too slow*
+* **SD card** 8GB or larger.  May work with 4GB, but has not been tested
+* **Wired Ethernet** connection
 
 ### 1. Flash DietPi to the SD card
+
+These instructions assume a Raspberry Pi and use the Raspberry Pi Imager. For other devices, see [How to install DietPi](https://dietpi.com/docs/install/) from the Diet Pi website.
 
 Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/), then:
 
@@ -48,10 +54,8 @@ Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/), then:
 2. **Choose OS** → *Other general-purpose OS* → **DietPi** → **DietPi OS (64-bit)**
 3. **Choose Storage** — your SD card
 
-For more on DietPi's headless install flow, this guide is a good walkthrough:
-<https://secsys.pages.dev/posts/dietpi>
 
-### 2. Drop our `dietpi.txt` onto the SD card
+### 2. Drop the new `dietpi.txt` onto the SD card
 
 After flashing, the SD card's boot partition will be visible on your computer
 (usually a volume named `bootfs` or `boot`). Replace its `dietpi.txt` with
@@ -63,7 +67,7 @@ the one from this repo:
 Save it as `dietpi.txt` in the SD card's boot partition, overwriting the
 DietPi default. Then **open it and change one line**:
 
-```
+``` 
 AUTO_SETUP_GLOBAL_PASSWORD=<your-password>
 ```
 
@@ -97,24 +101,43 @@ Eject the SD card, put it in the SBC, plug into ethernet, power on.
 
 First boot does a lot: DietPi configures itself, installs the apt packages,
 clones the Gatecrash repo, and runs `setup.sh`. On a modern Pi this is ~10–20
-minutes. You don't need to log in — wait for the box to settle, then move on.
+minutes. You don't need to log in.  
 
-### 4. Open the web UI
+When the install has finished, the SD card light will be off.
 
-On a computer or phone on the same LAN:
+### 4. Open the web UI 
 
-```
-http://gatecrash.local
-```
+On a computer or phone on the same LAN navigate to **http://gatecrash.local**
 
-You'll see a welcome / TLS-choice screen, then a password setup. After that,
-configure your WireGuard config and target devices through the UI.
+### 5. choose HTTPS or HTTP
 
-### 5. Test WireGuard, then start Gatecrash
+Choose HTTPS, or skip accept warning for HTTP:
 
-Use **Start WireGuard** and **Check VPN IP** in the UI to confirm the tunnel
-exits via your provider. Then hit **Start Gatecrash** to begin routing target
-devices through it.
+![image](docs/setup-1-welcome-and-https-warning.png)
+
+### 6. Accepts HTTPS warning and continue
+
+If you have selected HTTPS, you'll need to accepts the browser warning
+
+![image](docs/setup-2-https-warning.png)
+
+### 7. Configure  Password
+
+![image](docs/setup-3-password.png)
+
+### 8. Configure Gatecrash
+Follow the Configure steps:
+
+![image](docs/setup-4-four-steps.png)
+
+1. **Configure the VPN.**  Download a WireGuard config from your VPN provider (e.g. for Albania), then drag it onto the folder icon on the **Config** tab — or click to browse.
+
+2. **Find your devices** On the **Devices** tab, scan your LAN and save the devices you want to route through the VPN.
+
+3. **Pick what to tunnel.** On the **Devices** tab, toggle on the saved devices you want routed through the VPN.
+
+4. **Turn on Gatecrash.** Hit the transparent power button at the bottom of the screen and the selected devices will start tunnelling through the VPN.
+    
 
 ---
 
