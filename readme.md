@@ -140,7 +140,7 @@ Follow the Configure steps:
 
 ### 9. Add As App and Finish!
 
-You can add Gatecrash as an app on your phone.  Click 4035
+You can add Gatecrash as an app on your phone.  Click **TO BE FINISHED**
 
 
 ---
@@ -230,10 +230,10 @@ After setup, the web UI is available at **http://gatecrash.local**. It provides:
 
 ## Auto-Stop (Idle Device Timeout)
 
-Gatecrash can automatically disable devices that have gone idle — useful for
+Gatecrash automatically disables devices that have gone idle — useful for
 devices left on overnight after streaming.
 
-Enable it in **Config → Auto-Stop** in the web UI. Settings:
+Disable it in **Config → Auto-Stop** in the web UI. Settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|

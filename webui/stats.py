@@ -189,29 +189,36 @@ def _avg_sample(samples):
 
 
 def _maybe_downsample():
-    """Walk tiers and, where the lower tier holds enough samples to fill one
-    bucket of the higher tier, write that average up. Called inside _lock."""
+    """Walk tiers and, where the lower tier has a completed bucket worth of
+    samples for the higher tier, write that average up. Called inside _lock.
+
+    A bucket counts as "completed" once a lower sample lands in a *later*
+    bucket — i.e. we've moved past it. This avoids depending on a fixed
+    samples-per-bucket ratio, which broke when live's actual sample cadence
+    (1–10s, user-configurable) didn't match its declared 1s resolution."""
     for i in range(len(TIERS) - 1):
-        lower_name, lower_res, _ = TIERS[i]
+        lower_name, _lower_res, _ = TIERS[i]
         upper_name, upper_res, _ = TIERS[i + 1]
-        ratio = upper_res // lower_res
         upper = _buffers[upper_name]
         lower = _buffers[lower_name]
         if not lower:
             continue
-        # We promote whenever the most recent lower sample lands on a fresh
-        # upper bucket boundary (and we have enough lower samples to cover it).
         last_ts = lower[-1][0]
-        bucket = last_ts - (last_ts % upper_res)
-        if upper and upper[-1][0] >= bucket:
-            continue   # already wrote this bucket
-        window = [s for s in lower if bucket <= s[0] < bucket + upper_res]
-        if len(window) < ratio:
-            continue   # bucket not yet full
+        # Promote the bucket *before* the one last_ts falls in — the current
+        # one may still be accumulating. Promoting it early would lock in a
+        # partial average and drop the rest of the window.
+        current_bucket_start = last_ts - (last_ts % upper_res)
+        bucket_start = current_bucket_start - upper_res
+        bucket_end = bucket_start + upper_res
+        if upper and upper[-1][0] >= bucket_end:
+            continue   # already promoted this bucket
+        window = [s for s in lower if bucket_start <= s[0] < bucket_end]
+        if not window:
+            continue
         avg = _avg_sample(window)
         if avg is not None:
             # Snap timestamp to bucket boundary for stable x-axis
-            upper.append((bucket + upper_res, avg[1], avg[2], avg[3], avg[4], avg[5]))
+            upper.append((bucket_end, avg[1], avg[2], avg[3], avg[4], avg[5]))
 
 
 # ---------------------------------------------------------------------------
