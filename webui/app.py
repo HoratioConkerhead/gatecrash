@@ -121,13 +121,14 @@ def _https_enabled():
     """Return True if HTTPS should be served on the next service start.
 
     No pref file → fresh install in pre-setup state.  We come up on
-    HTTP so the user lands on the friendly welcome / TLS-choice screen
-    without an upfront self-signed cert warning.  That screen forces
-    an explicit choice (HTTPS recommended; HTTP only on trusted
-    networks) BEFORE the password is set, which is what closes the
-    first-boot cleartext-password window. (vulnerabilities_3.md #2 /
-    MED-17.)  Existing installs (token or no-auth marker present)
-    without a pref file are treated as HTTPS-on for backward compat."""
+    HTTP so the user lands on the password-setup screen without an
+    upfront self-signed cert warning.  An "Enable HTTPS" banner above
+    the password field, plus a soft-confirm modal on submit, force an
+    explicit acknowledgment before a cleartext password goes out, which
+    is what closes the first-boot cleartext-password window.
+    (vulnerabilities_3.md #2 / MED-17.)  Existing installs (token or
+    no-auth marker present) without a pref file are treated as HTTPS-on
+    for backward compat."""
     try:
         with open(HTTPS_PREF_PATH) as f:
             return f.read().strip() == "on"
@@ -1514,11 +1515,16 @@ def sync_targets_from_devices():
 def index():
     no_auth = _no_auth_enabled()
     setup_required = not no_auth and _get_stored_token() is None
-    # First boot only: until the user has explicitly picked HTTPS or HTTP,
-    # show the welcome / TLS-choice screen instead of jumping straight to
-    # the password form.  (MED-17)
-    tls_choice_required = setup_required and not os.path.isfile(HTTPS_PREF_PATH)
     login_required = not no_auth and not setup_required and not session.get("authenticated")
+    # `on_http` controls the "Consider upgrading to HTTPS" banner on the
+    # setup and login screens (Pi-hole-style nudge).  See the CLAUDE.md
+    # invariant for the wider first-boot flow.
+    on_http = not _TLS_ENABLED
+    # `https_pref_recorded` lets the setup-screen JS know whether the user
+    # has already made an explicit TLS choice (skip / continue).  When it's
+    # False, submitting the password over HTTP triggers the soft-confirm
+    # modal that closes MED-17 (explicit cleartext acknowledgment).
+    https_pref_recorded = os.path.isfile(HTTPS_PREF_PATH)
     if not setup_required and not login_required:
         ensure_dns_thread()
         ensure_ip_watch()
@@ -1534,8 +1540,9 @@ def index():
     )
     return render_template("index.html", version=version,
                            setup_required=setup_required,
-                           tls_choice_required=tls_choice_required,
                            login_required=login_required,
+                           on_http=on_http,
+                           https_pref_recorded=https_pref_recorded,
                            show_welcome=show_welcome, csrf_token=csrf)
 
 
@@ -1544,12 +1551,11 @@ def api_setup_tls():
     """First-boot TLS choice — write HTTPS_PREF before the password is set
     so the credential-bearing /api/setup-auth POST runs over the chosen
     transport.  Only usable in pre-setup state (no token, no no-auth
-    marker, no pref yet).  Idempotent: rejects re-submission once the
-    pref exists, so a fresh choice requires a factory reset."""
+    marker).  Re-callable while in setup mode so the user can change
+    their mind via the banner / soft-confirm modal; the setup-mode
+    lockdown in require_auth() prevents post-setup misuse."""
     if _get_stored_token() is not None or _no_auth_enabled():
         return jsonify({"ok": False, "error": "Setup is already complete"}), 403
-    if os.path.isfile(HTTPS_PREF_PATH):
-        return jsonify({"ok": False, "error": "TLS choice already made"}), 403
     enable = bool((request.json or {}).get("enable"))
     if enable:
         cert = os.path.join(CERT_DIR, "gatecrash.crt")
@@ -1585,8 +1591,9 @@ def api_setup_auth():
         session["authenticated"] = True
         session.permanent = True
         audit_log.info("AUTH  Initial password configured from %s", request.remote_addr)
-        # HTTPS / HTTP was already chosen at the welcome screen via
-        # /api/setup-tls, so we do NOT touch HTTPS_PREF or restart here.
+        # HTTPS / HTTP was already chosen via the banner / soft-confirm
+        # modal (POST /api/setup-tls), so we do NOT touch HTTPS_PREF or
+        # restart here.
         _mark_welcome_pending()
         return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
     except Exception:

@@ -758,27 +758,29 @@
 </head>
 <body>
 
-{% if tls_choice_required %}
+{% if setup_required %}
 <div id="tls-choice-screen" style="
   position:fixed;inset:0;z-index:9999;
-  background:#0f0f1a;
-  display:flex;align-items:center;justify-content:center;
+  background:rgba(15,15,26,0.92);
+  display:none;align-items:center;justify-content:center;
   font-family:inherit;
 ">
   <div style="
     background:#1a1a2e;border-radius:16px;padding:36px 32px;
-    width:420px;max-width:92vw;
+    width:420px;max-width:92vw;position:relative;
     box-shadow:0 8px 40px rgba(0,0,0,0.6);
   ">
+    <a href="#" id="tls-close-link" onclick="hideTlsOverlay();return false;"
+       style="position:absolute;top:12px;right:16px;color:#888;font-size:18px;text-decoration:none;line-height:1;">&times;</a>
     <div style="text-align:center;margin-bottom:24px;">
       <img src="/static/icon-192.svg" style="width:52px;height:52px;margin-bottom:12px;" alt="">
-      <h1 style="color:#e0e0e0;font-size:20px;font-weight:700;margin-bottom:6px;">Welcome to Gatecrash</h1>
+      <h1 style="color:#e0e0e0;font-size:20px;font-weight:700;margin-bottom:6px;">Enable HTTPS for Gatecrash</h1>
       <p style="color:#888;font-size:13px;line-height:1.5;">
-        Before you set a password, let's secure the connection.
+        Encrypt the connection between your browser and the appliance.
       </p>
     </div>
     <div style="font-size:13px;color:#c8c8d8;background:#252535;border-radius:6px;padding:12px 14px;margin-bottom:18px;line-height:1.6;">
-      Anything you type in the Gatecrash UI &mdash; including the password you're about to set &mdash; travels over your local network. <strong style="color:#e8e8f0;">HTTPS encrypts it.</strong> Strongly recommended.
+      Anything you type in the Gatecrash UI &mdash; including your password &mdash; travels over your local network. <strong style="color:#e8e8f0;">HTTPS encrypts it.</strong>
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid #3a3a52;font-size:12px;color:#9090a8;">
         When you click below, your browser will warn about a self-signed certificate &mdash; that's normal for an appliance like this. Click <strong style="color:#e8e8f0;">Advanced</strong> &rarr; <strong style="color:#e8e8f0;">Proceed</strong> (or your browser's equivalent) to continue.
       </div>
@@ -793,20 +795,30 @@
          style="color:#888;font-size:12px;text-decoration:underline;">
         Skip &mdash; continue without HTTPS (less secure)
       </a>
-      <div style="color:#666;font-size:11px;margin-top:6px;line-height:1.5;">
-        Only safe on a fully trusted home network. Your password will be sent in cleartext.
-      </div>
     </div>
   </div>
 </div>
 <script>
+// _httpsPrefRecorded: has the user made an explicit TLS choice yet?  Drives
+// the soft-confirm modal on the setup screen (MED-17 explicit acknowledgment).
+window._httpsPrefRecorded = {{ 'true' if https_pref_recorded else 'false' }};
+window._onHttp = {{ 'true' if on_http else 'false' }};
+
+function showTlsOverlay() {
+  const el = document.getElementById('tls-choice-screen');
+  if (el) el.style.display = 'flex';
+  const cm = document.getElementById('http-confirm-modal');
+  if (cm) cm.setAttribute('hidden', '');
+}
+function hideTlsOverlay() {
+  const el = document.getElementById('tls-choice-screen');
+  if (el) el.style.display = 'none';
+}
+
 async function doSetupTls(enable) {
   const err = document.getElementById('tls-err');
   const btn = document.getElementById('tls-https-btn');
   err.style.display = 'none';
-  if (!enable) {
-    if (!confirm('Continue without HTTPS?\n\nYour password and everything else you do in Gatecrash will be sent in cleartext over your local network. This is only safe on a fully trusted home network.\n\nYou can enable HTTPS later in the Security tab.\n\nContinue?')) return;
-  }
   btn.disabled = true;
   if (enable) btn.textContent = 'Switching to HTTPS…';
   try {
@@ -817,8 +829,9 @@ async function doSetupTls(enable) {
     });
     const d = await r.json();
     if (d.ok) {
+      window._httpsPrefRecorded = true;
       if (d.switch_to_https) showHttpsSwitchOverlay();
-      else window.location.reload();
+      else hideTlsOverlay();
     } else {
       err.textContent = d.error || 'Failed to save TLS choice.';
       err.style.display = '';
@@ -851,9 +864,9 @@ function showHttpsSwitchOverlay() {
 </script>
 {% endif %}
 
-{% if setup_required and not tls_choice_required %}
+{% if setup_required %}
 <div id="setup-screen" style="
-  position:fixed;inset:0;z-index:9999;
+  position:fixed;inset:0;z-index:9998;
   background:#0f0f1a;
   display:flex;align-items:center;justify-content:center;
   font-family:inherit;
@@ -863,7 +876,7 @@ function showHttpsSwitchOverlay() {
     width:360px;max-width:92vw;
     box-shadow:0 8px 40px rgba(0,0,0,0.6);
   ">
-    <div style="text-align:center;margin-bottom:28px;">
+    <div style="text-align:center;margin-bottom:24px;">
       <img src="/static/icon-192.svg" style="width:52px;height:52px;margin-bottom:12px;" alt="">
       <h1 style="color:#e0e0e0;font-size:20px;font-weight:700;margin-bottom:6px;">Set up Gatecrash</h1>
       <p style="color:#888;font-size:13px;line-height:1.5;">
@@ -871,6 +884,19 @@ function showHttpsSwitchOverlay() {
         You'll be prompted for it on each login.
       </p>
     </div>
+    {% if on_http %}
+    <div id="setup-https-banner" style="
+      border-top:2px solid #ff9800;
+      background:rgba(255,152,0,0.08);
+      color:#c8c8d8;font-size:12px;line-height:1.5;
+      padding:10px 12px;border-radius:6px;margin-bottom:18px;text-align:center;
+    ">
+      Consider upgrading to
+      <a href="#" onclick="showTlsOverlay();return false;"
+         style="color:#ff9800;font-weight:600;text-decoration:underline;cursor:pointer;">HTTPS</a>
+      (end-to-end encryption)
+    </div>
+    {% endif %}
     <div style="margin-bottom:16px;">
       <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">PASSWORD</label>
       <input id="setup-pw" type="password" placeholder="At least 8 characters" autocomplete="new-password"
@@ -902,8 +928,41 @@ function showHttpsSwitchOverlay() {
     </div>
   </div>
 </div>
+
+<!-- Soft-confirm modal: explicit acknowledgment before submitting a
+     password over plain HTTP (preserves the MED-17 "user has consciously
+     chosen the transport" property when the banner is ignored). -->
+<div id="http-confirm-modal" hidden style="
+  position:fixed;inset:0;z-index:10001;
+  background:rgba(15,15,26,0.92);
+  align-items:center;justify-content:center;display:flex;
+  font-family:inherit;
+">
+  <div style="
+    background:#1a1a2e;border-radius:16px;padding:28px 28px;
+    width:380px;max-width:92vw;
+    box-shadow:0 8px 40px rgba(0,0,0,0.6);
+  ">
+    <h2 style="color:#e0e0e0;font-size:17px;font-weight:700;margin-bottom:10px;">Send password unencrypted?</h2>
+    <p style="color:#c8c8d8;font-size:13px;line-height:1.6;margin-bottom:18px;">
+      You're about to send your password over plain HTTP. Anyone on your LAN could intercept it.
+    </p>
+    <button onclick="hideHttpConfirmModal();showTlsOverlay();" class="btn-green"
+      style="width:100%;padding:11px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;margin-bottom:10px;">
+      Enable HTTPS instead &nbsp;&middot;&nbsp; recommended
+    </button>
+    <button onclick="hideHttpConfirmModal();doSetupAuth(true);"
+      style="width:100%;padding:11px;border-radius:8px;font-size:13px;font-weight:600;border:1px solid #2d2d44;background:transparent;color:#bbb;cursor:pointer;">
+      Send anyway
+    </button>
+  </div>
+</div>
 <script>
-async function doSetupAuth() {
+function hideHttpConfirmModal() {
+  document.getElementById('http-confirm-modal').setAttribute('hidden', '');
+}
+
+async function doSetupAuth(forceHttp) {
   const pw  = document.getElementById('setup-pw').value;
   const pw2 = document.getElementById('setup-pw2').value;
   const err = document.getElementById('setup-err');
@@ -911,9 +970,25 @@ async function doSetupAuth() {
   err.style.display = 'none';
   if (pw !== pw2) { err.textContent = 'Passwords do not match.'; err.style.display = ''; return; }
   if (pw.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.style.display = ''; return; }
+  // On HTTP with no explicit TLS choice yet, show the soft-confirm modal.
+  // The "Send anyway" button calls doSetupAuth(true) to bypass this check.
+  if (window._onHttp && !window._httpsPrefRecorded && !forceHttp) {
+    document.getElementById('http-confirm-modal').removeAttribute('hidden');
+    return;
+  }
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
+    // If the user clicked "Send anyway", record the TLS choice as off
+    // first so the server (and any reload) sees an explicit pref.
+    if (window._onHttp && !window._httpsPrefRecorded && forceHttp) {
+      await fetch('/api/setup-tls', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enable: false}),
+      });
+      window._httpsPrefRecorded = true;
+    }
     const r = await fetch('/api/setup-auth', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -965,11 +1040,27 @@ document.getElementById('setup-pw').focus();
     width:360px;max-width:92vw;
     box-shadow:0 8px 40px rgba(0,0,0,0.6);
   ">
-    <div style="text-align:center;margin-bottom:28px;">
+    <div style="text-align:center;margin-bottom:24px;">
       <img src="/static/icon-192.svg" style="width:52px;height:52px;margin-bottom:12px;" alt="">
       <h1 style="color:#e0e0e0;font-size:20px;font-weight:700;margin-bottom:6px;">Gatecrash</h1>
       <p style="color:#888;font-size:13px;">Enter your password to continue.</p>
     </div>
+    {% if on_http %}
+    <div id="login-https-banner" style="
+      border-top:2px solid #ff9800;
+      background:rgba(255,152,0,0.08);
+      color:#c8c8d8;font-size:12px;line-height:1.5;
+      padding:10px 12px;border-radius:6px;margin-bottom:18px;text-align:center;
+    ">
+      Consider upgrading to
+      <a href="#" onclick="toggleLoginHttpsHelp();return false;"
+         style="color:#ff9800;font-weight:600;text-decoration:underline;cursor:pointer;">HTTPS</a>
+      (end-to-end encryption)
+      <div id="login-https-help" hidden style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,152,0,0.3);color:#9090a8;font-size:11px;">
+        Log in, then visit <strong style="color:#c8c8d8;">Config &rarr; Security</strong> to enable HTTPS.
+      </div>
+    </div>
+    {% endif %}
     <div style="margin-bottom:20px;">
       <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">PASSWORD</label>
       <input id="login-pw" type="password" placeholder="Password" autocomplete="current-password"
@@ -987,6 +1078,13 @@ document.getElementById('setup-pw').focus();
   </div>
 </div>
 <script>
+function toggleLoginHttpsHelp() {
+  const el = document.getElementById('login-https-help');
+  if (!el) return;
+  if (el.hasAttribute('hidden')) el.removeAttribute('hidden');
+  else el.setAttribute('hidden', '');
+}
+
 async function doLogin() {
   const pw  = document.getElementById('login-pw').value;
   const err = document.getElementById('login-err');
