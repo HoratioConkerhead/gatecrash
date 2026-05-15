@@ -446,8 +446,10 @@ BOOT_STATE_FILE = "/opt/gatecrash/boot_state.json"
 
 
 def _read_boot_state():
-    """Read the boot-mode config: mode ('resume'|'manual') and last-known running state."""
-    default = {"mode": "resume", "wg_running": False, "gc_running": False}
+    """Read the boot-mode config: mode ('resume'|'manual'), last-known running
+    state, and last_alive (epoch of the most recent heartbeat — see
+    _heartbeat_loop / _apply_boot_downtime_policy)."""
+    default = {"mode": "resume", "wg_running": False, "gc_running": False, "last_alive": 0}
     try:
         with open(BOOT_STATE_FILE) as f:
             data = json.load(f)
@@ -466,10 +468,13 @@ def _write_boot_state(data):
 
 def _record_service_state(service, running):
     """Record that a service was started or stopped (for resume-on-boot)."""
-    state = _read_boot_state()
-    key = "wg_running" if service == "wg" else "gc_running"
-    state[key] = running
-    _write_boot_state(state)
+    # Locked: _heartbeat_loop also does a read-modify-write of boot_state.json,
+    # so unguarded the two could clobber each other's field.
+    with _state_lock:
+        state = _read_boot_state()
+        key = "wg_running" if service == "wg" else "gc_running"
+        state[key] = running
+        _write_boot_state(state)
 
 
 # ---------------------------------------------------------------------------
@@ -2996,11 +3001,127 @@ def _http_redirect_server():
     redir.run(host="0.0.0.0", port=80, debug=False)
 
 
+# ---------------------------------------------------------------------------
+# Boot-time downtime policy
+# ---------------------------------------------------------------------------
+# A reboot resets auto-stop's idle clock. To keep auto-stop "sticky" across a
+# long power-off, the webui records a periodic heartbeat (last_alive) while
+# running; on the next boot, if the appliance was off longer than the auto-stop
+# idle timeout, devices that participate in auto-stop come up disabled.
+
+def _clock_synced():
+    """True if the system clock has been synchronised (NTP). The Pi has no RTC,
+    so at early boot the clock is untrustworthy — downtime maths must wait for
+    this. timesyncd touches /run/systemd/timesync/synced on a successful sync;
+    fall back to timedatectl for non-timesyncd setups."""
+    if os.path.isfile("/run/systemd/timesync/synced"):
+        return True
+    out, rc = run_argv(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])
+    return rc == 0 and out.strip() == "yes"
+
+
+_HEARTBEAT_INTERVAL_SEC = 300   # 5 min — SD-friendly; ample vs a 30-min timeout
+
+def _heartbeat_loop():
+    """Record a 'last_alive' epoch in boot_state.json every few minutes so the
+    next boot can tell how long the appliance was off. Only writes once the
+    clock is NTP-synced, so the recorded timestamp is always trustworthy."""
+    while True:
+        try:
+            if _clock_synced():
+                with _state_lock:
+                    state = _read_boot_state()
+                    state["last_alive"] = int(time.time())
+                    _write_boot_state(state)
+        except Exception as e:
+            audit_log.error("BOOT  Heartbeat write failed: %s", e)
+        time.sleep(_HEARTBEAT_INTERVAL_SEC)
+
+
+def _box_uptime_sec():
+    """Seconds since the box booted (not since the webui process started)."""
+    try:
+        with open("/proc/uptime") as f:
+            return float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _apply_boot_downtime_policy():
+    """Once, at process start: if the appliance was powered off longer than the
+    auto-stop idle timeout, disable devices that participate in auto-stop so
+    they don't come back VPN-routed after a long outage. Quick reboots (under
+    the timeout) and webui-only restarts are left alone."""
+    # Only act on a genuine box boot. A large box uptime means the webui just
+    # restarted while the box (and Gatecrash) kept running — applying the policy
+    # then would wrongly disable devices that were routing fine.
+    uptime = _box_uptime_sec()
+    if uptime is None or uptime > 900:
+        return
+
+    # The Pi has no RTC: wait until the clock is synced before trusting time
+    # maths. Give up after ~5 min and fail safe (honour saved device state).
+    waited = 0
+    while not _clock_synced():
+        if waited >= 300:
+            audit_log.warning("BOOT  Clock never synced — honouring saved device state")
+            return
+        time.sleep(10)
+        waited += 10
+
+    try:
+        settings = load_auto_stop_settings()
+        if not settings.get("enabled"):
+            return  # auto-stop globally off — nothing to enforce
+
+        last_alive = _read_boot_state().get("last_alive", 0)
+        if not last_alive:
+            return  # never recorded (first boot) — fail safe
+
+        downtime = time.time() - last_alive
+        if downtime <= settings["idle_timeout_min"] * 60:
+            return  # short downtime — honour saved device state
+
+        devices = load_devices()
+        disabled = []
+        for dev in devices:
+            if dev.get("enabled") and dev.get("auto_stop", True):
+                dev["enabled"] = False
+                disabled.append(dev)
+        if not disabled:
+            return
+
+        save_devices(devices)
+        for dev in disabled:
+            audit_log.info(
+                "BOOT  Device %s (%s) disabled — appliance was off %.0f min "
+                "(> %d min auto-stop timeout)",
+                dev.get("ip") or "?", dev.get("nickname") or dev.get("mac", "?"),
+                downtime / 60, settings["idle_timeout_min"],
+            )
+
+        # Re-sync routing. If Gatecrash is up (resumed by gatecrash-resume),
+        # hot-reload so the disabled devices stop being intercepted; if it's
+        # down, the updated config is enough for the next start.
+        old_targets = read_conf().get("TARGET_IPS", "").split()
+        new_targets = sync_targets_from_devices()
+        out, _ = run_argv(["systemctl", "is-active", "gatecrash"])
+        if out.strip() == "active":
+            ok, msg = _hot_reload_targets(old_targets, new_targets)
+            if not ok:
+                audit_log.error("BOOT  Hot reload after downtime policy failed: %s", msg)
+    except Exception as e:
+        audit_log.error("BOOT  Downtime policy failed: %s", e)
+
+
 if __name__ == "__main__":
     ensure_dns_thread()
     ensure_ip_watch()
     ensure_traffic_watch()
     ensure_stats_sampler()
+    # Heartbeat (records last_alive) + boot downtime policy — see above.
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    threading.Thread(target=_apply_boot_downtime_policy, daemon=True).start()
     # Re-apply OS-update apt config from saved settings on every boot — keeps
     # the apt files in sync if they get removed by an OS upgrade or wiped.
     try:

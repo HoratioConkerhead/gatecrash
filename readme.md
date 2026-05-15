@@ -282,6 +282,12 @@ WireGuard themselves are state-resumed via `gatecrash-resume.service`:
 whatever was running at the time of the last shutdown comes back up, so
 the two services stay in sync (no "gatecrash up but WG down" surprises).
 
+Saved devices keep their on/off state across a reboot — with one exception:
+if the appliance was powered off for longer than the auto-stop idle timeout,
+devices that participate in auto-stop come back **disabled** (the same outcome
+auto-stop would have reached had the box stayed on). Devices exempted from
+auto-stop are unaffected and resume exactly as they were.
+
 If you'd rather have it always-on regardless of last state:
 
 ```bash
