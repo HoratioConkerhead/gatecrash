@@ -11,7 +11,7 @@ has changed — no apps to install, no settings to configure, no profiles to
 accept. Your smart TV, games console, or streaming box just quietly gets a
 different exit IP.
 
-Can be run on a SPC (e.g. Raspberry Pi), dedicated machine, or virtual machine.
+Can be run on an SBC (e.g. Raspberry Pi), dedicated machine, or virtual machine.
 
 ### What makes this different?
 
@@ -233,11 +233,12 @@ After setup, the web UI is available at **http://gatecrash.local**. It provides:
 Gatecrash automatically disables devices that have gone idle — useful for
 devices left on overnight after streaming.
 
-Disable it in **Config → Auto-Stop** in the web UI. Settings:
+Auto-stop is **on by default**. Configure or disable it in
+**Config → Auto-Stop** in the web UI. Settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Traffic threshold | 50 KB/min | Below this = "idle" (streaming is typically 5,000+ KB/min) |
+| Traffic threshold | 250 KB/min | Below this = "idle" (streaming is typically 5,000+ KB/min) |
 | Idle timeout | 30 min | How long below threshold before disabling |
 | Minimum active time | 5 min | Don't auto-stop recently enabled devices |
 
@@ -271,7 +272,7 @@ sudo systemctl enable wg-quick@wg0
 | vpntarget route disappears | WireGuard was restarted | `start.sh` restores it automatically on next start |
 | ARP spoof silently fails (Hyper-V) | MAC spoofing disabled | VM Settings → Network → Advanced → Enable MAC Address Spoofing |
 | TCP connections hang | MTU too high | Set `MTU = 1280` in wg0.conf, add MSS clamp iptables rule |
-| DNS not resolving | DNS routed through tunnel (UDP unreliable) | Use REDIRECT to local systemd-resolved instead of DNAT to remote DNS |
+| DNS not resolving for a target | DNAT rule missing, or 1.1.1.1 unreachable | Check `iptables -t nat -L PREROUTING -n` for the target's `udp dpt:53 → 1.1.1.1` rule; confirm the box can reach 1.1.1.1 |
 | dnsmasq won't start | Port 53 conflict with systemd-resolved | Don't install dnsmasq — systemd-resolved handles port 53 |
 | `tcpdump -i wg0` says "No such device" | WireGuard tunnel is down | Use Start WireGuard button in web UI, or `sudo wg-quick up wg0` |
 | VM's own internet breaks | `Table = off` missing in wg0.conf | WireGuard is hijacking the default route |
@@ -280,12 +281,14 @@ sudo systemctl enable wg-quick@wg0
 
 ## How It Fails Safely
 
-- If the VM goes down, target devices lose internet briefly until their ARP
+- If the box goes down, target devices lose internet briefly until their ARP
   cache expires (typically 1–2 minutes), then traffic routes normally via the
   real gateway
-- If WireGuard goes down, marked packets have no route and are dropped — the
-  target loses internet but no traffic leaks outside the tunnel
-- If arpspoof stops, ARP caches self-correct and traffic bypasses the VM
+- If WireGuard goes down, target traffic falls back to the normal gateway via
+  a secondary route — the target stays online, but its traffic is no longer
+  routed through the VPN until WireGuard is back up. This is a deliberate
+  fail-open: there is no kill-switch
+- If arpspoof stops, ARP caches self-correct and traffic bypasses the box
 
 ## Known Issues
 

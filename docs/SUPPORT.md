@@ -11,7 +11,7 @@ Two systemd services run on the device:
 
 | Service | Purpose | Auto-start |
 |---------|---------|------------|
-| `gatecrash-webui` | Flask web UI on port 80 | Yes (on boot) |
+| `gatecrash-webui` | Flask web UI on port 80 (HTTP) or 443 (HTTPS) | Yes (on boot) |
 | `gatecrash` | ARP spoofing + routing daemon | Optional (enable once tested) |
 
 ```bash
@@ -30,7 +30,7 @@ sudo systemctl restart gatecrash         # restart routing after target change
 | `/opt/gatecrash/gatecrash.conf` | Main config: LAN/VPN interface names, gateway IP, target IPs, route table, fwmark |
 | `/etc/wireguard/wg0.conf` | WireGuard VPN config (private key, peer, endpoint) |
 | `/opt/gatecrash/devices.json` | Saved devices (MAC → nickname/IP mapping) |
-| `/opt/gatecrash/webui_token` | Web UI login password (plaintext, `chmod 600`) |
+| `/opt/gatecrash/webui_token` | Web UI login password — bcrypt hash, `chmod 600` |
 | `/opt/gatecrash/webui_secret` | Flask session signing key (binary, auto-generated) |
 | `/opt/gatecrash/update_settings.json` | Auto-update preferences |
 | `/opt/gatecrash/repo_path` | Path to the cloned git repo (used by the updater) |
@@ -117,22 +117,27 @@ echo "yournewpassword" | sudo tee /opt/gatecrash/webui_token
 sudo chmod 600 /opt/gatecrash/webui_token
 sudo systemctl restart gatecrash-webui
 ```
+The token is written here as plaintext; the web UI accepts it on the next
+login and transparently re-stores it as a bcrypt hash.
 
 ---
 
 ## Factory Reset
 
 The web UI has a factory reset option under **Config → Danger Zone**. It requires your
-current password and wipes:
+current password, then wipes everything and reboots:
 
-- All network configuration
-- Saved devices
+- All network configuration and saved devices
 - WireGuard VPN config
-- Login password
-- Session keys and update preferences
+- Login password, session key, and no-auth / HTTPS preferences
+- Update, auto-stop and OS-update settings
+- Stats history (the Diagnostics graphs)
+- TLS certificate and key
+- Audit log and per-target arpspoof logs
 
 It does **not** remove the Gatecrash software or the git repository.
-After a reset, the device returns to its first-run state and will prompt for a new password on next visit.
+After a reset, the device reboots into its first-run state on plain HTTP and
+prompts for a new password on next visit.
 
 **If the device needs to be wiped via SSH** (e.g. locked out of the UI):
 ```bash
@@ -142,8 +147,20 @@ sudo rm -f /opt/gatecrash/gatecrash.conf \
            /opt/gatecrash/devices.json \
            /opt/gatecrash/webui_token \
            /opt/gatecrash/webui_secret \
+           /opt/gatecrash/webui_no_auth \
+           /opt/gatecrash/https_pref \
+           /opt/gatecrash/welcome_pending \
            /opt/gatecrash/update_settings.json \
-           /etc/wireguard/wg0.conf
+           /opt/gatecrash/auto_stop_settings.json \
+           /opt/gatecrash/os_update_settings.json \
+           /opt/gatecrash/boot_state.json \
+           /opt/gatecrash/stats.json \
+           /opt/gatecrash/stats_settings.json \
+           /opt/gatecrash/certs/gatecrash.crt \
+           /opt/gatecrash/certs/gatecrash.key \
+           /etc/wireguard/wg0.conf \
+           /var/log/gatecrash.log* \
+           /var/log/gatecrash-arpspoof-*.log
 sudo systemctl start gatecrash-webui
 ```
 

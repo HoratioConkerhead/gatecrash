@@ -8,10 +8,13 @@
 
 ```bash
 sudo apt update
-sudo apt install -y wireguard dsniff iptables iproute2 curl python3 python3-venv tcpdump avahi-daemon
+sudo apt install -y wireguard dsniff iptables iproute2 curl python3 python3-venv \
+    tcpdump avahi-daemon nmap conntrack unattended-upgrades
 ```
 
-`dsniff` provides `arpspoof`.
+`dsniff` provides `arpspoof`. `nmap` powers the web UI's network scan,
+`conntrack` is used to flush per-target connection state on start/stop, and
+`unattended-upgrades` backs the optional OS auto-update feature.
 
 ## 2. Configure WireGuard
 
@@ -83,16 +86,23 @@ Create a separate routing table that only marked packets will use:
 grep -q "vpntarget" /etc/iproute2/rt_tables || \
     echo "100 vpntarget" >> /etc/iproute2/rt_tables
 
-# Add default route via WireGuard in that table
-sudo ip route add default dev wg0 table vpntarget
+# Add two default routes to that table, at different metrics:
+#   metric 100 — through WireGuard (preferred when the tunnel is up)
+#   metric 200 — via the real gateway (fallback when WireGuard is down)
+sudo ip route add default dev wg0 table vpntarget metric 100
+sudo ip route add default via 192.168.1.254 dev eth0 table vpntarget metric 200
 
 # Packets with fwmark 0x1 use the vpntarget table
 sudo ip rule add fwmark 0x1 table vpntarget
 ```
 
+The lower-metric WireGuard route wins whenever the tunnel is up; if it drops,
+the metric-200 route keeps the target online via the normal gateway (a
+deliberate fail-open — there is no kill-switch).
+
 **Important:** `wg-quick down/up` wipes the vpntarget routing table. You must
-re-run `ip route add default dev wg0 table vpntarget` after any WireGuard
-restart. `start.sh` handles this automatically.
+re-add the `metric 100` WireGuard route after any WireGuard restart.
+`start.sh` handles this automatically.
 
 ## 6. iptables Rules
 
@@ -110,31 +120,32 @@ sudo iptables -t mangle -A FORWARD -o $VPN_IF -p tcp --tcp-flags SYN,RST SYN -j 
 # NAT out through WireGuard
 sudo iptables -t nat -A POSTROUTING -o $VPN_IF -j MASQUERADE
 
-# Allow forwarding both directions
+# Default-deny forwarding, then allow only the target both directions.
+# ip_forward stays on, so without the default DROP the box is an open router.
+sudo iptables -P FORWARD DROP
 sudo iptables -A FORWARD -i $LAN_IF -o $VPN_IF -s $TARGET_IP -j ACCEPT
 sudo iptables -A FORWARD -i $VPN_IF -o $LAN_IF -d $TARGET_IP -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-# DNS — redirect to local resolver (see DNS section below)
-sudo iptables -t nat -A PREROUTING -s $TARGET_IP -p udp --dport 53 -j REDIRECT --to-port 53
-sudo iptables -t nat -A PREROUTING -s $TARGET_IP -p tcp --dport 53 -j REDIRECT --to-port 53
+# DNS — DNAT the target's DNS queries to a public resolver (see DNS section below)
+sudo iptables -t nat -A PREROUTING -s $TARGET_IP -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53
+sudo iptables -t nat -A PREROUTING -s $TARGET_IP -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53
 ```
 
 ## 7. DNS
 
-DNS queries from the target device are redirected to the box's local resolver
-using REDIRECT rules (see above). Debian runs `systemd-resolved` by default,
-which handles this automatically.
+DNS queries from the target device are **DNAT'd to a public resolver**
+(`1.1.1.1:53`) rather than sent to the box itself.
 
-**Why not route DNS through the tunnel?**
+**Why not REDIRECT DNS to a local resolver?**
 
-During testing, we found that UDP traffic through the WireGuard tunnel can be
-unreliable (DNS queries sent but no responses received), while TCP works fine.
-Since DNS is just name resolution and doesn't reveal the target device's
-apparent location (the actual traffic still exits through the VPN), resolving
-DNS locally is simpler and more reliable.
+`REDIRECT` sends the queries to port 53 *on the box*. That only works if
+something is actually listening there — and on a minimal appliance nothing
+reliably is, so target devices that use plain DNS simply lose name resolution.
+DNAT to `1.1.1.1` always points at a working resolver. DNS doesn't reveal the
+target's apparent location anyway — the actual traffic still exits through the
+VPN.
 
 **Do not install dnsmasq** — it conflicts with `systemd-resolved` on port 53.
-The default `systemd-resolved` setup works out of the box.
 
 ## 8. ARP Spoofing
 
