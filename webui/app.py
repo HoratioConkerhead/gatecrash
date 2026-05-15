@@ -2206,15 +2206,22 @@ def api_save_device():
         audit_log.info("DEVICE  %s (%s): %s [from %s]", mac, nick, detail, request.remote_addr)
     else:
         audit_log.info("DEVICE  New %s (%s): %s [from %s]", mac, nick, detail, request.remote_addr)
-    # If this request enabled a device but WireGuard is down, the device's
-    # traffic falls back to the plain LAN route (not the tunnel). Tell the UI
-    # so it can offer to start WG — but only when a config actually exists,
-    # otherwise starting WG would just fail.
-    prompt_wg_start = False
-    if data.get("enabled") is True and os.path.isfile(WG_CONF_PATH):
+    # Surface service state so the UI can prompt to start whatever a
+    # newly-enabled device needs: Gatecrash to intercept its traffic at all,
+    # WireGuard to route that traffic through the VPN. Only probed when this
+    # request actually enabled the device.
+    device_enabled = data.get("enabled") is True
+    gc_running = False
+    wg_up = False
+    if device_enabled:
+        out, _ = run_argv(["systemctl", "is-active", "gatecrash"])
+        gc_running = out.strip() == "active"
         _, rc = run_argv(["ip", "link", "show", "wg0"])
-        prompt_wg_start = rc != 0
-    return jsonify({"ok": True, "devices": devices, "prompt_wg_start": prompt_wg_start})
+        wg_up = rc == 0
+    return jsonify({"ok": True, "devices": devices,
+                    "device_enabled": device_enabled,
+                    "gc_running": gc_running, "wg_up": wg_up,
+                    "wg_configured": os.path.isfile(WG_CONF_PATH)})
 
 
 @app.route("/api/saved-devices/delete", methods=["POST"])

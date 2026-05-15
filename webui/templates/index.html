@@ -3018,12 +3018,22 @@ async function toggleDevice(mac, enabled, idx) {
   if (d.ok) _savedDevices = d.devices;
   updateMasterButton();
   autoRestart();
-  if (d.ok && d.prompt_wg_start) {
-    if (confirm("Device enabled — but WireGuard isn't running, so its traffic won't go through the VPN. Start WireGuard now?")) {
-      const wr = await fetch('/api/wg/start', {method: 'POST'});
-      const wd = await wr.json();
-      showOutput(wd.output || (wd.ok ? 'WireGuard started.' : 'Failed to start WireGuard.'));
-      fetchStatus();
+  if (d.ok && d.device_enabled) {
+    // A newly-enabled device needs Gatecrash up to be intercepted at all, and
+    // WireGuard up to be routed through the VPN. Prompt to start whatever's
+    // missing — one confirm, naming exactly what's down.
+    const needGc = !d.gc_running;
+    const needWg = d.wg_configured && !d.wg_up;
+    if (needGc || needWg) {
+      let why;
+      if (needGc && needWg) why = "Gatecrash and WireGuard aren't running, so its traffic won't be intercepted or routed through the VPN";
+      else if (needGc)      why = "Gatecrash isn't running, so its traffic won't be intercepted";
+      else                  why = "WireGuard isn't running, so its traffic won't go through the VPN";
+      if (confirm("Device enabled — but " + why + ". Start now?")) {
+        if (needGc) await fetch('/api/start', {method: 'POST'});
+        if (needWg) await fetch('/api/wg/start', {method: 'POST'});
+        fetchStatus();
+      }
     }
   }
 }
