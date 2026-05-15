@@ -173,8 +173,8 @@
   #ctrl-output {
     margin-top: 10px;
     font-size: 13px;
-    color: var(--text-secondary);
-    white-space: pre-wrap;
+    font-weight: 600;
+    color: #f44336;
   }
   .hidden { display: none; }
 
@@ -2681,11 +2681,17 @@ let _gcRunning = false;
 let _wgRunning = false;
 let _wgConfigured = true;  // assume true until status says otherwise (avoids false alarm on first paint)
 
-function showOutput(text) {
+// Service-control feedback is errors-only: the status pill already shows
+// Running/Stopped on success, so we only surface a line when something fails.
+function showError(text) {
   const el = document.getElementById('ctrl-output');
   if (!el) return;
   el.classList.remove('hidden');
-  el.textContent = text || '(no output)';
+  el.textContent = '✗ ' + (text || 'Action failed.');
+}
+function clearOutput() {
+  const el = document.getElementById('ctrl-output');
+  if (el) { el.classList.add('hidden'); el.textContent = ''; }
 }
 
 function updateToggleButtons() {
@@ -2717,35 +2723,33 @@ async function toggleMaster() {
   const btn = document.getElementById('btn-power');
 
   if (!_gcRunning && !_wgConfigured) { openNoVpnModal(); return; }
+  clearOutput();
   btn.disabled = true;
   if (_gcRunning) {
     // Stop: shut down GC and WG
-    showOutput('Stopping...');
     const r = await fetch('/api/stop', {method: 'POST'});
     const d = await r.json();
-    showOutput(d.output || (d.ok ? 'Gatecrash stopped.' : 'Failed to stop Gatecrash.'));
+    if (!d.ok) showError('Failed to stop Gatecrash.');
     if (_wgRunning) {
       const r2 = await fetch('/api/wg/stop', {method: 'POST'});
       const d2 = await r2.json();
-      showOutput(d2.output || (d2.ok ? 'WireGuard stopped.' : 'Failed to stop WireGuard.'));
+      if (!d2.ok) showError('Failed to stop WireGuard.');
     }
   } else {
     // Start: bring up WG first, then GC
     if (!_wgRunning) {
-      showOutput('Starting WireGuard...');
       const r1 = await fetch('/api/wg/start', {method: 'POST'});
       const d1 = await r1.json();
       if (!d1.ok) {
-        showOutput('Failed to start WireGuard: ' + (d1.output || 'unknown error'));
+        showError('WireGuard failed to start — check its config.');
         btn.disabled = false;
         fetchStatus();
         return;
       }
     }
-    showOutput('Syncing devices and starting Gatecrash...');
     const r2 = await fetch('/api/saved-devices/sync', {method: 'POST'});
     const d2 = await r2.json();
-    showOutput(d2.ok ? `Started with ${d2.active_ips.length} device(s).` : 'Gatecrash failed: ' + (d2.output || 'unknown error'));
+    if (!d2.ok) showError('Gatecrash failed to start.');
   }
   btn.disabled = false;
   fetchStatus();
@@ -2755,17 +2759,16 @@ async function toggleMaster() {
 async function toggleGC() {
   const btn = document.getElementById('btn-toggle-gc');
   if (!_gcRunning && !_wgConfigured) { openNoVpnModal(); return; }
+  clearOutput();
   btn.disabled = true;
   if (_gcRunning) {
-    showOutput('Stopping Gatecrash...');
     const r = await fetch('/api/stop', {method: 'POST'});
     const d = await r.json();
-    showOutput(d.output || (d.ok ? 'Gatecrash stopped.' : 'Failed.'));
+    if (!d.ok) showError('Failed to stop Gatecrash.');
   } else {
-    showOutput('Syncing devices and starting Gatecrash...');
     const r = await fetch('/api/saved-devices/sync', {method: 'POST'});
     const d = await r.json();
-    showOutput(d.ok ? `Started with ${d.active_ips.length} device(s).` : 'Failed: ' + (d.output || 'unknown error'));
+    if (!d.ok) showError('Gatecrash failed to start.');
   }
   btn.disabled = false;
   fetchStatus();
@@ -2775,17 +2778,16 @@ async function toggleGC() {
 async function toggleWG() {
   const btn = document.getElementById('btn-toggle-wg');
   if (!_wgRunning && !_wgConfigured) { openNoVpnModal(); return; }
+  clearOutput();
   btn.disabled = true;
   if (_wgRunning) {
-    showOutput('Stopping WireGuard...');
     const r = await fetch('/api/wg/stop', {method: 'POST'});
     const d = await r.json();
-    showOutput(d.output || (d.ok ? 'WireGuard stopped.' : 'Failed.'));
+    if (!d.ok) showError('Failed to stop WireGuard.');
   } else {
-    showOutput('Starting WireGuard...');
     const r = await fetch('/api/wg/start', {method: 'POST'});
     const d = await r.json();
-    showOutput(d.output || (d.ok ? 'WireGuard started.' : 'Failed.'));
+    if (!d.ok) showError('WireGuard failed to start — check its config.');
   }
   btn.disabled = false;
   fetchStatus();
