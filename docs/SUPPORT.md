@@ -149,6 +149,61 @@ sudo systemctl start gatecrash-webui
 
 ---
 
+## Troubleshooting
+
+### Login succeeds but you keep landing back on the login screen (after a rebuild/reset)
+
+**Symptom:** the password is correct (you can see `AUTH Login succeeded` in
+`/var/log/gatecrash.log`), but the browser stays on the login screen after
+reload. DevTools shows no `session` cookie under the appliance origin.
+
+**Cause:** your browser has a stale `session` cookie from a previous install
+that ran HTTPS — it was set with the `Secure` flag and lives in the HTTPS
+origin's cookie bucket. Now you're on HTTP, and Chrome's "Leave Secure Cookies
+Alone" rule blocks the HTTP server from overwriting a Secure-flagged cookie
+with the same name. The new install has no authority over the old cookie.
+
+**Fix:** clear cookies for the appliance origin.
+
+- Chrome / Edge DevTools → **Application** → **Storage** → **Clear site data**
+  (tick "Cookies and other site data") → **Clear site data**.
+- Firefox → padlock icon → **Clear cookies and site data**.
+
+Then reload the page and log in again.
+
+This trap only fires if you've previously used HTTPS on this box (or a
+prior box at the same hostname) and have now switched to HTTP. Once HTTPS
+is enabled (or re-enabled) in the new install, the cookies bucket re-aligns
+and the issue won't recur.
+
+### Status page shows "down" / API calls failing on a fresh HTTP install
+
+**Symptom:** the UI loads on HTTP, but the Status tab shows the box as down,
+or DevTools shows API requests redirected to `https://gatecrash.local/...`
+which then fail.
+
+**Cause:** an earlier HTTPS test pinned HSTS in your browser. Gatecrash
+sends `Strict-Transport-Security: max-age=86400` (24 h) while serving
+HTTPS, so for the next 24 hours the browser auto-upgrades *every* request
+to that hostname — including the API calls from the UI — to HTTPS. A fresh
+HTTP-only install has no way to clear that pin remotely; the supported
+HTTPS-disable path (`/api/set-https` or `/api/factory-reset`) sends
+`max-age=0` to clear it, but a reflash / SD-card swap skips that.
+
+**Fix:** clear the HSTS pin for the appliance hostname.
+
+- Chrome / Edge → visit `chrome://net-internals/#hsts` → **Delete domain
+  security policies** → enter `gatecrash.local` (and/or `gatecrash`) →
+  **Delete** → hard-reload (Ctrl+Shift+R).
+- Firefox → **History → Manage History** → search the hostname → right-click
+  → **Forget About This Site**. (This is the nuclear option — also clears
+  cookies and cache for that site.)
+
+Alternatively, just wait 24 hours for the pin to expire, or re-enable HTTPS
+on the new install (the browser will trust the pin again).
+
+---
+
 ## Architecture Summary
 
 ```
