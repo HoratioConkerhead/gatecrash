@@ -45,6 +45,7 @@ All user data lives under `/opt/gatecrash/` except the WireGuard config in `/etc
 | `VPN_IF` | `wg0` | WireGuard interface name |
 | `GATEWAY_IP` | `192.168.1.254` | Your router's IP (auto-detected) |
 | `TARGET_IPS` | `192.168.1.90 192.168.1.105` | IPs currently being routed through the VPN |
+| `DNS_SERVER` | `1.1.1.1` | Resolver target devices' DNS is DNAT'd to (blank = default `1.1.1.1`) |
 | `ROUTE_TABLE` | `vpntarget` | Name of the policy routing table |
 | `FWMARK` | `0x1` | Packet mark used to identify target traffic |
 

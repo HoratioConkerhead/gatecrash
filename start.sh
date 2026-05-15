@@ -22,6 +22,9 @@ fi
 # shellcheck source=/dev/null
 source "$CONF"
 
+# DNS resolver for target devices — blank in the conf means "use the default".
+DNS_SERVER="${DNS_SERVER:-1.1.1.1}"
+
 # ---------------------------------------------------------------------------
 # 1. WireGuard — check only, do NOT bring up
 # ---------------------------------------------------------------------------
@@ -175,11 +178,12 @@ for ip in $TARGET_IPS; do
     iptables -A FORWARD -d "$ip" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
     iptables -A FORWARD -i "$VPN_IF" -o "$LAN_IF" -d "$ip" -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-    # DNAT DNS to Cloudflare via the VPN tunnel (prevents DNS leaks and avoids
+    # DNAT DNS to $DNS_SERVER via the VPN tunnel (prevents DNS leaks and avoids
     # needing a local DNS server — REDIRECT to local :53 broke devices that
-    # use plain DNS because nothing was listening).
-    iptables -t nat -A PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination 1.1.1.1:53
-    iptables -t nat -A PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination 1.1.1.1:53
+    # use plain DNS because nothing was listening). Resolver is configurable
+    # via DNS_SERVER in gatecrash.conf; defaults to 1.1.1.1.
+    iptables -t nat -A PREROUTING -s "$ip" -p udp --dport 53 -j DNAT --to-destination "$DNS_SERVER:53"
+    iptables -t nat -A PREROUTING -s "$ip" -p tcp --dport 53 -j DNAT --to-destination "$DNS_SERVER:53"
 
     # Kill any stale arpspoof for this target before (re)starting
     pkill -f "arpspoof -i $LAN_IF -t $ip $GATEWAY_IP" 2>/dev/null || true

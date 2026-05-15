@@ -145,6 +145,10 @@ DNAT to `1.1.1.1` always points at a working resolver. DNS doesn't reveal the
 target's apparent location anyway — the actual traffic still exits through the
 VPN.
 
+`1.1.1.1` is just the default — use any public resolver you prefer (your VPN
+provider's, a privacy DNS, etc.). On a `setup.sh` install this is the
+`DNS_SERVER` key in `gatecrash.conf`.
+
 **Do not install dnsmasq** — it conflicts with `systemd-resolved` on port 53.
 
 ## 8. ARP Spoofing

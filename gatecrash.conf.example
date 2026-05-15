@@ -17,6 +17,12 @@ GATEWAY_IP=""
 # Example: TARGET_IPS="192.168.1.90 192.168.1.183"
 TARGET_IPS="192.168.1.90"
 
+# DNS resolver for target devices. Gatecrash DNAT's each target's DNS queries
+# to this address (port 53) so they resolve through the VPN tunnel rather than
+# leaking to your ISP. Leave blank to use the default, 1.1.1.1 (Cloudflare).
+# Set it to your VPN provider's resolver, a privacy DNS, etc. if you prefer.
+DNS_SERVER=""
+
 # Policy routing table name and fwmark (no need to change these)
 ROUTE_TABLE="vpntarget"
 FWMARK="0x1"

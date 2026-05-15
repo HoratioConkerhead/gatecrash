@@ -220,13 +220,40 @@ After setup, the web UI is available at **http://gatecrash.local**. It provides:
 - **Device management** — scan the LAN, save devices by MAC, enable/disable per-device
 - **Auto-stop** — automatically disable idle devices after configurable timeout (e.g. user stopped streaming and went to bed)
 - **VPN Test** — checks your VPN exit IP through the tunnel
-- **Config editor** — set target IPs, gateway, and LAN interface
+- **Config editor** — set target IPs, gateway, LAN interface, and DNS server
 - **WireGuard config** — upload/paste your VPN provider's config
 - **WireGuard stats** — endpoint, last handshake, bytes transferred
 - **DNS query log** — live view of DNS requests from target devices
 - **Audit log** — persistent log of all service actions, auth events, config changes (Diagnostics tab)
 - **Updates** — check for and apply updates from GitHub in one click
 - **PWA** — install as an app on iPhone, Android, or desktop
+
+## DNS
+
+Gatecrash intercepts the **DNS queries of target devices** and sends them,
+through the VPN tunnel, to a public resolver — `1.1.1.1` (Cloudflare) by
+default. This is deliberate, for two reasons:
+
+- **No DNS leak.** A target is normally told (by DHCP) to use your router as
+  its DNS server. If its queries went there, your ISP would see every domain
+  the device looks up — even though the actual traffic exits via the VPN.
+- **Geo-shifting actually works.** Streaming services pick your content region
+  partly from *where the DNS query resolved*. Resolving via your local ISP
+  would tell them your real location; resolving through the tunnel keeps it
+  consistent with the VPN exit.
+
+It also has to be rewritten for a practical reason: a target's configured DNS
+server is usually a LAN address (the router), and a LAN address can't be
+reached *through* a VPN tunnel — so the destination must be changed to a
+publicly routable resolver.
+
+**This only affects target devices.** Gatecrash's own traffic — and everything
+else on your LAN — keeps using your normal DNS, untouched.
+
+**Choosing the resolver.** `1.1.1.1` is just the default. Set your own in
+**Config → DNS Server** in the web UI (or `DNS_SERVER` in `gatecrash.conf`) —
+e.g. your VPN provider's resolver, or a privacy DNS. Leave it blank for the
+default. Restart Gatecrash to apply a change.
 
 ## Auto-Stop (Idle Device Timeout)
 

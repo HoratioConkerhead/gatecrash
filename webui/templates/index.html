@@ -1694,6 +1694,11 @@ async function dismissWelcome() {
         <div class="hint" id="cfg-gateway-hint">Leave blank to auto-detect from the default route on every boot. Only set this if auto-detect picks the wrong one (e.g. a host masquerading as a gateway).</div>
       </div>
       <div class="field">
+        <label>DNS Server <span style="font-weight:400;color:#999;">(for target devices)</span></label>
+        <input type="text" id="cfg-dns" placeholder="leave blank for default (1.1.1.1)">
+        <div class="hint">Target devices' DNS queries are sent here, through the VPN tunnel — this stops DNS leaking to your ISP. Leave blank for Cloudflare (1.1.1.1), or set your VPN provider's / preferred resolver. Restart Gatecrash to apply a change.</div>
+      </div>
+      <div class="field">
         <label>Target IPs (manual override)</label>
         <input type="text" id="cfg-targets" placeholder="192.168.1.90 192.168.1.183">
         <div class="hint">Auto-populated from saved devices. Only edit manually if needed.</div>
@@ -2811,6 +2816,7 @@ async function loadConfig() {
   document.getElementById('cfg-targets').value = d.TARGET_IPS || '';
   document.getElementById('cfg-vpn').value     = d.VPN_IF     || 'wg0';
   document.getElementById('cfg-gateway').value = d.GATEWAY_IP || '';
+  document.getElementById('cfg-dns').value     = d.DNS_SERVER || '';
   const hint = document.getElementById('cfg-gateway-hint');
   if (d.DETECTED_GATEWAY) {
     hint.innerHTML = 'Auto-detected: <strong>' + d.DETECTED_GATEWAY + '</strong>. Leave blank to use this on every boot. Only set an override if auto-detect picks the wrong one.';
@@ -2823,6 +2829,7 @@ async function saveConfig() {
     LAN_IF:      document.getElementById('cfg-lan').value.trim(),
     VPN_IF:      document.getElementById('cfg-vpn').value.trim(),
     GATEWAY_IP:  document.getElementById('cfg-gateway').value.trim(),
+    DNS_SERVER:  document.getElementById('cfg-dns').value.trim(),
     TARGET_IPS:  document.getElementById('cfg-targets').value.trim(),
     ROUTE_TABLE: 'vpntarget',
     FWMARK:      '0x1',
@@ -2849,6 +2856,7 @@ async function saveAndRestart() {
     LAN_IF:      document.getElementById('cfg-lan').value.trim(),
     VPN_IF:      document.getElementById('cfg-vpn').value.trim(),
     GATEWAY_IP:  document.getElementById('cfg-gateway').value.trim(),
+    DNS_SERVER:  document.getElementById('cfg-dns').value.trim(),
     TARGET_IPS:  document.getElementById('cfg-targets').value.trim(),
     ROUTE_TABLE: 'vpntarget',
     FWMARK:      '0x1',

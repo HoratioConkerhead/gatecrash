@@ -599,7 +599,7 @@ _NICK_MAX = 64
 # SECURITY: gatecrash.conf is `source`d as bash by start.sh/stop.sh, so any
 # key or value written here executes as root.  The allowlist + per-field
 # validators below are the only thing preventing config-write → RCE.  (CRIT-4)
-_CONF_ALLOWED_KEYS = {"LAN_IF", "VPN_IF", "GATEWAY_IP", "TARGET_IPS", "ROUTE_TABLE", "FWMARK"}
+_CONF_ALLOWED_KEYS = {"LAN_IF", "VPN_IF", "GATEWAY_IP", "TARGET_IPS", "ROUTE_TABLE", "FWMARK", "DNS_SERVER"}
 
 # SECURITY: WireGuard config validation. Both the upload endpoint and the
 # in-browser editor go through _normalize_wg_config() below, which parses the
@@ -840,7 +840,7 @@ def _valid_branch(name):
 
 
 def read_conf():
-    conf = {"LAN_IF": "", "VPN_IF": "wg0", "GATEWAY_IP": "", "TARGET_IPS": "", "ROUTE_TABLE": "vpntarget", "FWMARK": "0x1"}
+    conf = {"LAN_IF": "", "VPN_IF": "wg0", "GATEWAY_IP": "", "TARGET_IPS": "", "ROUTE_TABLE": "vpntarget", "FWMARK": "0x1", "DNS_SERVER": ""}
     try:
         with open(CONF_PATH) as f:
             for line in f:
@@ -874,6 +874,7 @@ def write_conf(data):
         "GATEWAY_IP": _valid_ip_or_empty,
         "FWMARK": _valid_fwmark,
         "TARGET_IPS": _valid_target_ips,
+        "DNS_SERVER": _valid_ip_or_empty,
     }
     # GATEWAY_IP is intentionally allowed to be blank — start.sh auto-detects
     # from the default route on every boot, so the appliance works when moved
@@ -2250,8 +2251,11 @@ def _hot_reload_targets(old_ips, new_ips):
         lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
         vpn_if = _valid_if(conf.get("VPN_IF", "wg0"))
         fwmark = _valid_fwmark(conf.get("FWMARK", "0x1"))
+        # Blank DNS_SERVER means "use the default" — mirror start.sh.
+        dns_server = _valid_ip(conf.get("DNS_SERVER") or "1.1.1.1")
     except ValueError as e:
         return False, f"Invalid config: {e}"
+    dns_dest = f"{dns_server}:53"
 
     old_set = set(old_ips)
     new_set = set(new_ips)
@@ -2284,8 +2288,8 @@ def _hot_reload_targets(old_ips, new_ips):
         run_argv(["iptables", "-D", "FORWARD", "-i", lan_if, "-s", ip, "-j", "ACCEPT"])
         run_argv(["iptables", "-D", "FORWARD", "-d", ip, "-o", lan_if, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
         run_argv(["iptables", "-D", "FORWARD", "-i", vpn_if, "-o", lan_if, "-d", ip, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
-        run_argv(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "udp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
-        run_argv(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
+        run_argv(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "udp", "--dport", "53", "-j", "DNAT", "--to-destination", dns_dest])
+        run_argv(["iptables", "-t", "nat", "-D", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "53", "-j", "DNAT", "--to-destination", dns_dest])
 
         # Flush conntrack for this target
         run_argv(["conntrack", "-D", "-s", ip])
@@ -2304,8 +2308,8 @@ def _hot_reload_targets(old_ips, new_ips):
         run_argv(["iptables", "-A", "FORWARD", "-i", lan_if, "-s", ip, "-j", "ACCEPT"])
         run_argv(["iptables", "-A", "FORWARD", "-d", ip, "-o", lan_if, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
         run_argv(["iptables", "-A", "FORWARD", "-i", vpn_if, "-o", lan_if, "-d", ip, "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT"])
-        run_argv(["iptables", "-t", "nat", "-A", "PREROUTING", "-s", ip, "-p", "udp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
-        run_argv(["iptables", "-t", "nat", "-A", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "53", "-j", "DNAT", "--to-destination", "1.1.1.1:53"])
+        run_argv(["iptables", "-t", "nat", "-A", "PREROUTING", "-s", ip, "-p", "udp", "--dport", "53", "-j", "DNAT", "--to-destination", dns_dest])
+        run_argv(["iptables", "-t", "nat", "-A", "PREROUTING", "-s", ip, "-p", "tcp", "--dport", "53", "-j", "DNAT", "--to-destination", dns_dest])
 
         # Flush conntrack so existing connections get re-routed
         run_argv(["conntrack", "-D", "-s", ip])
@@ -2411,6 +2415,12 @@ def api_diagnostics_dump():
         _valid_ip(gw_for_dig)
     except ValueError:
         gw_for_dig = "192.168.1.254"
+    # Configured target DNS resolver (blank = default 1.1.1.1).
+    dns_for_dig = conf.get("DNS_SERVER") or "1.1.1.1"
+    try:
+        _valid_ip(dns_for_dig)
+    except ValueError:
+        dns_for_dig = "1.1.1.1"
 
     sections.append(f"Gatecrash Diagnostics Dump\nGenerated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nVersion: {get_version()}\n")
 
@@ -2439,7 +2449,7 @@ def api_diagnostics_dump():
     # pgrep -af replaces shell-pipeline `ps -eo pid,args | grep arpspoof | grep -v grep`
     section("Active arpspoof Processes", ["pgrep", "-af", "arpspoof"])
     section("VPN Exit IP Test", ["curl", "--interface", vpn_if, "-m", "10", "-s", "http://ifconfig.me"])
-    section("DNS Resolution via 1.1.1.1", ["dig", "@1.1.1.1", "google.com", "+short"])
+    section(f"DNS Resolution via target resolver ({dns_for_dig})", ["dig", f"@{dns_for_dig}", "google.com", "+short"])
     section("DNS Resolution via Gateway", ["dig", f"@{gw_for_dig}", "google.com", "+short"])
 
     section("IPv6 Addresses", ["ip", "-6", "addr", "show"])
@@ -2608,6 +2618,7 @@ def api_config():
             "GATEWAY_IP": _valid_ip_or_empty,
             "FWMARK": _valid_fwmark,
             "TARGET_IPS": _valid_target_ips,
+            "DNS_SERVER": _valid_ip_or_empty,
         }
         for key, validator in _conf_validators.items():
             if key in data:
