@@ -3018,6 +3018,14 @@ async function toggleDevice(mac, enabled, idx) {
   if (d.ok) _savedDevices = d.devices;
   updateMasterButton();
   autoRestart();
+  if (d.ok && d.prompt_wg_start) {
+    if (confirm("Device enabled — but WireGuard isn't running, so its traffic won't go through the VPN. Start WireGuard now?")) {
+      const wr = await fetch('/api/wg/start', {method: 'POST'});
+      const wd = await wr.json();
+      showOutput(wd.output || (wd.ok ? 'WireGuard started.' : 'Failed to start WireGuard.'));
+      fetchStatus();
+    }
+  }
 }
 
 async function renameDevice(mac, idx) {
