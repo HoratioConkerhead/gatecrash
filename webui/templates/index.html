@@ -152,6 +152,32 @@
   .dot.red   { background: #f44336; }
   .dot.grey  { background: #888; }
 
+  /* Service Controls — one row per service: name | status pill | action */
+  .svc-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+  }
+  .svc-row + .svc-row { border-top: 1px solid var(--border-card); }
+  .svc-row .svc-name { flex: 1; font-weight: 600; font-size: 14px; }
+  .svc-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  #ctrl-output {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+  }
+  .hidden { display: none; }
+
   main {
     max-width: 1100px;
     margin: 0 auto;
@@ -714,7 +740,6 @@
     .btn-row button { width: 100%; }
     .diag-grid { grid-template-columns: 1fr !important; }
     .diag-top-grid { grid-template-columns: 1fr !important; }
-    .svc-controls { grid-template-columns: 1fr !important; }
     .diag-grid div > div[id^="diag-"] { font-size: 10px !important; overflow-wrap: break-word; word-break: break-all; }
     #upgrade-log-lines.modal-body { flex: 1; overflow-y: auto; padding: 14px 18px; font-family: monospace; font-size: 8px; color: #a8e6cf; white-space: pre-wrap; word-break: break-word; min-height: 120px; }
 }
@@ -1730,14 +1755,21 @@ async function dismissWelcome() {
   <!-- Service Controls -->
   <div class="card full-width">
     <h2>Service Controls</h2>
-    <div class="svc-controls" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-      <button id="btn-toggle-gc" onclick="toggleGC()" class="btn-green" style="padding:14px;font-size:14px;border-radius:8px;">
-        &#9654; Start Gatecrash (device redirect)
-      </button>
-      <button id="btn-toggle-wg" onclick="toggleWG()" class="btn-green" style="padding:14px;font-size:14px;border-radius:8px;">
-        &#9654; Start WireGuard (VPN)
+    <div class="svc-row">
+      <span class="svc-name">Gatecrash (device redirect)</span>
+      <span class="svc-status" id="svc-status-gc"><span class="dot grey"></span><span>&mdash;</span></span>
+      <button id="btn-toggle-gc" onclick="toggleGC()" class="btn-blue" style="padding:10px 20px;font-size:14px;border-radius:8px;">
+        &#9654; Start
       </button>
     </div>
+    <div class="svc-row">
+      <span class="svc-name">WireGuard (VPN)</span>
+      <span class="svc-status" id="svc-status-wg"><span class="dot grey"></span><span>&mdash;</span></span>
+      <button id="btn-toggle-wg" onclick="toggleWG()" class="btn-blue" style="padding:10px 20px;font-size:14px;border-radius:8px;">
+        &#9654; Start
+      </button>
+    </div>
+    <div id="ctrl-output" class="hidden"></div>
   </div>
 
   <!-- VPN Test -->
@@ -2660,21 +2692,22 @@ function updateToggleButtons() {
   // Master button (uses device-aware logic)
   updateMasterButton();
 
-  // Individual buttons
-  const gcBtn = document.getElementById('btn-toggle-gc');
-  if (gcBtn) {
-    gcBtn.className = _gcRunning ? 'btn-red' : 'btn-green';
-    gcBtn.innerHTML = _gcRunning
-      ? '&#9632; Stop Gatecrash (device redirect)'
-      : '&#9654; Start Gatecrash (device redirect)';
+  // Per-service rows: the status pill carries the state colour; the button is
+  // a neutral, constant-coloured action whose only change is its Start/Stop
+  // label. Keeps "what is true" and "what I can do" visually separate.
+  function applyRow(statusId, btnId, running, label) {
+    const pill = document.getElementById(statusId);
+    if (pill) {
+      pill.querySelector('.dot').className = 'dot ' + (running ? 'green' : 'grey');
+      pill.querySelector('span:last-child').textContent = label;
+    }
+    const btn = document.getElementById(btnId);
+    if (btn) btn.innerHTML = running ? '&#9632; Stop' : '&#9654; Start';
   }
-  const wgBtn = document.getElementById('btn-toggle-wg');
-  if (wgBtn) {
-    wgBtn.className = _wgRunning ? 'btn-red' : 'btn-green';
-    wgBtn.innerHTML = _wgRunning
-      ? '&#9632; Stop WireGuard (VPN)'
-      : '&#9654; Start WireGuard (VPN)';
-  }
+  applyRow('svc-status-gc', 'btn-toggle-gc', _gcRunning,
+           _gcRunning ? 'Running' : 'Stopped');
+  applyRow('svc-status-wg', 'btn-toggle-wg', _wgRunning,
+           _wgRunning ? 'Running' : (_wgConfigured ? 'Stopped' : 'Not configured'));
 }
 
 function openNoVpnModal()  { document.getElementById('no-vpn-modal').classList.add('open'); }
