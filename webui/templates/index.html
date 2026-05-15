@@ -3431,27 +3431,12 @@ function _drawChart(canvas, samples, opts) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  const padL = 32, padR = 6, padT = 6, padB = 16;
-  const w = cssW - padL - padR;
-  const h = cssH - padT - padB;
-
-  // Background grid
-  const gridColor = getComputedStyle(document.body).getPropertyValue('--text-tertiary') || '#888';
-  ctx.strokeStyle = gridColor.trim() || '#888';
-  ctx.globalAlpha = 0.18;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = 0; i <= 4; i++) {
-    const y = padT + (h * i / 4);
-    ctx.moveTo(padL, y); ctx.lineTo(padL + w, y);
-  }
-  ctx.stroke();
-  ctx.globalAlpha = 1;
+  const padR = 6, padT = 6, padB = 16;
 
   if (!samples || samples.length === 0) {
     ctx.fillStyle = '#888';
     ctx.font = '11px sans-serif';
-    ctx.fillText('No data yet', padL, padT + h/2);
+    ctx.fillText('No data yet', 32, padT + (cssH - padT - padB) / 2);
     return;
   }
 
@@ -3475,19 +3460,47 @@ function _drawChart(canvas, samples, opts) {
     yMax = yMax > 0 ? yMax * 1.15 : 1000;   // 15% headroom; min 1 Kb/s
   }
 
-  // Y-axis labels
-  ctx.fillStyle = '#888';
+  // Build the five y-axis labels first, then size the left margin to the
+  // widest one. A fixed margin clipped wide network labels ("298 Mb/s") off
+  // the left edge — padL must be derived from the labels, before it's used
+  // to compute the plot width.
   ctx.font = '10px sans-serif';
-  ctx.textAlign = 'right';
+  const yLabels = [];
   for (let i = 0; i <= 4; i++) {
     const v = yMax * (1 - i / 4);
+    if (opts.suffix === '%')        yLabels.push(v.toFixed(0) + '%');
+    else if (opts.suffix === 'bps') yLabels.push(_formatBps(v));
+    else if (opts.suffix === '°C')  yLabels.push(v.toFixed(0) + '°');
+    else                            yLabels.push(v.toFixed(0));
+  }
+  let maxLabelW = 0;
+  for (const lbl of yLabels) {
+    const lw = ctx.measureText(lbl).width;
+    if (lw > maxLabelW) maxLabelW = lw;
+  }
+  const padL = Math.max(28, Math.ceil(maxLabelW) + 8);
+  const w = cssW - padL - padR;
+  const h = cssH - padT - padB;
+
+  // Background grid
+  const gridColor = getComputedStyle(document.body).getPropertyValue('--text-tertiary') || '#888';
+  ctx.strokeStyle = gridColor.trim() || '#888';
+  ctx.globalAlpha = 0.18;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i <= 4; i++) {
     const y = padT + (h * i / 4);
-    let label;
-    if (opts.suffix === '%') label = v.toFixed(0) + '%';
-    else if (opts.suffix === 'bps') label = _formatBps(v);
-    else if (opts.suffix === '°C') label = v.toFixed(0) + '°';
-    else label = v.toFixed(0);
-    ctx.fillText(label, padL - 4, y + 3);
+    ctx.moveTo(padL, y); ctx.lineTo(padL + w, y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Y-axis labels
+  ctx.fillStyle = '#888';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (h * i / 4);
+    ctx.fillText(yLabels[i], padL - 4, y + 3);
   }
   ctx.textAlign = 'left';
 
