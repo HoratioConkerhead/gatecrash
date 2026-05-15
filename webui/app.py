@@ -3,6 +3,7 @@
 plain HTTP on 80, depending on the user's pref. Must run as root to bind 80/443."""
 
 import bcrypt
+import glob
 import ipaddress
 import logging
 import logging.handlers
@@ -1804,8 +1805,10 @@ def api_factory_reset():
     audit_log.warning("SYSTEM  Factory reset initiated from %s", request.remote_addr)
     run_argv(["systemctl", "stop", "gatecrash"], timeout=10)
     run_argv(["wg-quick", "down", "wg0"], timeout=10)
-    # Delete all user data and credentials
-    for path in [
+    # Delete all user data, credentials, settings, history and logs. Anything
+    # left behind here leaks the previous user's activity to the next one —
+    # "factory reset" must mean factory state.
+    paths = [
         CONF_PATH,
         WG_CONF_PATH,
         DEVICES_FILE,
@@ -1816,12 +1819,30 @@ def api_factory_reset():
         WELCOME_PATH,
         UPDATE_SETTINGS_FILE,
         AUTO_STOP_SETTINGS_FILE,
+        OS_UPDATE_SETTINGS_FILE,
         BOOT_STATE_FILE,
-    ]:
+        # Stats history — stats.py reloads stats.json from disk on startup, so
+        # the CPU/mem/net graphs survive a reset unless the file is removed.
+        sysstats.STATS_PATH,
+        sysstats.STATS_PATH + ".tmp",
+        STATS_SETTINGS_FILE,
+    ]
+    # TLS cert + key: the box reboots onto plain HTTP after a reset (HTTPS_PREF
+    # wiped above), so the old self-signed cert is stale. Drop it and let
+    # setup.sh / first HTTPS opt-in mint a fresh one.
+    paths += [os.path.join(CERT_DIR, "gatecrash.crt"),
+              os.path.join(CERT_DIR, "gatecrash.key")]
+    # Audit log + its rotated copies, and per-target arpspoof logs — these hold
+    # the prior user's full activity trail.
+    paths += glob.glob(LOG_PATH + "*")
+    paths += glob.glob("/var/log/gatecrash-arpspoof-*.log")
+    for path in paths:
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
+        except OSError as e:
+            audit_log.warning("SYSTEM  Factory reset could not remove %s: %s", path, e)
     session.clear()
     # Defer the reboot by ~1s so Flask gets to flush the response first.
     # The response carries Strict-Transport-Security: max-age=0 (below) to
