@@ -2647,7 +2647,8 @@ def api_wg_config():
             f.write(canonical)
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config updated from %s", request.remote_addr)
-        _record_service_state("wg", True)
+        # Editing the config does not start WG or touch boot state — bringing
+        # the tunnel up stays an explicit action (/api/wg/start).
         return jsonify({"ok": True})
     except Exception:
         # SECURITY: generic error — do not leak internal paths or stack traces.  (HIGH-8)
@@ -2669,12 +2670,11 @@ def api_wg_config_upload():
             f.write(canonical)
         os.chmod(WG_CONF_PATH, 0o600)
         audit_log.info("CONFIG  WireGuard config uploaded from %s (fixes: %s)", request.remote_addr, fixes)
-        # Saving a WireGuard config implies the user wants WG up. Mark it as
-        # "running" in boot state so the resume service brings it up on next
-        # reboot — otherwise gatecrash auto-resumes but WG doesn't, leaving
-        # the user with routing but no tunnel.
-        _record_service_state("wg", True)
-        return jsonify({"ok": True, "fixes": fixes})
+        # Saving a config does NOT bring WG up or touch boot state — that stays
+        # an explicit user action (via /api/wg/start). We return wg_up so the
+        # UI can offer a one-click "Connect now" when the tunnel is still down.
+        _, rc = run_argv(["ip", "link", "show", "wg0"])
+        return jsonify({"ok": True, "fixes": fixes, "wg_up": rc == 0})
     except Exception:
         # SECURITY: generic error — do not leak internal paths or stack traces.  (HIGH-8)
         return jsonify({"ok": False, "error": "Internal error", "fixes": []})

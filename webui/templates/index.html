@@ -950,6 +950,9 @@ function showHttpsSwitchOverlay() {
     <p style="color:#c8c8d8;font-size:13px;line-height:1.6;margin-bottom:18px;">
       You're about to send your password over plain HTTP. Anyone on your LAN could intercept it.
     </p>
+    <p style="color:#c8c8d8;font-size:13px;line-height:1.6;margin-bottom:18px;">
+      Only continue if you are on a trusted network.  Enabling HTTPS is recommended for better security.
+    </p>
     <button onclick="hideHttpConfirmModal();showTlsOverlay();" class="btn-green"
       style="width:100%;padding:11px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;margin-bottom:10px;">
       Enable HTTPS instead &nbsp;&middot;&nbsp; recommended
@@ -3715,13 +3718,37 @@ async function processWGFile(file) {
 
   if (d.ok) {
     el.className = 'save-status';
-    el.textContent = '✓ VPN config saved' + (d.fixes.length ? ' (' + d.fixes.join(', ') + ')' : '');
+    const fixNote = d.fixes.length ? ' (' + d.fixes.join(', ') + ')' : '';
+    if (d.wg_up) {
+      el.textContent = '✓ VPN config saved' + fixNote;
+      setTimeout(() => { el.textContent = ''; }, 5000);
+    } else {
+      // Tunnel is down — offer a one-click connect rather than auto-starting.
+      el.textContent = '✓ VPN config saved' + fixNote + ' — ';
+      const a = document.createElement('a');
+      a.href = '#';
+      a.textContent = 'Connect now';
+      a.onclick = (ev) => { ev.preventDefault(); connectWGFromUpload(); };
+      el.appendChild(a);
+    }
     loadWGConfigSummary();
   } else {
     el.className = 'save-status error';
     el.textContent = '✗ ' + (d.error || 'Failed to save config');
+    setTimeout(() => { el.textContent = ''; }, 5000);
   }
+}
+
+async function connectWGFromUpload() {
+  const el = document.getElementById('wg-status');
+  el.className = 'save-status';
+  el.textContent = 'Connecting VPN...';
+  const r = await fetch('/api/wg/start', {method: 'POST'});
+  const d = await r.json();
+  el.className = 'save-status' + (d.ok ? '' : ' error');
+  el.textContent = d.ok ? '✓ VPN connected' : '✗ ' + (d.output || 'Connect failed');
   setTimeout(() => { el.textContent = ''; }, 5000);
+  fetchStatus();
 }
 
 async function loadWGConfigSummary() {
