@@ -2867,6 +2867,12 @@ def api_branch_get():
     if cur_rc != 0:
         return jsonify({"ok": False, "error": "Could not read current branch"})
     current = cur_out.strip()
+    # install.sh clones with `git clone --depth=1`, which implies
+    # --single-branch — origin's fetch refspec then only covers the installed
+    # branch, so no other branch ever shows up here. Broaden it to all heads
+    # before fetching; idempotent, so this self-heals existing installs.
+    run_argv(git_base + ["config", "remote.origin.fetch",
+                         "+refs/heads/*:refs/remotes/origin/*"], merge_stderr=True)
     # Refresh remote refs so the list is current — quiet on failure (offline OK)
     run_argv(git_base + ["fetch", "origin", "--prune"], merge_stderr=True)
     branches_out, _ = run_argv(git_base + ["branch", "-r", "--format=%(refname:short)"], merge_stderr=True)
@@ -2915,6 +2921,7 @@ trap 'rm -f -- "$0"' EXIT
 echo "=== Switching to branch {branch} ===" >> /var/log/gatecrash-upgrade.log
 sleep 1
 cd {q_repo}
+git -c safe.directory={q_repo} config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' >> /var/log/gatecrash-upgrade.log 2>&1
 git -c safe.directory={q_repo} fetch origin >> /var/log/gatecrash-upgrade.log 2>&1
 git -c safe.directory={q_repo} checkout -B {q_branch} {q_origin} >> /var/log/gatecrash-upgrade.log 2>&1
 git -c safe.directory={q_repo} pull >> /var/log/gatecrash-upgrade.log 2>&1

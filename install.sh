@@ -39,7 +39,10 @@ if [[ -d "$REPO_DIR/.git" ]]; then
     git -C "$REPO_DIR" reset --hard "origin/$BRANCH"
 else
     echo "Cloning $REPO_OWNER/$REPO_NAME ($BRANCH) into $REPO_DIR..."
-    git clone --depth=1 -b "$BRANCH" "$CLONE_URL" "$REPO_DIR"
+    # --no-single-branch: --depth=1 alone implies --single-branch, which leaves
+    # origin only able to fetch $BRANCH. The web UI's branch picker needs all
+    # branches visible, so keep the full-heads refspec.
+    git clone --depth=1 --no-single-branch -b "$BRANCH" "$CLONE_URL" "$REPO_DIR"
 fi
 
 # Hand off to setup.sh — it copies the runtime bits into /opt/gatecrash
