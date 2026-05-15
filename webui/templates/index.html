@@ -3018,12 +3018,16 @@ async function toggleDevice(mac, enabled, idx) {
   if (d.ok) _savedDevices = d.devices;
   updateMasterButton();
   autoRestart();
-  if (d.ok && d.device_enabled) {
+  if (d.ok && d.device_enabled && !d.wg_configured) {
+    // No VPN config at all — starting anything is pointless. Warn and send
+    // the user to the Config tab to upload one.
+    openNoVpnModal();
+  } else if (d.ok && d.device_enabled) {
     // A newly-enabled device needs Gatecrash up to be intercepted at all, and
     // WireGuard up to be routed through the VPN. Prompt to start whatever's
     // missing — one confirm, naming exactly what's down.
     const needGc = !d.gc_running;
-    const needWg = d.wg_configured && !d.wg_up;
+    const needWg = !d.wg_up;
     if (needGc || needWg) {
       let why;
       if (needGc && needWg) why = "Gatecrash and WireGuard aren't running, so its traffic won't be intercepted or routed through the VPN";
