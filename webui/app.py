@@ -844,6 +844,19 @@ def _valid_branch(name):
     return name
 
 
+# Per-field validators for gatecrash.conf. Used by both write_conf() (the write
+# path) and api_config() (the request path) — defense in depth, but one source.
+_CONF_VALIDATORS = {
+    "LAN_IF":      _valid_if,
+    "VPN_IF":      _valid_if,
+    "ROUTE_TABLE": _valid_table,
+    "GATEWAY_IP":  _valid_ip_or_empty,
+    "FWMARK":      _valid_fwmark,
+    "TARGET_IPS":  _valid_target_ips,
+    "DNS_SERVER":  _valid_ip_or_empty,
+}
+
+
 def read_conf():
     conf = {"LAN_IF": "", "VPN_IF": "wg0", "GATEWAY_IP": "", "TARGET_IPS": "", "ROUTE_TABLE": "vpntarget", "FWMARK": "0x1", "DNS_SERVER": ""}
     try:
@@ -872,21 +885,12 @@ def write_conf(data):
     unknown = set(data.keys()) - _CONF_ALLOWED_KEYS
     if unknown:
         raise ValueError(f"Unknown config keys: {', '.join(sorted(unknown))}")
-    validators = {
-        "LAN_IF": _valid_if,
-        "VPN_IF": _valid_if,
-        "ROUTE_TABLE": _valid_table,
-        "GATEWAY_IP": _valid_ip_or_empty,
-        "FWMARK": _valid_fwmark,
-        "TARGET_IPS": _valid_target_ips,
-        "DNS_SERVER": _valid_ip_or_empty,
-    }
     # GATEWAY_IP is intentionally allowed to be blank — start.sh auto-detects
     # from the default route on every boot, so the appliance works when moved
     # between networks. A non-blank value is a manual override.
     for key, value in data.items():
-        if key in validators:
-            validators[key](value)
+        if key in _CONF_VALIDATORS:
+            _CONF_VALIDATORS[key](value)
     lines = [f'{k}="{v}"' for k, v in data.items()]
     with open(CONF_PATH, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -975,7 +979,6 @@ def ensure_dns_thread():
 ip_watch_started = False
 
 def ip_watch_loop():
-    import time
     while True:
         time.sleep(60)
         try:
@@ -1097,7 +1100,6 @@ echo "=== Upgrade complete ===" >> /var/log/gatecrash-upgrade.log
 
 def run_update_check(allow_auto_upgrade=False):
     global update_check_state
-    from datetime import datetime, timezone
     repo = get_repo_path()
     if not repo:
         with _state_lock:
@@ -1143,8 +1145,6 @@ def run_update_check(allow_auto_upgrade=False):
 
 
 def update_check_loop():
-    import time
-    from datetime import datetime, timezone, timedelta
     while True:
         try:
             settings = load_update_settings()
@@ -1335,7 +1335,6 @@ def _parse_mangle_counters():
 
 
 def _traffic_watch_loop():
-    import time
     global _traffic_state
     POLL_INTERVAL = 30
 
@@ -1922,7 +1921,7 @@ def api_status():
     return jsonify({
         "gatecrash_running": gc_running,
         "wg_up": wg_up,
-        "arp_processes": arp_out.strip(),
+        "arp_processes": arp_out,
         "wg": wg_stats(),
         "update": dict(update_check_state),
         "version": get_version(),
@@ -2038,7 +2037,6 @@ def api_autostart():
 
 def parse_nmap_devices(output):
     """Parse nmap -sn output into a list of device dicts."""
-    import re
     devices = []
     current = {}
     for line in output.splitlines():
@@ -2113,11 +2111,10 @@ def api_devices_scan_stream():
             devices = parse_nmap_devices(full_output)
 
             # Augment with ARP entries nmap missed
-            import re as _re
             arp_out, _ = run_argv(["ip", "neigh", "show"])
             nmap_macs = {d["mac"] for d in devices if d["mac"]}
             for line in arp_out.splitlines():
-                m = _re.match(r"(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(\w+)", line)
+                m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(\w+)", line)
                 if not m:
                     continue
                 ip, mac, state = m.group(1), m.group(2).lower(), m.group(3)
@@ -2268,7 +2265,6 @@ def _hot_reload_targets(old_ips, new_ips):
     added = new_set - old_set
 
     lines = []
-    DEVNULL = open(os.devnull, "w")
 
     # Resolve gateway once — needed for both add and remove.
     # Was: an inline `run("ip route show default | awk ... | head -1")` —
@@ -2328,11 +2324,11 @@ def _hot_reload_targets(old_ips, new_ips):
             # Launch arpspoof as detached processes (Popen so they don't block)
             subprocess.Popen(
                 ["arpspoof", "-i", lan_if, "-t", ip, gw],
-                stdout=DEVNULL, stderr=DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             subprocess.Popen(
                 ["arpspoof", "-i", lan_if, "-t", gw, ip],
-                stdout=DEVNULL, stderr=DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         lines.append(f"Added target: {ip}")
 
@@ -2427,7 +2423,7 @@ def api_diagnostics_dump():
     except ValueError:
         dns_for_dig = "1.1.1.1"
 
-    sections.append(f"Gatecrash Diagnostics Dump\nGenerated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nVersion: {get_version()}\n")
+    sections.append(f"Gatecrash Diagnostics Dump\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nVersion: {get_version()}\n")
 
     section("Gatecrash Config", ["cat", CONF_PATH])
     section("Gatecrash Service Status", ["systemctl", "status", "gatecrash", "--no-pager", "-l"])
@@ -2503,12 +2499,8 @@ def api_diagnostics():
     if m:
         mac = m.group(1)
 
-    # IP address of the LAN interface
-    ip_out, _ = run_argv(["ip", "-4", "addr", "show", lan_if])
-    lan_ip = ""
-    m = re.search(r"inet (\S+)", ip_out)
-    if m:
-        lan_ip = m.group(1)
+    # IP address of the LAN interface (CIDR form, e.g. 192.168.1.5/24)
+    lan_ip = _iface_addr(lan_if).get("cidr", "")
 
     # Active arpspoof processes — pgrep -af replaces shell-pipeline `ps | grep arpspoof | grep -v grep`
     arps_out, _ = run_argv(["pgrep", "-af", "arpspoof"])
@@ -2616,16 +2608,7 @@ def api_config():
             return jsonify({"ok": False, "error": f"Unknown config keys: {', '.join(sorted(unknown))}"}), 400
         # Validate every field with strict allowlists
         errors = []
-        _conf_validators = {
-            "LAN_IF": _valid_if,
-            "VPN_IF": _valid_if,
-            "ROUTE_TABLE": _valid_table,
-            "GATEWAY_IP": _valid_ip_or_empty,
-            "FWMARK": _valid_fwmark,
-            "TARGET_IPS": _valid_target_ips,
-            "DNS_SERVER": _valid_ip_or_empty,
-        }
-        for key, validator in _conf_validators.items():
+        for key, validator in _CONF_VALIDATORS.items():
             if key in data:
                 try:
                     validator(data[key])
