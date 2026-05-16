@@ -228,7 +228,11 @@ if [[ ! -d "$WEBUI_DIR/venv" ]]; then
     python3 -m venv "$WEBUI_DIR/venv"
 fi
 echo "  Installing Python dependencies..."
-"$WEBUI_DIR/venv/bin/pip" install --quiet flask bcrypt flask-limiter
+# Invoke pip via `python -m pip` — the venv always has the module even when the
+# standalone `pip` wrapper script is missing. Versions are pinned in
+# requirements.txt (compatible-release ranges) so a breaking upstream major
+# release can't land via a fresh install or auto-update.
+"$WEBUI_DIR/venv/bin/python" -m pip install --quiet -r "$SCRIPT_DIR/webui/requirements.txt"
 echo "  [OK] Python environment ready."
 
 cp "$SCRIPT_DIR/webui/gatecrash-webui.service" /etc/systemd/system/gatecrash-webui.service
@@ -262,7 +266,7 @@ echo "Next steps:"
 echo ""
 echo "  1. Create your WireGuard config:"
 echo "       sudo nano /etc/wireguard/wg0.conf"
-echo "       (see readme for required format — Table=off and MTU=1280 are critical)"
+echo "       (see README for required format — Table=off and MTU=1280 are critical)"
 echo ""
 echo "  2. Edit the Gatecrash config:"
 echo "       sudo nano $INSTALL_DIR/gatecrash.conf"
