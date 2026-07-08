@@ -791,9 +791,9 @@
      victim; Chrome/Edge and Private windows use a separate, clean cookie jar. */
   const COOKIE_BLOCKED_MSG =
     'Login worked, but your browser didn’t save the session cookie, so it can’t keep you ' +
-    'signed in. This is almost always a leftover HTTPS cookie blocking the new one. On Safari: ' +
-    'Settings → Safari → Clear History and Website Data, then sign in again. ' +
-    '(Chrome, Edge, or a Private window will also work.)';
+    'signed in. This is almost always a leftover HTTPS cookie from GateCrash in HTTPS mode, ' +
+    'blocking the new one. On Safari: Settings → Safari → Clear History and Website Data, ' +
+    'then sign in again. (Chrome, Edge, or a Private window will also work.)';
 
   async function reloadWhenAuthed() {
     for (let i = 0; i < 15; i++) {
