@@ -1079,29 +1079,43 @@ def ip_watch_loop():
                 continue
 
             neigh = _neigh_map()
+            names = {d["mac"].lower(): (d.get("nickname") or d.get("ip") or d["mac"])
+                     for d in enabled}
 
             # A target "looks lost" if its MAC isn't confirmed at any live
             # neighbour entry, OR its arpspoof is logging "couldn't arp for
             # host" at its current IP (roamed away — the kernel keeps a stale
             # entry at the old IP so the neighbour check alone misses this).
             lost_macs = set()
+            lost_reason = {}
             for d in enabled:
                 mac = d["mac"].lower()
                 if mac not in neigh:
                     lost_macs.add(mac)
+                    lost_reason[mac] = "not in neighbour table"
                 elif d.get("ip") and _arpspoof_failing(d["ip"]):
                     lost_macs.add(mac)
+                    lost_reason[mac] = f"arpspoof can't reach {d['ip']}"
             # Drop the confirmed-offline flag for anything that's reachable again.
             _absent_macs &= lost_macs
             # Only a lost target we haven't already confirmed offline warrants a
             # fast scan — a powered-off device stays quiet until the 10-min floor.
-            newly_lost = bool(lost_macs - _absent_macs)
+            newly_lost_macs = lost_macs - _absent_macs
+            newly_lost = bool(newly_lost_macs)
 
             now = time.monotonic()
             since = now - _last_discovery
             if since >= _DISCOVERY_INTERVAL or (newly_lost and since >= _MIN_DISCOVERY_GAP):
+                # Only log the fast (lost-triggered) path — the 10-min periodic
+                # floor fires on healthy targets too and would spam the log.
+                if newly_lost:
+                    for mac in newly_lost_macs:
+                        audit_log.info("SERVICE  IP watchdog: target %s looks lost (%s) — running discovery scan",
+                                       names.get(mac, mac), lost_reason.get(mac, "?"))
                 _last_discovery = now
                 discovered = _discover_arp()
+                if newly_lost:
+                    audit_log.info("SERVICE  IP watchdog: discovery scan resolved %d device(s)", len(discovered))
                 if discovered:
                     # nmap's fresh result wins over the passive table.
                     neigh.update(discovered)
@@ -1109,7 +1123,11 @@ def ip_watch_loop():
                 # offline (a roamed one answers the scan's ARP and shows up).
                 # Stop fast-scanning it until it reappears — the 10-min floor
                 # catches its return even while it holds a stale neighbour entry.
+                prev_absent = _absent_macs
                 _absent_macs = {mac for mac in lost_macs if mac not in discovered}
+                for mac in _absent_macs - prev_absent:
+                    audit_log.info("SERVICE  IP watchdog: target %s not found by scan — treating as offline until it returns",
+                                   names.get(mac, mac))
 
             changed = False
             for dev in devices:
