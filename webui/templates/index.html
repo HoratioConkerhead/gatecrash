@@ -1915,8 +1915,8 @@ async function dismissWelcome() {
         <label style="font-size:12px;font-weight:400;color:#aaa;display:flex;align-items:center;gap:4px;cursor:pointer;">
           <input type="checkbox" id="audit-log-auto" checked onchange="_auditAutoScroll=this.checked"> Auto-scroll
         </label>
+        <a href="/api/audit-log/download" download class="btn-blue" style="padding:5px 14px;font-size:12px;text-decoration:none;border-radius:6px;">&#128190; Download full log</a>
         <button class="btn-grey" onclick="loadAuditLog()" style="padding:5px 14px;font-size:12px;">&#8635; Refresh</button>
-        <a class="btn-grey" href="/api/audit-log/download" download style="padding:5px 14px;font-size:12px;text-decoration:none;">&#8615; Download full log</a>
       </div>
     </h2>
     <div id="audit-log-box" style="font-family:monospace;font-size:11px;background:var(--bg-subtle);color:var(--text-primary);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;min-height:60px;max-height:300px;overflow:auto;line-height:1.5;">Loading...</div>
