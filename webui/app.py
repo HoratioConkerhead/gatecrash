@@ -71,7 +71,7 @@ WELCOME_PATH      = "/opt/gatecrash/welcome_pending"
 CERT_DIR          = "/opt/gatecrash/certs"
 
 # Endpoints always accessible without a session
-_PUBLIC_PATHS = {"/", "/api/login", "/api/setup-auth", "/api/skip-setup-auth"}
+_PUBLIC_PATHS = {"/", "/api/login", "/api/setup-auth", "/api/skip-setup-auth", "/api/auth-check"}
 
 
 def _get_stored_token():
@@ -1789,6 +1789,20 @@ def api_login():
         return jsonify({"ok": True, "csrf_token": _ensure_csrf_token()})
     audit_log.warning("AUTH  Login FAILED from %s", request.remote_addr)
     return jsonify({"ok": False, "error": "Incorrect password"})
+
+
+@app.route("/api/auth-check")
+def api_auth_check():
+    """Report whether the caller's session cookie is currently live.
+
+    The login page polls this right after a successful POST /api/login and
+    only reloads once it returns true.  WebKit (Safari) can commit the
+    Set-Cookie from a fetch() response *asynchronously*, so an immediate
+    reload may navigate before the session cookie is stored — the reloaded
+    page then has no session and bounces the user straight back to the login
+    screen.  Public so it answers both before login (false) and immediately
+    after, once the cookie has actually landed (true)."""
+    return jsonify({"authenticated": bool(session.get("authenticated"))})
 
 
 @app.route("/api/logout", methods=["POST"])
