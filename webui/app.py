@@ -302,6 +302,16 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 _TLS_ENABLED = _https_enabled() and os.path.isfile(os.path.join(CERT_DIR, "gatecrash.crt"))
 app.config["SESSION_COOKIE_SECURE"] = _TLS_ENABLED
+# SECURITY/UX: scope the session-cookie NAME to the transport — "session" over
+# HTTPS, "gc_session" over HTTP. A leftover Secure "session" cookie from a past
+# HTTPS session would otherwise permanently block the HTTP server from storing a
+# new "session" cookie ("leave secure cookies alone" forbids an HTTP origin from
+# overwriting a Secure cookie of the same name), producing a login bounce only
+# HTTPS or a manual cookie-clear could fix. Different names => no collision =>
+# HTTP login works even with the stale Secure cookie sitting inert in the jar.
+# Don't collapse this back to a single name. Switching transports orphans the
+# other-named cookie (harmless: one re-login).
+app.config["SESSION_COOKIE_NAME"] = "session" if _TLS_ENABLED else "gc_session"
 
 
 @app.errorhandler(429)
