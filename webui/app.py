@@ -3102,6 +3102,39 @@ def api_audit_log():
         return jsonify({"ok": False, "error": "Internal error"})
 
 
+@app.route("/api/audit-log/download")
+def api_audit_log_download():
+    """Download the full audit log (current + rotated) as one text file.
+
+    The web UI view only shows the last N lines; this concatenates the rotated
+    files oldest-first (.3 → .2 → .1) then the live log so the download reads
+    chronologically. Streamed in chunks so a multi-MB log doesn't buffer in RAM.
+    """
+    paths = [f"{LOG_PATH}.{i}" for i in range(3, 0, -1)] + [LOG_PATH]
+
+    def generate():
+        for p in paths:
+            try:
+                with open(p, "rb") as f:
+                    while True:
+                        chunk = f.read(65536)
+                        if not chunk:
+                            break
+                        yield chunk
+            except FileNotFoundError:
+                continue
+
+    filename = f"gatecrash-audit-{time.strftime('%Y%m%d-%H%M%S')}.log"
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 def _http_redirect_server():
     """Tiny HTTP server on port 80 that redirects everything to HTTPS.
 
