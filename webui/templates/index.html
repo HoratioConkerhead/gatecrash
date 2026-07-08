@@ -1096,6 +1096,11 @@ document.getElementById('setup-pw').focus();
     </div>
     {% endif %}
     <div style="margin-bottom:20px;">
+      <!-- Hidden username so iOS/Safari (and other pw managers) have an account
+           to file the saved password under, instead of prompting for a blank one. -->
+      <input type="text" name="username" value="gatecrash" autocomplete="username"
+        readonly aria-hidden="true" tabindex="-1"
+        style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;">
       <label style="display:block;color:#aaa;font-size:12px;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">PASSWORD</label>
       <input id="login-pw" type="password" placeholder="Password" autocomplete="current-password"
         style="
