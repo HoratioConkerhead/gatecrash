@@ -972,37 +972,160 @@ def ensure_dns_thread():
 # ---------------------------------------------------------------------------
 # IP re-resolution watchdog (background thread)
 # ---------------------------------------------------------------------------
-# Runs every 60 s. Checks the ARP table against saved devices. If any
-# enabled device's IP has changed, updates the config and restarts Gatecrash
-# so iptables/arpspoof pick up the new IP immediately.
+# Runs every 60 s. Reconciles each saved device's MAC against its current IP.
+#
+# The kernel neighbour table (`ip neigh`) is populated PASSIVELY — the box only
+# learns a MAC↔IP mapping when it actually exchanges traffic with that address.
+# When a target roams to a new IP the box has never talked to, that IP never
+# appears in the table, so a purely passive check can't see the change and keeps
+# spoofing the stale IP. So when a target "looks lost" (its MAC isn't confirmed
+# at any live neighbour entry) — or on a 10-minute floor — we ACTIVELY discover
+# via an ARP-based nmap ping scan, which forces every device on the segment to
+# reveal its current IP↔MAC regardless of ICMP/firewall behaviour.
 
 ip_watch_started = False
 
+# Active-discovery pacing (see ip_watch_loop). monotonic-clock seconds.
+_DISCOVERY_INTERVAL = 600   # periodic floor: scan at least every 10 min
+_MIN_DISCOVERY_GAP  = 120   # rate limit: never fast-scan more than once per 2 min
+_last_discovery = 0.0
+# MACs an active scan has confirmed absent (device powered off / left the LAN).
+# They stop justifying fast scans — the 10-min floor picks them up when back.
+_absent_macs = set()
+
+
+def _neigh_map():
+    """Return {mac: ip} from the kernel neighbour table.
+
+    Fixes the old first-match bug: when a MAC appears more than once (e.g. a
+    stale entry at the old IP coexists with the new one), prefer the freshest,
+    most-usable state and skip FAILED entries entirely.
+    """
+    arp_out, _ = run_argv(["ip", "neigh", "show"])
+    rank = {"REACHABLE": 4, "PERMANENT": 4, "DELAY": 3, "PROBE": 3, "STALE": 2}
+    best = {}  # mac -> (ip, rank)
+    for line in arp_out.splitlines():
+        # The NUD state is always the LAST token; optional flags (router,
+        # proxy, extern_learn) can sit between the MAC and the state, so grab
+        # the final word rather than the first one after the MAC.
+        m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(.+)$", line)
+        if not m:
+            continue
+        ip, mac, state = m.group(1), m.group(2).lower(), m.group(3).split()[-1].upper()
+        if state == "FAILED":
+            continue
+        r = rank.get(state, 1)
+        if mac not in best or r > best[mac][1]:
+            best[mac] = (ip, r)
+    return {mac: ip for mac, (ip, _r) in best.items()}
+
+
+def _discover_arp():
+    """Force devices to reveal current IP↔MAC via an ARP-based nmap scan.
+
+    Returns {mac: ip}. Best-effort — returns {} on any failure so the watchdog
+    falls back to the passive neighbour table.
+    """
+    try:
+        lan_if = _valid_if(read_conf().get("LAN_IF", ""))
+    except ValueError:
+        return {}
+    subnet = _iface_addr(lan_if).get("cidr", "")
+    if not subnet:
+        return {}
+    try:
+        # -sn = ping scan (ARP on the local segment when root), -n = no rDNS.
+        out, _ = run_argv(["nmap", "-sn", "-n", subnet], timeout=120)
+    except Exception:
+        return {}
+    return {d["mac"]: d["ip"] for d in parse_nmap_devices(out) if d.get("mac")}
+
+
+_ARPSPOOF_LOG_DIR = "/var/log"
+
+
+def _arpspoof_failing(ip):
+    """True if the latest arpspoof spawn for this target IP can't resolve it.
+
+    dsniff logs "couldn't arp for host <ip>" when the device is no longer at
+    that address — the classic roam signature. The kernel meanwhile keeps a
+    STALE neighbour entry at the old IP, so `_neigh_map()` still "sees" the
+    MAC and won't flag it lost; this log check is what catches the roam fast.
+    Only the tail after the most recent spawn marker is considered, so stale
+    history from before a successful restart doesn't cause false positives.
+    """
+    for direction in ("fwd", "rev"):
+        path = f"{_ARPSPOOF_LOG_DIR}/gatecrash-arpspoof-{ip}-{direction}.log"
+        try:
+            with open(path, "r", errors="replace") as f:
+                text = "".join(f.readlines()[-40:])
+        except OSError:
+            continue
+        idx = text.rfind("--- spawn at")
+        recent = text[idx:] if idx != -1 else text
+        if "couldn't arp for host" in recent:
+            return True
+    return False
+
+
 def ip_watch_loop():
+    global _last_discovery, _absent_macs
     while True:
         time.sleep(60)
         try:
             devices = load_devices()
-            if not any(d.get("enabled") for d in devices):
+            enabled = [d for d in devices if d.get("enabled") and d.get("mac")]
+            if not enabled:
                 continue
 
-            arp_out, _ = run_argv(["ip", "neigh", "show"])
+            neigh = _neigh_map()
+
+            # A target "looks lost" if its MAC isn't confirmed at any live
+            # neighbour entry, OR its arpspoof is logging "couldn't arp for
+            # host" at its current IP (roamed away — the kernel keeps a stale
+            # entry at the old IP so the neighbour check alone misses this).
+            lost_macs = set()
+            for d in enabled:
+                mac = d["mac"].lower()
+                if mac not in neigh:
+                    lost_macs.add(mac)
+                elif d.get("ip") and _arpspoof_failing(d["ip"]):
+                    lost_macs.add(mac)
+            # Drop the confirmed-offline flag for anything that's reachable again.
+            _absent_macs &= lost_macs
+            # Only a lost target we haven't already confirmed offline warrants a
+            # fast scan — a powered-off device stays quiet until the 10-min floor.
+            newly_lost = bool(lost_macs - _absent_macs)
+
+            now = time.monotonic()
+            since = now - _last_discovery
+            if since >= _DISCOVERY_INTERVAL or (newly_lost and since >= _MIN_DISCOVERY_GAP):
+                _last_discovery = now
+                discovered = _discover_arp()
+                if discovered:
+                    # nmap's fresh result wins over the passive table.
+                    neigh.update(discovered)
+                # A lost target the active scan STILL can't find is genuinely
+                # offline (a roamed one answers the scan's ARP and shows up).
+                # Stop fast-scanning it until it reappears — the 10-min floor
+                # catches its return even while it holds a stale neighbour entry.
+                _absent_macs = {mac for mac in lost_macs if mac not in discovered}
+
             changed = False
             for dev in devices:
                 if not dev.get("enabled") or not dev.get("mac"):
                     continue
-                for line in arp_out.splitlines():
-                    if dev["mac"] in line.lower():
-                        m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s", line)
-                        if m and m.group(1) != dev.get("ip"):
-                            dev["ip"] = m.group(1)
-                            changed = True
-                        break
+                cur = neigh.get(dev["mac"].lower())
+                if cur and cur != dev.get("ip"):
+                    dev["ip"] = cur
+                    changed = True
 
             if changed:
                 save_devices(devices)
                 old_targets = read_conf().get("TARGET_IPS", "").split()
-                new_ips = sync_targets_from_devices()
+                # Reuse the map we already resolved (incl. nmap discovery) so
+                # sync doesn't re-read the passive table and revert to a stale IP.
+                new_ips = sync_targets_from_devices(neigh)
                 audit_log.info("SERVICE  IP watchdog detected IP change (targets: %s)", new_ips)
                 ok, out = _hot_reload_targets(old_targets, new_ips)
                 if ok:
@@ -1466,42 +1589,41 @@ def resolve_mac(ip):
     return m.group(1).lower() if m else ""
 
 
-def sync_targets_from_devices():
+def sync_targets_from_devices(neigh=None):
     """Update TARGET_IPS in gatecrash.conf from enabled saved devices.
 
     Uses ARP table to resolve current IPs from saved MAC addresses.
     Returns the list of active IPs written to config.
+
+    Pass `neigh` (a {mac: ip} map, e.g. one already augmented with an active
+    nmap scan) to avoid a second passive lookup that could resolve a roamed
+    device back to its stale IP; when omitted, resolves from the live table.
     """
     devices = load_devices()
     active_ips = []
     updated = False
 
-    # Read ARP table once for all devices
-    arp_out, _ = run_argv(["ip", "neigh", "show"])
-    arp_lines = arp_out.splitlines()
+    # Resolve current IPs from the neighbour table once for all devices.
+    # _neigh_map() picks the freshest entry per MAC (skips FAILED / stale
+    # duplicates) so a roamed device resolves to its new IP, not the old one.
+    if neigh is None:
+        neigh = _neigh_map()
 
     for dev in devices:
         if not dev.get("enabled", False):
             continue
-        mac = dev.get("mac", "")
+        mac = dev.get("mac", "").lower()
         if not mac:
             continue
-        # Find current IP for this MAC from ARP table
-        for line in arp_lines:
-            if mac in line.lower():
-                m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s", line)
-                if m:
-                    ip = m.group(1)
-                    active_ips.append(ip)
-                    # Update last-known IP
-                    if dev.get("ip") != ip:
-                        dev["ip"] = ip
-                        updated = True
-                    break
-        else:
-            # MAC not in ARP table — use last-known IP if available
-            if dev.get("ip"):
-                active_ips.append(dev["ip"])
+        ip = neigh.get(mac)
+        if ip:
+            active_ips.append(ip)
+            if dev.get("ip") != ip:
+                dev["ip"] = ip
+                updated = True
+        elif dev.get("ip"):
+            # MAC not in neighbour table — use last-known IP if available.
+            active_ips.append(dev["ip"])
 
     if updated:
         save_devices(devices)
