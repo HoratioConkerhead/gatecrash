@@ -160,7 +160,7 @@ sudo rm -f /opt/gatecrash/gatecrash.conf \
            /opt/gatecrash/certs/gatecrash.crt \
            /opt/gatecrash/certs/gatecrash.key \
            /etc/wireguard/wg0.conf \
-           /var/log/gatecrash.log* \
+           /opt/gatecrash/gatecrash.log* \
            /var/log/gatecrash-arpspoof-*.log
 sudo systemctl start gatecrash-webui
 ```
@@ -172,7 +172,7 @@ sudo systemctl start gatecrash-webui
 ### Login succeeds but you keep landing back on the login screen (after a rebuild/reset)
 
 **Symptom:** the password is correct (you can see `AUTH Login succeeded` in
-`/var/log/gatecrash.log`), but the browser stays on the login screen after
+`/opt/gatecrash/gatecrash.log`), but the browser stays on the login screen after
 reload. DevTools shows no `session` cookie under the appliance origin.
 
 **Cause:** your browser has a stale `session` cookie from a previous install

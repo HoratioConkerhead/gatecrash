@@ -41,10 +41,14 @@ limiter = Limiter(
 # Audit log — persistent file log for service actions, auth events, etc.
 # ---------------------------------------------------------------------------
 
-LOG_PATH = "/var/log/gatecrash.log"
+# Persistent path (NOT /var/log): on DietPi /var/log is a RAM tmpfs that
+# Dietpi-RAMlog clears hourly and on reboot, wiping the audit log. The
+# high-volume arpspoof/DNS logs deliberately stay in /var/log (SD-card wear).
+LOG_PATH = "/opt/gatecrash/gatecrash.log"
 
 audit_log = logging.getLogger("gatecrash.audit")
 audit_log.setLevel(logging.INFO)
+os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 _log_handler = logging.handlers.RotatingFileHandler(
     LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3,  # 2 MB, keep 3 old files
 )
