@@ -1663,6 +1663,17 @@ def sync_targets_from_devices(neigh=None):
 
 @app.route("/")
 def index():
+    # DIAG (temporary): trace the Safari login-bounce. Logs whether this page
+    # load carried the session cookie and whether it decoded to an authenticated
+    # session, plus the browser. If the post-login GET / shows cookie=False, the
+    # browser isn't sending/storing the cookie (client-side); cookie=True auth=
+    # False points at the session/secret; cookie=True auth=True but still login
+    # means a stale cached page (service worker). Remove once resolved.
+    audit_log.info("DIAG  GET / cookie=%s auth=%s ua=%r from %s",
+                   app.config.get("SESSION_COOKIE_NAME", "session") in request.cookies,
+                   bool(session.get("authenticated")),
+                   request.headers.get("User-Agent", "")[:80],
+                   request.remote_addr)
     no_auth = _no_auth_enabled()
     setup_required = not no_auth and _get_stored_token() is None
     login_required = not no_auth and not setup_required and not session.get("authenticated")
@@ -1802,7 +1813,12 @@ def api_auth_check():
     page then has no session and bounces the user straight back to the login
     screen.  Public so it answers both before login (false) and immediately
     after, once the cookie has actually landed (true)."""
-    return jsonify({"authenticated": bool(session.get("authenticated"))})
+    ok = bool(session.get("authenticated"))
+    # DIAG (temporary): see whether the post-login poll ever sees the cookie.
+    audit_log.info("DIAG  auth-check cookie=%s auth=%s ua=%r from %s",
+                   app.config.get("SESSION_COOKIE_NAME", "session") in request.cookies,
+                   ok, request.headers.get("User-Agent", "")[:80], request.remote_addr)
+    return jsonify({"authenticated": ok})
 
 
 @app.route("/api/logout", methods=["POST"])
