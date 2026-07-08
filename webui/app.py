@@ -1008,16 +1008,26 @@ _last_discovery = 0.0
 _absent_macs = set()
 
 
-def _neigh_map():
-    """Return {mac: ip} from the kernel neighbour table.
+# NUD states that mean "the device really is at this IP right now" — safe to
+# switch a target to. STALE is deliberately excluded: it's a lingering entry
+# from an earlier lease and is exactly what made a powered-off TV appear to
+# "roam" to a stale address.
+_STRONG_NEIGH_STATES = {"REACHABLE", "PERMANENT", "DELAY", "PROBE"}
+
+
+def _neigh_entries():
+    """Return {mac: (ip, state)} from the kernel neighbour table, one entry per
+    MAC — the freshest/most-usable by NUD state, skipping FAILED.
 
     Fixes the old first-match bug: when a MAC appears more than once (e.g. a
     stale entry at the old IP coexists with the new one), prefer the freshest,
-    most-usable state and skip FAILED entries entirely.
+    most-usable state. Callers that only need the IP use _neigh_map(); callers
+    deciding whether to *switch* a target's IP also need the state, because a
+    lone STALE entry must not trigger a switch (see _STRONG_NEIGH_STATES).
     """
     arp_out, _ = run_argv(["ip", "neigh", "show"])
     rank = {"REACHABLE": 4, "PERMANENT": 4, "DELAY": 3, "PROBE": 3, "STALE": 2}
-    best = {}  # mac -> (ip, rank)
+    best = {}  # mac -> (ip, state, rank)
     for line in arp_out.splitlines():
         # The NUD state is always the LAST token; optional flags (router,
         # proxy, extern_learn) can sit between the MAC and the state, so grab
@@ -1029,9 +1039,14 @@ def _neigh_map():
         if state == "FAILED":
             continue
         r = rank.get(state, 1)
-        if mac not in best or r > best[mac][1]:
-            best[mac] = (ip, r)
-    return {mac: ip for mac, (ip, _r) in best.items()}
+        if mac not in best or r > best[mac][2]:
+            best[mac] = (ip, state, r)
+    return {mac: (ip, state) for mac, (ip, state, _r) in best.items()}
+
+
+def _neigh_map():
+    """{mac: ip} — freshest neighbour entry per MAC (see _neigh_entries)."""
+    return {mac: ip for mac, (ip, _st) in _neigh_entries().items()}
 
 
 def _discover_arp():
@@ -1092,7 +1107,10 @@ def ip_watch_loop():
             if not enabled:
                 continue
 
-            neigh = _neigh_map()
+            entries = _neigh_entries()   # {mac: (ip, state)}
+            # Passive-table view used for presence/lost detection — includes
+            # STALE entries (a stale entry still means "we've seen this MAC").
+            neigh = {mac: ip for mac, (ip, _st) in entries.items()}
             names = {d["mac"].lower(): (d.get("nickname") or d.get("ip") or d["mac"])
                      for d in enabled}
 
@@ -1119,6 +1137,7 @@ def ip_watch_loop():
 
             now = time.monotonic()
             since = now - _last_discovery
+            discovered = {}   # active nmap results this cycle (empty if no scan)
             if since >= _DISCOVERY_INTERVAL or (newly_lost and since >= _MIN_DISCOVERY_GAP):
                 # Only log the fast (lost-triggered) path — the 10-min periodic
                 # floor fires on healthy targets too and would spam the log.
@@ -1130,9 +1149,6 @@ def ip_watch_loop():
                 discovered = _discover_arp()
                 if newly_lost:
                     audit_log.info("SERVICE  IP watchdog: discovery scan resolved %d device(s)", len(discovered))
-                if discovered:
-                    # nmap's fresh result wins over the passive table.
-                    neigh.update(discovered)
                 # A lost target the active scan STILL can't find is genuinely
                 # offline (a roamed one answers the scan's ARP and shows up).
                 # Stop fast-scanning it until it reappears — the 10-min floor
@@ -1143,21 +1159,41 @@ def ip_watch_loop():
                     audit_log.info("SERVICE  IP watchdog: target %s not found by scan — treating as offline until it returns",
                                    names.get(mac, mac))
 
+            # Trusted current IPs for switching a target: an active-scan hit
+            # (the device answered ARP just now) or a strong, non-STALE
+            # neighbour state. A lone STALE entry is an old lease and must NOT
+            # move a target — that made a powered-off TV "roam" to a stale IP.
+            trusted = {mac: ip for mac, (ip, st) in entries.items()
+                       if st in _STRONG_NEIGH_STATES}
+            trusted.update(discovered)
+
             changed = False
             for dev in devices:
                 if not dev.get("enabled") or not dev.get("mac"):
                     continue
-                cur = neigh.get(dev["mac"].lower())
-                if cur and cur != dev.get("ip"):
+                mac = dev["mac"].lower()
+                known = dev.get("ip")
+                cur = trusted.get(mac)
+                if cur and cur != known:
+                    src = "active scan" if mac in discovered else \
+                          "neighbour %s" % entries[mac][1]
+                    audit_log.info("SERVICE  IP watchdog: %s IP %s -> %s (%s)",
+                                   names.get(mac, mac), known or "?", cur, src)
                     dev["ip"] = cur
                     changed = True
+                elif newly_lost and mac in neigh and neigh[mac] != known and mac not in trusted:
+                    # Visibility: a lost target still shows a *different* IP in
+                    # the passive table, but only as a weak/STALE entry — the
+                    # usual "roam to a stale lease" trap. Log it; don't switch.
+                    audit_log.info("SERVICE  IP watchdog: %s has stale neighbour entry %s (state %s), keeping known IP %s — not switching",
+                                   names.get(mac, mac), neigh[mac], entries[mac][1], known or "?")
 
             if changed:
                 save_devices(devices)
                 old_targets = read_conf().get("TARGET_IPS", "").split()
-                # Reuse the map we already resolved (incl. nmap discovery) so
-                # sync doesn't re-read the passive table and revert to a stale IP.
-                new_ips = sync_targets_from_devices(neigh)
+                # Sync from the same trusted map so it can't revert a target to
+                # a stale IP; devices absent from it keep their last-known IP.
+                new_ips = sync_targets_from_devices(trusted)
                 audit_log.info("SERVICE  IP watchdog detected IP change (targets: %s)", new_ips)
                 ok, out = _hot_reload_targets(old_targets, new_ips)
                 if ok:
