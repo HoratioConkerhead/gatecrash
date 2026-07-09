@@ -125,6 +125,14 @@
     height: 100dvh;
     overflow: hidden;
   }
+  /* The window must never scroll — only <main> does. Without this, on iOS
+     standalone cold launch the 100lvh body (true screen height) overflows
+     the stale too-short viewport by ~47px and the whole shell can be dragged
+     until the first scroll gesture makes iOS expand the viewport. */
+  html {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   /* iOS standalone (Add to Home Screen) cold-launch fix: with
      black-translucent + viewport-fit=cover, iOS initially lays the page out
      against screen-minus-status-bar and only expands to the true height on a
