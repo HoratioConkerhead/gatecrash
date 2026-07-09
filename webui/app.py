@@ -1008,26 +1008,19 @@ _last_discovery = 0.0
 _absent_macs = set()
 
 
-# NUD states that mean "the device really is at this IP right now" — safe to
-# switch a target to. STALE is deliberately excluded: it's a lingering entry
-# from an earlier lease and is exactly what made a powered-off TV appear to
-# "roam" to a stale address.
-_STRONG_NEIGH_STATES = {"REACHABLE", "PERMANENT", "DELAY", "PROBE"}
+def _neigh_map():
+    """Return {mac: ip} from the kernel neighbour table.
 
-
-def _neigh_entries():
-    """Return {mac: (ip, state)} from the kernel neighbour table, one entry per
-    MAC — the freshest/most-usable by NUD state, skipping FAILED.
-
-    Fixes the old first-match bug: when a MAC appears more than once (e.g. a
-    stale entry at the old IP coexists with the new one), prefer the freshest,
-    most-usable state. Callers that only need the IP use _neigh_map(); callers
-    deciding whether to *switch* a target's IP also need the state, because a
-    lone STALE entry must not trigger a switch (see _STRONG_NEIGH_STATES).
+    Picks the freshest entry per MAC (by NUD state) and skips FAILED, so a MAC
+    with both a stale old-IP entry and a fresh new-IP entry resolves to the new
+    one. Used by the "sync now" / device paths as a cheap passive resolver; the
+    IP-change watchdog no longer relies on it — it validates via active ARP
+    probes (see _arp_probe / _discover_arp) so a lingering STALE lease can't
+    move a target.
     """
     arp_out, _ = run_argv(["ip", "neigh", "show"])
     rank = {"REACHABLE": 4, "PERMANENT": 4, "DELAY": 3, "PROBE": 3, "STALE": 2}
-    best = {}  # mac -> (ip, state, rank)
+    best = {}  # mac -> (ip, rank)
     for line in arp_out.splitlines():
         # The NUD state is always the LAST token; optional flags (router,
         # proxy, extern_learn) can sit between the MAC and the state, so grab
@@ -1039,21 +1032,16 @@ def _neigh_entries():
         if state == "FAILED":
             continue
         r = rank.get(state, 1)
-        if mac not in best or r > best[mac][2]:
-            best[mac] = (ip, state, r)
-    return {mac: (ip, state) for mac, (ip, state, _r) in best.items()}
-
-
-def _neigh_map():
-    """{mac: ip} — freshest neighbour entry per MAC (see _neigh_entries)."""
-    return {mac: ip for mac, (ip, _st) in _neigh_entries().items()}
+        if mac not in best or r > best[mac][1]:
+            best[mac] = (ip, r)
+    return {mac: ip for mac, (ip, _r) in best.items()}
 
 
 def _discover_arp():
     """Force devices to reveal current IP↔MAC via an ARP-based nmap scan.
 
-    Returns {mac: ip}. Best-effort — returns {} on any failure so the watchdog
-    falls back to the passive neighbour table.
+    Returns {mac: ip}. Best-effort — returns {} on any failure, in which case
+    the watchdog simply makes no change this cycle (targets keep last-known IPs).
     """
     try:
         lan_if = _valid_if(read_conf().get("LAN_IF", ""))
@@ -1070,31 +1058,26 @@ def _discover_arp():
     return {d["mac"]: d["ip"] for d in parse_nmap_devices(out) if d.get("mac")}
 
 
-_ARPSPOOF_LOG_DIR = "/var/log"
+def _arp_probe(ip):
+    """Actively ARP-probe a single IP; return the MAC answering there right now
+    (lowercase), or None if nothing replies.
 
-
-def _arpspoof_failing(ip):
-    """True if the latest arpspoof spawn for this target IP can't resolve it.
-
-    dsniff logs "couldn't arp for host <ip>" when the device is no longer at
-    that address — the classic roam signature. The kernel meanwhile keeps a
-    STALE neighbour entry at the old IP, so `_neigh_map()` still "sees" the
-    MAC and won't flag it lost; this log check is what catches the roam fast.
-    Only the tail after the most recent spawn marker is considered, so stale
-    history from before a successful restart doesn't cause false positives.
+    Sends an ARP "who has <ip>" (nmap -sn does ARP on the local segment when
+    root) and reads the responder's MAC — an authoritative, this-instant answer,
+    unlike the passive kernel neighbour cache which lingers on old leases. This
+    is how a target's current IP is *validated*: probe its known IP and check
+    the MAC that comes back.
     """
-    for direction in ("fwd", "rev"):
-        path = f"{_ARPSPOOF_LOG_DIR}/gatecrash-arpspoof-{ip}-{direction}.log"
-        try:
-            with open(path, "r", errors="replace") as f:
-                text = "".join(f.readlines()[-40:])
-        except OSError:
-            continue
-        idx = text.rfind("--- spawn at")
-        recent = text[idx:] if idx != -1 else text
-        if "couldn't arp for host" in recent:
-            return True
-    return False
+    if not _valid_ip(ip):
+        return None
+    try:
+        out, _ = run_argv(["nmap", "-sn", "-n", ip], timeout=20)
+    except Exception:
+        return None
+    for d in parse_nmap_devices(out):
+        if d.get("ip") == ip:
+            return (d.get("mac") or "").lower() or None
+    return None
 
 
 def ip_watch_loop():
@@ -1107,27 +1090,31 @@ def ip_watch_loop():
             if not enabled:
                 continue
 
-            entries = _neigh_entries()   # {mac: (ip, state)}
-            # Passive-table view used for presence/lost detection — includes
-            # STALE entries (a stale entry still means "we've seen this MAC").
-            neigh = {mac: ip for mac, (ip, _st) in entries.items()}
             names = {d["mac"].lower(): (d.get("nickname") or d.get("ip") or d["mac"])
                      for d in enabled}
 
-            # A target "looks lost" if its MAC isn't confirmed at any live
-            # neighbour entry, OR its arpspoof is logging "couldn't arp for
-            # host" at its current IP (roamed away — the kernel keeps a stale
-            # entry at the old IP so the neighbour check alone misses this).
+            # Validate each target's KNOWN IP with an active ARP probe — ask
+            # "who is at this IP right now?" and check the answering MAC. This
+            # is authoritative (the device replies this instant) and never
+            # consults the passive neighbour cache, which lingers on old leases
+            # and previously made a powered-off target "roam" to a stale IP.
+            # A target is lost only if a different MAC now holds its IP, or
+            # nothing answers there (device off or moved).
             lost_macs = set()
             lost_reason = {}
             for d in enabled:
                 mac = d["mac"].lower()
-                if mac not in neigh:
+                known = d.get("ip")
+                if not known:
                     lost_macs.add(mac)
-                    lost_reason[mac] = "not in neighbour table"
-                elif d.get("ip") and _arpspoof_failing(d["ip"]):
-                    lost_macs.add(mac)
-                    lost_reason[mac] = f"arpspoof can't reach {d['ip']}"
+                    lost_reason[mac] = "no known IP yet"
+                    continue
+                at_ip = _arp_probe(known)
+                if at_ip == mac:
+                    continue  # confirmed present at its known IP
+                lost_macs.add(mac)
+                lost_reason[mac] = (f"no ARP reply at {known}" if at_ip is None
+                                    else f"{at_ip} now answers at {known}")
             # Drop the confirmed-offline flag for anything that's reachable again.
             _absent_macs &= lost_macs
             # Only a lost target we haven't already confirmed offline warrants a
@@ -1159,41 +1146,28 @@ def ip_watch_loop():
                     audit_log.info("SERVICE  IP watchdog: target %s not found by scan — treating as offline until it returns",
                                    names.get(mac, mac))
 
-            # Trusted current IPs for switching a target: an active-scan hit
-            # (the device answered ARP just now) or a strong, non-STALE
-            # neighbour state. A lone STALE entry is an old lease and must NOT
-            # move a target — that made a powered-off TV "roam" to a stale IP.
-            trusted = {mac: ip for mac, (ip, st) in entries.items()
-                       if st in _STRONG_NEIGH_STATES}
-            trusted.update(discovered)
-
+            # Only an ACTIVE scan hit may move a target — never the passive
+            # neighbour cache. A target the scan didn't find keeps its last-known
+            # IP (it's off/quiet; it'll be re-validated when it answers again).
             changed = False
             for dev in devices:
                 if not dev.get("enabled") or not dev.get("mac"):
                     continue
                 mac = dev["mac"].lower()
                 known = dev.get("ip")
-                cur = trusted.get(mac)
+                cur = discovered.get(mac)
                 if cur and cur != known:
-                    src = "active scan" if mac in discovered else \
-                          "neighbour %s" % entries[mac][1]
-                    audit_log.info("SERVICE  IP watchdog: %s IP %s -> %s (%s)",
-                                   names.get(mac, mac), known or "?", cur, src)
+                    audit_log.info("SERVICE  IP watchdog: %s IP %s -> %s (active scan)",
+                                   names.get(mac, mac), known or "?", cur)
                     dev["ip"] = cur
                     changed = True
-                elif newly_lost and mac in neigh and neigh[mac] != known and mac not in trusted:
-                    # Visibility: a lost target still shows a *different* IP in
-                    # the passive table, but only as a weak/STALE entry — the
-                    # usual "roam to a stale lease" trap. Log it; don't switch.
-                    audit_log.info("SERVICE  IP watchdog: %s has stale neighbour entry %s (state %s), keeping known IP %s — not switching",
-                                   names.get(mac, mac), neigh[mac], entries[mac][1], known or "?")
 
             if changed:
                 save_devices(devices)
                 old_targets = read_conf().get("TARGET_IPS", "").split()
-                # Sync from the same trusted map so it can't revert a target to
+                # Sync from the same active-scan map so it can't revert a target to
                 # a stale IP; devices absent from it keep their last-known IP.
-                new_ips = sync_targets_from_devices(trusted)
+                new_ips = sync_targets_from_devices(discovered)
                 audit_log.info("SERVICE  IP watchdog detected IP change (targets: %s)", new_ips)
                 ok, out = _hot_reload_targets(old_targets, new_ips)
                 if ok:
