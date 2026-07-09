@@ -112,15 +112,32 @@
     font-size: 15px;
     overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
+    height: 100%;
   }
 
-  /* App shell layout: fixed header + fixed bottom tabs + scrollable middle */
+  /* App shell layout: flex column that owns the viewport — header and tab
+     bar are in-flow flex children, <main> scrolls between them. Nothing is
+     position:fixed: on iOS standalone cold launch the viewport height that
+     fixed elements anchor to is wrong (see the 100lvh rule below). */
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  /* iOS standalone (Add to Home Screen) cold-launch fix: with
+     black-translucent + viewport-fit=cover, iOS initially lays the page out
+     against screen-minus-status-bar and only expands to the true height on a
+     real scroll gesture — so anything bottom-anchored floats ~47px high, then
+     snaps. No JS API and no other CSS unit reports the true height at load;
+     100lvh self-corrects within tens of ms and reflows automatically. Scoped
+     to standalone: in a Safari tab 100lvh is the toolbars-collapsed height,
+     which would push the tab bar below the fold. */
+  @media (display-mode: standalone) {
+    body { height: 100lvh; }
+  }
   header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 50;
+    flex: 0 0 auto;
     background: #1a1a2e;
     color: white;
     padding: 12px 16px;
@@ -178,13 +195,21 @@
   }
   .hidden { display: none; }
 
+  /* <main> is the app's only scroller (the window never scrolls); it spans
+     the full width so the wheel works anywhere, .main-inner centres the
+     content. The old 72px top/bottom padding cleared the fixed bars — not
+     needed now the bars are in-flow. */
   main {
+    flex: 1 1 auto;
+    min-height: 0;             /* allow shrinking inside the flex column */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+  }
+  .main-inner {
     max-width: 1100px;
     margin: 0 auto;
     padding: 16px;
-    padding-top: calc(72px + env(safe-area-inset-top, 0px));
-    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-    min-height: 100dvh;
   }
 
   .card {
@@ -645,13 +670,10 @@
   #vpn-result.ok    { color: #4caf50; }
   #vpn-result.fail  { color: #f44336; }
 
-  /* Bottom tab bar */
+  /* Bottom tab bar — in-flow flex child, pinned by the shell, not by
+     position:fixed (see the app-shell comment at the top of the styles) */
   .tab-bar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 50;
+    flex: 0 0 auto;
     display: flex;
     align-items: flex-end;
     background: #1a1a2e;
@@ -726,7 +748,7 @@
 
   /* Mobile */
   @media (max-width: 700px) {
-    main { padding: 12px 10px; padding-top: calc(62px + env(safe-area-inset-top, 0px)); padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
+    .main-inner { padding: 12px 10px; }
     .tab-content.active { grid-template-columns: 1fr !important; }
     header { padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
     header h1 { font-size: 24px; }
@@ -753,8 +775,7 @@
     .tab-power-btn { width: 44px; height: 44px; bottom: 2px; box-shadow: 0 -2px 8px rgba(0,0,0,0.5); }
     .tab-power-btn svg { width: 22px; height: 22px; }
     .tab-power-btn:active { transform: translateX(-50%) scale(0.93); }
-    main { padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
-    header { 
+    header {
       min-height: 20px;
       padding: 2px 16px;
       padding-top: calc(2px + env(safe-area-inset-top, 0px));
@@ -1374,6 +1395,7 @@ async function dismissWelcome() {
 </div>
 
 <main>
+<div class="main-inner">
 
   <!-- ==================== TAB: DEVICES ==================== -->
   <div class="tab-content active" id="tab-devices" style="display:grid;grid-template-columns:1fr;gap:20px;">
@@ -2081,6 +2103,7 @@ async function dismissWelcome() {
 
   </div><!-- /tab-help -->
 
+</div><!-- /main-inner -->
 </main>
 
 <!-- nmap scan modal -->
