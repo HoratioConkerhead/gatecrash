@@ -1,0 +1,35 @@
+name: CI
+
+# Runs on every push and pull request. The unit tests cover the pure modules
+# (validators.py, parsing.py, stats.py) — none of them import app.py, so CI
+# needs pytest only, not the Flask/root runtime deps.
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+      - name: Run tests
+        run: pytest -q
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck
+        # --severity=error only fails on genuine bugs (bad syntax, undefined
+        # behaviour), not the many style warnings (SC2086 unquoted vars, etc.)
+        # the existing scripts would otherwise drown CI in. Tighten to
+        # 'warning' later once the scripts are cleaned up. shellcheck is
+        # preinstalled on the GitHub-hosted ubuntu runners.
+        run: |
+          files=$(find . -name '*.sh' -not -path './.git/*')
+          if [ -z "$files" ]; then echo "No shell scripts found"; exit 0; fi
+          echo "Checking:" $files
+          shellcheck --severity=error $files
