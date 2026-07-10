@@ -38,6 +38,10 @@ from tls import (
     _cert_total_validity_days, _generate_self_signed_cert,
 )
 from config import CONF_PATH, read_conf, write_conf, wg_stats
+from devices import (
+    DEVICES_FILE, load_devices, save_devices, resolve_mac,
+    _neigh_map, sync_targets_from_devices,
+)
 
 app = Flask(__name__)
 
@@ -373,7 +377,6 @@ dns_log = deque(maxlen=100)
 dns_thread_started = False
 _state_lock = threading.Lock()  # guards dns_log snapshot, *_thread_started, update_check_state
 
-DEVICES_FILE = "/opt/gatecrash/devices.json"
 BOOT_STATE_FILE = "/opt/gatecrash/boot_state.json"
 
 
@@ -491,29 +494,6 @@ _last_discovery = 0.0
 # MACs an active scan has confirmed absent (device powered off / left the LAN).
 # They stop justifying fast scans — the 10-min floor picks them up when back.
 _absent_macs = set()
-
-
-def _neigh_map():
-    """Return {mac: ip} from the kernel neighbour table.
-
-    Picks the freshest entry per MAC (by NUD state) and skips FAILED, so a MAC
-    with both a stale old-IP entry and a fresh new-IP entry resolves to the new
-    one. Used by the "sync now" / device paths as a cheap passive resolver; the
-    IP-change watchdog no longer relies on it — it validates via active ARP
-    probes (see _arp_probe / _discover_arp) so a lingering STALE lease can't
-    move a target.
-    """
-    arp_out, _ = run_argv(["ip", "neigh", "show"])
-    rank = {"REACHABLE": 4, "PERMANENT": 4, "DELAY": 3, "PROBE": 3, "STALE": 2}
-    best = {}  # mac -> (ip, rank)
-    for e in parse_neigh(arp_out):
-        if e["state"] == "FAILED":
-            continue
-        r = rank.get(e["state"], 1)
-        mac = e["mac"]
-        if mac not in best or r > best[mac][1]:
-            best[mac] = (e["ip"], r)
-    return {mac: ip for mac, (ip, _r) in best.items()}
 
 
 def _discover_arp():
@@ -1016,82 +996,6 @@ def ensure_traffic_watch():
         traffic_watch_started = True
     t = threading.Thread(target=_traffic_watch_loop, daemon=True)
     t.start()
-
-
-# ---------------------------------------------------------------------------
-# Saved devices (MAC-based persistence)
-# ---------------------------------------------------------------------------
-
-def load_devices():
-    """Load saved devices from JSON file. Returns list of device dicts."""
-    try:
-        with open(DEVICES_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-
-def save_devices(devices):
-    """Write device list to JSON file."""
-    with open(DEVICES_FILE, "w") as f:
-        json.dump(devices, f, indent=2)
-
-
-def resolve_mac(ip):
-    """Look up MAC address for an IP from the ARP table."""
-    try:
-        ipaddress.ip_address(ip)  # reject anything that isn't a valid IP
-    except ValueError:
-        return ""
-    out, _ = run_argv(["ip", "neigh", "show", ip])
-    m = re.search(r"lladdr\s+([0-9a-f:]+)", out)
-    return m.group(1).lower() if m else ""
-
-
-def sync_targets_from_devices(neigh=None):
-    """Update TARGET_IPS in gatecrash.conf from enabled saved devices.
-
-    Uses ARP table to resolve current IPs from saved MAC addresses.
-    Returns the list of active IPs written to config.
-
-    Pass `neigh` (a {mac: ip} map, e.g. one already augmented with an active
-    nmap scan) to avoid a second passive lookup that could resolve a roamed
-    device back to its stale IP; when omitted, resolves from the live table.
-    """
-    devices = load_devices()
-    active_ips = []
-    updated = False
-
-    # Resolve current IPs from the neighbour table once for all devices.
-    # _neigh_map() picks the freshest entry per MAC (skips FAILED / stale
-    # duplicates) so a roamed device resolves to its new IP, not the old one.
-    if neigh is None:
-        neigh = _neigh_map()
-
-    for dev in devices:
-        if not dev.get("enabled", False):
-            continue
-        mac = dev.get("mac", "").lower()
-        if not mac:
-            continue
-        ip = neigh.get(mac)
-        if ip:
-            active_ips.append(ip)
-            if dev.get("ip") != ip:
-                dev["ip"] = ip
-                updated = True
-        elif dev.get("ip"):
-            # MAC not in neighbour table — use last-known IP if available.
-            active_ips.append(dev["ip"])
-
-    if updated:
-        save_devices(devices)
-
-    # Write to gatecrash.conf
-    conf = read_conf()
-    conf["TARGET_IPS"] = " ".join(active_ips)
-    write_conf(conf)
-    return active_ips
 
 
 # ---------------------------------------------------------------------------
