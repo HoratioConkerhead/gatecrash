@@ -241,6 +241,12 @@ echo "  [OK] Python environment ready."
 cp "$SCRIPT_DIR/webui/gatecrash-webui.service" /etc/systemd/system/gatecrash-webui.service
 systemctl daemon-reload
 systemctl enable gatecrash-webui
+# Flush all the freshly-copied files to disk before (re)starting. On the SD-card
+# boxes a copy lives in the write-back cache for a while; a power-cut before the
+# flush can leave a just-updated file 0 bytes, which then crashes the service on
+# next boot. `sync` forces the writes out so an update survives a power loss.
+echo "  Flushing writes to disk..."
+sync
 echo "  Restarting web UI service (connection will drop briefly)..."
 systemctl restart gatecrash-webui
 echo "  [OK] Web UI installed and restarted."

@@ -29,8 +29,27 @@ class JsonSettings:
             return dict(self.defaults)
 
     def save(self, data):
-        """Atomically write `data` as JSON (temp file + os.replace)."""
+        """Atomically and durably write `data` as JSON.
+
+        Temp file + os.replace() gives *atomicity* — a reader (or a crash) never
+        sees a half-written file. The fsyncs give *durability* — without them the
+        write lives only in the SD card's write-back cache and a power-cut can
+        lose it, which is exactly how a freshly-copied file once came back 0
+        bytes after a plug-pull. fsync the data, replace, then fsync the
+        directory so the rename itself survives too."""
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, self.path)
+        # Best-effort directory fsync (makes the rename durable). Not supported
+        # on every platform — e.g. Windows can't fsync a directory — so guard it.
+        try:
+            dir_fd = os.open(os.path.dirname(self.path) or ".", os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
