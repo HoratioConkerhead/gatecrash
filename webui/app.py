@@ -30,6 +30,7 @@ from validators import (
     _MAC_RE, _NICK_MAX, _CONF_ALLOWED_KEYS, _CONF_VALIDATORS,
 )
 from parsing import parse_neigh, parse_nmap_devices, parse_mangle_counters
+from settings import JsonSettings
 
 app = Flask(__name__)
 
@@ -944,17 +945,9 @@ update_check_state = {
 update_check_thread_started = False
 
 
-def load_update_settings():
-    try:
-        with open(UPDATE_SETTINGS_FILE) as f:
-            return {**_DEFAULT_UPDATE_SETTINGS, **json.load(f)}
-    except (FileNotFoundError, json.JSONDecodeError):
-        return dict(_DEFAULT_UPDATE_SETTINGS)
-
-
-def save_update_settings(settings):
-    with open(UPDATE_SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+_update_settings = JsonSettings(UPDATE_SETTINGS_FILE, _DEFAULT_UPDATE_SETTINGS)
+load_update_settings = _update_settings.load
+save_update_settings = _update_settings.save
 
 
 def _trigger_upgrade(repo):
@@ -1082,17 +1075,9 @@ _DEFAULT_AUTO_STOP_SETTINGS = {
 }
 
 
-def load_auto_stop_settings():
-    try:
-        with open(AUTO_STOP_SETTINGS_FILE) as f:
-            return {**_DEFAULT_AUTO_STOP_SETTINGS, **json.load(f)}
-    except (FileNotFoundError, json.JSONDecodeError):
-        return dict(_DEFAULT_AUTO_STOP_SETTINGS)
-
-
-def save_auto_stop_settings(settings):
-    with open(AUTO_STOP_SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+_auto_stop_settings = JsonSettings(AUTO_STOP_SETTINGS_FILE, _DEFAULT_AUTO_STOP_SETTINGS)
+load_auto_stop_settings = _auto_stop_settings.load
+save_auto_stop_settings = _auto_stop_settings.save
 
 
 # ---------------------------------------------------------------------------
@@ -1122,17 +1107,9 @@ _DEFAULT_OS_UPDATE_SETTINGS = {
 _TIME_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d\Z")
 
 
-def load_os_update_settings():
-    try:
-        with open(OS_UPDATE_SETTINGS_FILE) as f:
-            return {**_DEFAULT_OS_UPDATE_SETTINGS, **json.load(f)}
-    except (FileNotFoundError, json.JSONDecodeError):
-        return dict(_DEFAULT_OS_UPDATE_SETTINGS)
-
-
-def save_os_update_settings(settings):
-    with open(OS_UPDATE_SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+_os_update_settings = JsonSettings(OS_UPDATE_SETTINGS_FILE, _DEFAULT_OS_UPDATE_SETTINGS)
+load_os_update_settings = _os_update_settings.load
+save_os_update_settings = _os_update_settings.save
 
 
 def _apply_os_update_config(settings):
@@ -1173,17 +1150,9 @@ STATS_SETTINGS_FILE = "/opt/gatecrash/stats_settings.json"
 _DEFAULT_STATS_SETTINGS = {"sample_interval": 2}
 
 
-def load_stats_settings():
-    try:
-        with open(STATS_SETTINGS_FILE) as f:
-            return {**_DEFAULT_STATS_SETTINGS, **json.load(f)}
-    except (FileNotFoundError, json.JSONDecodeError):
-        return dict(_DEFAULT_STATS_SETTINGS)
-
-
-def save_stats_settings(settings):
-    with open(STATS_SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+_stats_settings = JsonSettings(STATS_SETTINGS_FILE, _DEFAULT_STATS_SETTINGS)
+load_stats_settings = _stats_settings.load
+save_stats_settings = _stats_settings.save
 
 
 def ensure_stats_sampler():
