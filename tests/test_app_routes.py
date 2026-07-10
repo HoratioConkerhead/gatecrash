@@ -89,3 +89,13 @@ def test_csrf_required_on_mutating_post(client):
     assert client.post("/api/logout").status_code == 403
     # With the token → accepted.
     assert client.post("/api/logout", headers={"X-CSRF-Token": csrf}).status_code == 200
+
+
+def test_dns_log_route_returns_entries(client):
+    # Exercises the watchdogs.dns_log_snapshot() path through the route.
+    import app
+    app._store_password("pw-abcdefgh")
+    client.post("/api/login", json={"password": "pw-abcdefgh"})
+    r = client.get("/api/dns-log")
+    assert r.status_code == 200
+    assert "entries" in r.get_json()
