@@ -224,6 +224,7 @@ cp "$SCRIPT_DIR/webui/validators.py" "$WEBUI_DIR/validators.py"
 cp "$SCRIPT_DIR/webui/parsing.py" "$WEBUI_DIR/parsing.py"
 cp "$SCRIPT_DIR/webui/settings.py" "$WEBUI_DIR/settings.py"
 cp "$SCRIPT_DIR/webui/netutils.py" "$WEBUI_DIR/netutils.py"
+cp "$SCRIPT_DIR/webui/tls.py" "$WEBUI_DIR/tls.py"
 cp "$SCRIPT_DIR/webui/templates/index.html" "$WEBUI_DIR/templates/index.html"
 cp -r "$SCRIPT_DIR/webui/static/." "$WEBUI_DIR/static/"
 
