@@ -29,6 +29,7 @@ from validators import (
     _normalize_wg_config,
     _MAC_RE, _NICK_MAX, _CONF_ALLOWED_KEYS, _CONF_VALIDATORS,
 )
+from parsing import parse_neigh, parse_nmap_devices, parse_mangle_counters
 
 app = Flask(__name__)
 
@@ -753,19 +754,13 @@ def _neigh_map():
     arp_out, _ = run_argv(["ip", "neigh", "show"])
     rank = {"REACHABLE": 4, "PERMANENT": 4, "DELAY": 3, "PROBE": 3, "STALE": 2}
     best = {}  # mac -> (ip, rank)
-    for line in arp_out.splitlines():
-        # The NUD state is always the LAST token; optional flags (router,
-        # proxy, extern_learn) can sit between the MAC and the state, so grab
-        # the final word rather than the first one after the MAC.
-        m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(.+)$", line)
-        if not m:
+    for e in parse_neigh(arp_out):
+        if e["state"] == "FAILED":
             continue
-        ip, mac, state = m.group(1), m.group(2).lower(), m.group(3).split()[-1].upper()
-        if state == "FAILED":
-            continue
-        r = rank.get(state, 1)
+        r = rank.get(e["state"], 1)
+        mac = e["mac"]
         if mac not in best or r > best[mac][1]:
-            best[mac] = (ip, r)
+            best[mac] = (e["ip"], r)
     return {mac: ip for mac, (ip, _r) in best.items()}
 
 
@@ -1212,24 +1207,13 @@ def _fmt_bytes(b):
 
 
 def _parse_mangle_counters():
-    """Parse per-device byte counters (upload + download) from iptables FORWARD chain."""
+    """Fetch iptables FORWARD counters and parse per-device byte totals.
+
+    Parsing lives in parsing.parse_mangle_counters(); this just runs the command."""
     out, rc = run_argv(["iptables", "-L", "FORWARD", "-n", "-v", "-x"])
     if rc != 0:
         return {}
-    result = {}
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) < 9 or parts[2] != "ACCEPT":
-            continue
-        bytes_val = int(parts[1])
-        src, dst = parts[7], parts[8]
-        # Upload rule: src=<device> dst=0.0.0.0/0
-        if src != "0.0.0.0/0" and dst == "0.0.0.0/0":
-            result[src] = result.get(src, 0) + bytes_val
-        # Download rule: src=0.0.0.0/0 dst=<device>
-        elif src == "0.0.0.0/0" and dst != "0.0.0.0/0":
-            result[dst] = result.get(dst, 0) + bytes_val
-    return result
+    return parse_mangle_counters(out)
 
 
 def _traffic_watch_loop():
@@ -1946,33 +1930,6 @@ def api_autostart():
 
 
 
-def parse_nmap_devices(output):
-    """Parse nmap -sn output into a list of device dicts."""
-    devices = []
-    current = {}
-    for line in output.splitlines():
-        m = re.match(r"Nmap scan report for (.+?) \((\d+\.\d+\.\d+\.\d+)\)", line)
-        if m:
-            if current:
-                devices.append(current)
-            current = {"hostname": m.group(1), "ip": m.group(2), "mac": ""}
-            continue
-        m = re.match(r"Nmap scan report for (\d+\.\d+\.\d+\.\d+)", line)
-        if m:
-            if current:
-                devices.append(current)
-            current = {"hostname": "", "ip": m.group(1), "mac": ""}
-            continue
-        m = re.search(r"MAC Address: ([0-9A-Fa-f:]{17})(?: \((.+)\))?", line)
-        if m and current:
-            current["mac"] = m.group(1).lower()
-            current["vendor"] = m.group(2) or ""
-    if current:
-        devices.append(current)
-    devices.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
-    return devices
-
-
 @app.route("/api/devices/scan-stream")
 def api_devices_scan_stream():
     """SSE stream of nmap scan output, followed by parsed device list."""
@@ -2024,15 +1981,11 @@ def api_devices_scan_stream():
             # Augment with ARP entries nmap missed
             arp_out, _ = run_argv(["ip", "neigh", "show"])
             nmap_macs = {d["mac"] for d in devices if d["mac"]}
-            for line in arp_out.splitlines():
-                m = re.match(r"(\d+\.\d+\.\d+\.\d+)\s+dev\s+\S+\s+lladdr\s+([0-9a-f:]{17})\s+(\w+)", line)
-                if not m:
+            for e in parse_neigh(arp_out):
+                if e["state"] == "FAILED" or e["mac"] in nmap_macs:
                     continue
-                ip, mac, state = m.group(1), m.group(2).lower(), m.group(3)
-                if state == "FAILED" or mac in nmap_macs:
-                    continue
-                devices.append({"ip": ip, "mac": mac, "hostname": "", "vendor": ""})
-                nmap_macs.add(mac)
+                devices.append({"ip": e["ip"], "mac": e["mac"], "hostname": "", "vendor": ""})
+                nmap_macs.add(e["mac"])
 
             devices = [d for d in devices if d["ip"] not in exclude_ips]
             devices.sort(key=lambda d: [int(x) for x in d["ip"].split(".")])
