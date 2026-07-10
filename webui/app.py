@@ -26,7 +26,7 @@ import stats as sysstats
 from validators import (
     _valid_if, _valid_table, _valid_ip, _valid_ip_or_empty, _valid_fwmark,
     _valid_target_ips, _valid_repo, _valid_branch,
-    _normalize_wg_config,
+    _normalize_wg_config, redact_private_keys, restore_private_keys,
     _MAC_RE, _NICK_MAX, _CONF_ALLOWED_KEYS, _CONF_VALIDATORS,
 )
 from parsing import parse_neigh, parse_nmap_devices, parse_mangle_counters
@@ -897,17 +897,7 @@ def ip_watch_loop():
                 # a stale IP; devices absent from it keep their last-known IP.
                 new_ips = sync_targets_from_devices(discovered)
                 audit_log.info("SERVICE  IP watchdog detected IP change (targets: %s)", new_ips)
-                ok, out = _hot_reload_targets(old_targets, new_ips)
-                if ok:
-                    _record_service_state("gatecrash", True)
-                    audit_log.info("SERVICE  Hot-reloaded after IP change: %s", out)
-                else:
-                    audit_log.error("SERVICE  Hot reload failed after IP change, restarting: %s", out)
-                    out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
-                    if rc == 0:
-                        _record_service_state("gatecrash", True)
-                    else:
-                        audit_log.error("SERVICE  Gatecrash restart FAILED after IP change: %s", out)
+                _apply_target_change(old_targets, new_ips, "IP change")
         except Exception as e:
             audit_log.error("SERVICE  IP watchdog error: %s", e)
 
@@ -1251,17 +1241,7 @@ def _traffic_watch_loop():
                         save_devices(devices)
                         old_targets = read_conf().get("TARGET_IPS", "").split()
                         new_targets = sync_targets_from_devices()
-                        ok, out = _hot_reload_targets(old_targets, new_targets)
-                        if ok:
-                            _record_service_state("gatecrash", True)
-                            audit_log.info("AUTO-STOP  Hot-reloaded: %s", out)
-                        else:
-                            audit_log.error("AUTO-STOP  Hot reload failed, restarting: %s", out)
-                            out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
-                            if rc == 0:
-                                _record_service_state("gatecrash", True)
-                            else:
-                                audit_log.error("AUTO-STOP  Gatecrash restart FAILED: %s", out)
+                        _apply_target_change(old_targets, new_targets, "auto-stop")
                         _traffic_state.pop(ip, None)
                         break  # device list mutated — catch others next cycle
                 else:
@@ -2169,6 +2149,32 @@ def _hot_reload_targets(old_ips, new_ips):
     return True, output
 
 
+def _apply_target_change(old_ips, new_ips, source):
+    """Push a target-set change into the live firewall: hot-reload the per-target
+    rules, and if that fails, fall back to a full `systemctl restart gatecrash`.
+    Records gatecrash as running only after a confirmed-good reload/restart.
+    Returns (ok, output).
+
+    `source` is a short tag for the audit log (e.g. "IP change", "auto-stop",
+    "device sync"). This is the single home for the hot-reload-or-restart
+    sequence — the order (record state only once the change is actually applied)
+    is subtle, so keep it here rather than re-inlining it. (review H4)
+    """
+    ok, out = _hot_reload_targets(old_ips, new_ips)
+    if ok:
+        _record_service_state("gatecrash", True)
+        audit_log.info("SERVICE  Hot-reloaded (%s): %s", source, out)
+        return True, out
+    audit_log.error("SERVICE  Hot reload failed (%s), restarting: %s", source, out)
+    out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
+    if rc == 0:
+        _record_service_state("gatecrash", True)
+        audit_log.info("SERVICE  Gatecrash restarted (%s)", source)
+        return True, out
+    audit_log.error("SERVICE  Gatecrash restart FAILED (%s): %s", source, out)
+    return False, out
+
+
 @app.route("/api/saved-devices/sync", methods=["POST"])
 def api_sync_devices():
     """Sync enabled saved devices → TARGET_IPS in config, then restart Gatecrash."""
@@ -2185,19 +2191,8 @@ def api_sync_devices():
     gc_running = status_out.strip() == "active"
 
     if gc_running and set(old_ips) != set(active_ips):
-        # Hot reload — only add/remove what changed
-        ok, out = _hot_reload_targets(old_ips, active_ips)
-        if ok:
-            audit_log.info("SERVICE  Gatecrash hot-reloaded: %s", out)
-        else:
-            audit_log.error("SERVICE  Hot reload failed (%s), falling back to restart", out)
-            out, rc = run_argv(["systemctl", "restart", "gatecrash"], timeout=30, merge_stderr=True)
-            ok = rc == 0
-            if ok:
-                audit_log.info("SERVICE  Gatecrash restarted (hot reload fallback)")
-            else:
-                audit_log.error("SERVICE  Gatecrash restart FAILED: %s", out)
-        _record_service_state("gatecrash", True)
+        # Hot reload what changed; falls back to a restart if that fails.
+        ok, out = _apply_target_change(old_ips, active_ips, "device sync")
         return jsonify({"ok": ok, "active_ips": active_ips, "output": out})
     elif gc_running:
         # Targets unchanged — nothing to do
@@ -2238,7 +2233,7 @@ def api_diagnostics_dump():
         out, _ = run_argv(args, timeout=10, merge_stderr=True)
         # SECURITY: redact WireGuard private keys from diagnostics output — the
         # dump is downloadable as a text file and may be shared for support.  (HIGH-1, HIGH-9)
-        redacted = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', out or '')
+        redacted = redact_private_keys(out)
         cmd_display = " ".join(args)
         sections.append(f"{'=' * 70}\n{title}\n{'=' * 70}\n$ {cmd_display}\n\n{redacted or '(empty)'}\n")
 
@@ -2468,7 +2463,7 @@ def api_wg_config():
             # SECURITY: never send the WireGuard private key to the browser.
             # The key stays on disk; the UI shows [redacted] and sends it back
             # unchanged on save (restored from disk below).  (HIGH-9)
-            content = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*).*$', r'\1[redacted]', content)
+            content = redact_private_keys(content)
             return jsonify({"ok": True, "content": content})
         except Exception:
             return jsonify({"ok": False, "content": "", "error": "Internal error"})
@@ -2480,9 +2475,7 @@ def api_wg_config():
         try:
             with open(WG_CONF_PATH) as f:
                 old = f.read()
-            pk = re.search(r'(?im)^(\s*PrivateKey\s*=\s*)(.+)$', old)
-            if pk:
-                content = re.sub(r'(?im)^(\s*PrivateKey\s*=\s*)\[redacted\]', pk.group(1) + pk.group(2), content)
+            content = restore_private_keys(content, old)
         except FileNotFoundError:
             pass
     try:

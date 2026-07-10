@@ -198,3 +198,55 @@ def test_normalize_roundtrip_is_stable():
     canon1, _ = v._normalize_wg_config(_minimal_config())
     canon2, _ = v._normalize_wg_config(canon1)
     assert canon1 == canon2
+
+
+# ---------------------------------------------------------------------------
+# redact_private_keys / restore_private_keys — the "never leak the key" pair.
+# The redacted config must never contain the real key; the browser round-trip
+# (GET redacts, user edits, POST sends [redacted] back, we restore) must recover
+# the original byte-for-byte.
+# ---------------------------------------------------------------------------
+
+WG_WITH_KEY = (
+    "[Interface]\n"
+    "PrivateKey = " + KEY_A + "\n"
+    "Address = 10.0.0.2/32\n"
+    "[Peer]\n"
+    "PublicKey = " + KEY_B + "\n"
+    "AllowedIPs = 0.0.0.0/0\n"
+)
+
+
+def test_redact_replaces_value_keeps_name():
+    red = v.redact_private_keys(WG_WITH_KEY)
+    assert "PrivateKey = [redacted]" in red
+    assert KEY_A not in red                 # the real key must be gone
+    assert "PublicKey = " + KEY_B in red    # public key untouched
+
+
+def test_redact_handles_empty_and_none():
+    assert v.redact_private_keys("") == ""
+    assert v.redact_private_keys(None) == ""
+
+
+def test_redact_is_case_and_indent_insensitive():
+    # wg-quick tolerates indentation and case; redaction must too.
+    text = "  privatekey=" + KEY_A + "\n"
+    assert KEY_A not in v.redact_private_keys(text)
+
+
+def test_restore_recovers_original_roundtrip():
+    red = v.redact_private_keys(WG_WITH_KEY)
+    restored = v.restore_private_keys(red, WG_WITH_KEY)
+    assert restored == WG_WITH_KEY          # byte-for-byte recovery
+
+
+def test_restore_noop_when_source_has_no_key():
+    red = v.redact_private_keys(WG_WITH_KEY)
+    # Source with no PrivateKey → nothing to restore, placeholder stays.
+    assert v.restore_private_keys(red, "[Peer]\nPublicKey = x\n") == red
+
+
+def test_restore_noop_when_content_not_redacted():
+    # Content already has a real key (no placeholder) → unchanged.
+    assert v.restore_private_keys(WG_WITH_KEY, WG_WITH_KEY) == WG_WITH_KEY

@@ -286,3 +286,33 @@ _CONF_VALIDATORS = {
     "TARGET_IPS":  _valid_target_ips,
     "DNS_SERVER":  _valid_ip_or_empty,
 }
+
+
+# ---------------------------------------------------------------------------
+# WireGuard PrivateKey redaction — the "never leak the key" rule in one place.
+# redact runs before a WG config or diagnostics dump leaves the box (browser /
+# downloadable file); restore is the inverse for the browser round-trip, where
+# the UI POSTs a config back with the [redacted] placeholder still in it.
+# SECURITY: HIGH-1 / HIGH-9 — keep both halves here so the property can't drift.
+# ---------------------------------------------------------------------------
+
+_PRIVATE_KEY_RE          = re.compile(r'(?im)^(\s*PrivateKey\s*=\s*).*$')
+_PRIVATE_KEY_CAPTURE_RE  = re.compile(r'(?im)^(\s*PrivateKey\s*=\s*)(.+)$')
+_PRIVATE_KEY_REDACTED_RE = re.compile(r'(?im)^(\s*PrivateKey\s*=\s*)\[redacted\]')
+
+
+def redact_private_keys(text):
+    """Replace every PrivateKey value with [redacted], keeping the key name."""
+    return _PRIVATE_KEY_RE.sub(r'\1[redacted]', text or '')
+
+
+def restore_private_keys(content, source_text):
+    """Undo redact_private_keys: if `content` still carries a [redacted]
+    PrivateKey placeholder, substitute the real key back from `source_text`
+    (the on-disk config). No-op when the source has no PrivateKey. A function
+    replacement is used so a backslash/group-ref in the key can't be
+    reinterpreted by re.sub."""
+    pk = _PRIVATE_KEY_CAPTURE_RE.search(source_text or "")
+    if pk:
+        content = _PRIVATE_KEY_REDACTED_RE.sub(lambda _m: pk.group(1) + pk.group(2), content)
+    return content
