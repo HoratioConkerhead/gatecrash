@@ -68,16 +68,33 @@ LOG_PATH = "/opt/gatecrash/gatecrash.log"
 
 audit_log = logging.getLogger("gatecrash.audit")
 audit_log.setLevel(logging.INFO)
-os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-_log_handler = logging.handlers.RotatingFileHandler(
-    LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3,  # 2 MB, keep 3 old files
-)
-_log_handler.setFormatter(logging.Formatter(
-    "%(asctime)s  %(levelname)-5s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-))
-audit_log.addHandler(_log_handler)
-audit_log.info("――――――――――――――――――――――――――――――――――――――――――――――――――――――――――")
-audit_log.info("Web UI started (PID %d)", os.getpid())
+# NullHandler so merely importing this module logs nowhere (and doesn't fall
+# back to stderr). The persistent RotatingFileHandler is attached by
+# create_app() -> _init_logging() at startup, so `import app` has no filesystem
+# side effects and can run under pytest without creating /opt/gatecrash.
+audit_log.addHandler(logging.NullHandler())
+
+_logging_initialized = False
+
+
+def _init_logging():
+    """Attach the persistent rotating file handler and log the startup banner.
+    Idempotent. Called from create_app(); kept out of import so importing the
+    module touches no files."""
+    global _logging_initialized
+    if _logging_initialized:
+        return
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    handler = logging.handlers.RotatingFileHandler(
+        LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3,  # 2 MB, keep 3 old files
+    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s  %(levelname)-5s  %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    audit_log.addHandler(handler)
+    _logging_initialized = True
+    audit_log.info("――――――――――――――――――――――――――――――――――――――――――――――――――――――――――")
+    audit_log.info("Web UI started (PID %d)", os.getpid())
 
 # ---------------------------------------------------------------------------
 # Authentication — session-based login with password stored on disk
@@ -220,22 +237,34 @@ def _get_or_create_secret():
     return key
 
 
-app.secret_key = _get_or_create_secret()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
 app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
-_TLS_ENABLED = _https_enabled() and os.path.isfile(os.path.join(CERT_DIR, "gatecrash.crt"))
-app.config["SESSION_COOKIE_SECURE"] = _TLS_ENABLED
-# SECURITY/UX: scope the session-cookie NAME to the transport — "session" over
-# HTTPS, "gc_session" over HTTP. A leftover Secure "session" cookie from a past
-# HTTPS session would otherwise permanently block the HTTP server from storing a
-# new "session" cookie ("leave secure cookies alone" forbids an HTTP origin from
-# overwriting a Secure cookie of the same name), producing a login bounce only
-# HTTPS or a manual cookie-clear could fix. Different names => no collision =>
-# HTTP login works even with the stale Secure cookie sitting inert in the jar.
-# Don't collapse this back to a single name. Switching transports orphans the
-# other-named cookie (harmless: one re-login).
-app.config["SESSION_COOKIE_NAME"] = "session" if _TLS_ENABLED else "gc_session"
+# Import-safe defaults. create_app() -> _configure_session() loads the real
+# session secret and computes _TLS_ENABLED (both touch the filesystem), so
+# importing this module stays side-effect-free. Until then TLS is treated off.
+_TLS_ENABLED = False
+app.config["SESSION_COOKIE_SECURE"] = False
+app.config["SESSION_COOKIE_NAME"] = "gc_session"
+
+
+def _configure_session():
+    """Load the session secret and compute the TLS-dependent cookie settings.
+    Called from create_app(); split out so importing the module touches no files."""
+    global _TLS_ENABLED
+    app.secret_key = _get_or_create_secret()
+    _TLS_ENABLED = _https_enabled() and os.path.isfile(os.path.join(CERT_DIR, "gatecrash.crt"))
+    app.config["SESSION_COOKIE_SECURE"] = _TLS_ENABLED
+    # SECURITY/UX: scope the session-cookie NAME to the transport — "session" over
+    # HTTPS, "gc_session" over HTTP. A leftover Secure "session" cookie from a past
+    # HTTPS session would otherwise permanently block the HTTP server from storing a
+    # new "session" cookie ("leave secure cookies alone" forbids an HTTP origin from
+    # overwriting a Secure cookie of the same name), producing a login bounce only
+    # HTTPS or a manual cookie-clear could fix. Different names => no collision =>
+    # HTTP login works even with the stale Secure cookie sitting inert in the jar.
+    # Don't collapse this back to a single name. Switching transports orphans the
+    # other-named cookie (harmless: one re-login).
+    app.config["SESSION_COOKIE_NAME"] = "session" if _TLS_ENABLED else "gc_session"
 
 
 @app.errorhandler(429)
@@ -2517,7 +2546,20 @@ def _apply_boot_downtime_policy():
         audit_log.error("BOOT  Downtime policy failed: %s", e)
 
 
-if __name__ == "__main__":
+def create_app():
+    """Configure the app for serving and return it.
+
+    Import-time module code is deliberately side-effect-free (no filesystem
+    access), so `import app` is safe — e.g. under pytest with the path constants
+    monkeypatched. All the real setup (log file handler, session secret, TLS /
+    cookie config) happens here, called from main() at process start."""
+    _init_logging()
+    _configure_session()
+    return app
+
+
+def main():
+    create_app()
     ensure_dns_thread()
     ensure_ip_watch()
     ensure_traffic_watch()
@@ -2560,3 +2602,7 @@ if __name__ == "__main__":
         # missing (e.g. setup.sh hasn't completed).  Fresh installs with a
         # cert default to HTTPS — see _https_enabled().
         app.run(host="0.0.0.0", port=80, debug=False)
+
+
+if __name__ == "__main__":
+    main()
