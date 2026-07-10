@@ -228,6 +228,7 @@ cp "$SCRIPT_DIR/webui/tls.py" "$WEBUI_DIR/tls.py"
 cp "$SCRIPT_DIR/webui/config.py" "$WEBUI_DIR/config.py"
 cp "$SCRIPT_DIR/webui/devices.py" "$WEBUI_DIR/devices.py"
 cp "$SCRIPT_DIR/webui/targets.py" "$WEBUI_DIR/targets.py"
+cp "$SCRIPT_DIR/webui/watchdogs.py" "$WEBUI_DIR/watchdogs.py"
 cp "$SCRIPT_DIR/webui/templates/index.html" "$WEBUI_DIR/templates/index.html"
 cp -r "$SCRIPT_DIR/webui/static/." "$WEBUI_DIR/static/"
 

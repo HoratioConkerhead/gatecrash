@@ -43,6 +43,7 @@ from devices import (
     _neigh_map, sync_targets_from_devices,
 )
 from targets import _hot_reload_targets
+from watchdogs import ensure_dns_thread, dns_log_snapshot
 
 app = Flask(__name__)
 
@@ -402,10 +403,7 @@ def get_repo_path():
     except FileNotFoundError:
         return None
 
-# Rolling DNS log — last 100 queries
-dns_log = deque(maxlen=100)
-dns_thread_started = False
-_state_lock = threading.Lock()  # guards dns_log snapshot, *_thread_started, update_check_state
+_state_lock = threading.Lock()  # guards *_thread_started flags, update_check_state, boot-state writes
 
 BOOT_STATE_FILE = "/opt/gatecrash/boot_state.json"
 
@@ -440,65 +438,6 @@ def _record_service_state(service, running):
         key = "wg_running" if service == "wg" else "gc_running"
         state[key] = running
         _write_boot_state(state)
-
-
-# ---------------------------------------------------------------------------
-# DNS capture (background thread)
-# ---------------------------------------------------------------------------
-
-def capture_dns():
-    global dns_thread_started
-    conf = read_conf()
-    try:
-        lan_if = _valid_if(conf.get("LAN_IF", "eth0"))
-    except ValueError:
-        return  # unsafe interface name — exit thread safely
-    # Get our own LAN IP so we can exclude Gatecrash's own DNS queries.
-    # Was: run(f"ip -o -f inet addr show {lan_if} | awk '{{print $4}}' | cut -d/ -f1 | head -1")
-    # Replaced by _iface_addr() (JSON parse, shell=False). (HIGH-14)
-    own_ip = _iface_addr(lan_if).get("ip", "")
-    try:
-        proc = subprocess.Popen(
-            ["tcpdump", "-i", lan_if, "-n", "-l", "udp dst port 53"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        # IMPORTANT: use readline() instead of iterating proc.stdout directly.
-        # Python's for-loop over stdout uses an internal read-ahead buffer (~8KB)
-        # which delays output. readline() returns each line immediately.
-        while True:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            # Modern tcpdump (no -q) outputs:
-            # "HH:MM:SS.us IP src.port > dst.53: id+ TYPE? domain. (len)"
-            m = re.search(
-                r"(\d+:\d+:\d+)\.\d+\s+IP\s+(\d+\.\d+\.\d+\.\d+)\.\d+\s+>.*?\s+[A-Za-z]+\?\s+(\S+?)\.?\s+\(",
-                line,
-            )
-            if m and m.group(2) != own_ip:
-                dns_log.appendleft({
-                    "time":  m.group(1),
-                    "src":   m.group(2),
-                    "query": m.group(3).strip(),
-                })
-    except Exception:
-        pass
-    finally:
-        # Allow thread to be restarted if it dies
-        with _state_lock:
-            dns_thread_started = False
-
-
-def ensure_dns_thread():
-    global dns_thread_started
-    with _state_lock:
-        if dns_thread_started:
-            return
-        dns_thread_started = True
-    t = threading.Thread(target=capture_dns, daemon=True)
-    t.start()
 
 
 # ---------------------------------------------------------------------------
@@ -2112,9 +2051,7 @@ def api_wg_config_upload():
 
 @app.route("/api/dns-log")
 def api_dns_log():
-    with _state_lock:
-        entries = list(dns_log)
-    return jsonify({"entries": entries})
+    return jsonify({"entries": dns_log_snapshot()})
 
 
 @app.route("/api/update/check")
